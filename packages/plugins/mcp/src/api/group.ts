@@ -1,9 +1,17 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId, SecretBackedMap } from "@executor-js/sdk/core";
+import {
+  InvalidSourceWriteTargetError,
+  ScopeId,
+  SecretBackedMap,
+} from "@executor-js/sdk/core";
 import { InternalError } from "@executor-js/api";
 
 import { McpConnectionError, McpToolDiscoveryError } from "../sdk/errors";
+
+const InvalidSourceWriteTarget = InvalidSourceWriteTargetError.annotate({
+  httpApiStatus: 422,
+});
 import { McpStoredSourceSchema } from "../sdk/stored-source";
 
 // ---------------------------------------------------------------------------
@@ -146,7 +154,12 @@ export const McpGroup = HttpApiGroup.make("mcp")
       params: ScopeParams,
       payload: AddSourcePayload,
       success: AddSourceResponse,
-      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
+      error: [
+        InternalError,
+        McpConnectionError,
+        McpToolDiscoveryError,
+        InvalidSourceWriteTarget,
+      ],
     }),
   )
   .add(

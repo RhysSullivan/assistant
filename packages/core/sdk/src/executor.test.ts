@@ -452,6 +452,66 @@ describe("createExecutor", () => {
     }),
   );
 
+  it.effect(
+    "rejects sources.register at a personal scope (user_org_*) with InvalidSourceWriteTargetError",
+    () =>
+      Effect.gen(function* () {
+        // Mirrors the cloud's workspace stack: the request reached this
+        // executor with a personal scope id in the stack (legal for
+        // secret/connection writes) but is now trying to register a
+        // source definition there. The SDK guard fires regardless of
+        // which plugin invoked `core.sources.register`.
+        const personalScope = ScopeId.make("user_org_u1_org_a");
+        const orgScope = ScopeId.make("org_a");
+        const personalPlugin = definePlugin(() => ({
+          id: "personal-test" as const,
+          storage: () => ({}),
+          extension: (ctx) => ({
+            registerAt: (scope: ScopeId) =>
+              ctx.core.sources.register({
+                id: "x",
+                scope,
+                kind: "personal-test",
+                name: "x",
+                canRemove: true,
+                tools: [{ name: "tool", description: "" }],
+              }),
+          }),
+        }));
+
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [personalPlugin()] as const,
+            scopes: [
+              new Scope({
+                id: personalScope,
+                name: "personal",
+                createdAt: new Date(),
+              }),
+              new Scope({
+                id: orgScope,
+                name: "org",
+                createdAt: new Date(),
+              }),
+            ],
+          }),
+        );
+
+        const exit = yield* executor[
+          "personal-test"
+        ].registerAt(personalScope).pipe(Effect.exit);
+        expect(exit._tag).toBe("Failure");
+        const err = Result.isFailure(exit) ? exit.cause : null;
+        const errStr = JSON.stringify(err);
+        expect(errStr).toContain("InvalidSourceWriteTargetError");
+
+        // Same call to a non-personal scope (the org) succeeds.
+        yield* executor["personal-test"].registerAt(orgScope);
+        const sources = yield* executor.sources.list();
+        expect(sources.find((s) => s.id === "x")?.scopeId).toBe(orgScope);
+      }),
+  );
+
   it.effect("handles deeply-namespaced tool names (dots in name)", () =>
     Effect.gen(function* () {
       const namespacedPlugin = definePlugin(() => ({

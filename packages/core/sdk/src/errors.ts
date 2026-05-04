@@ -69,6 +69,28 @@ export class SourceRemovalNotAllowedError extends Schema.TaggedErrorClass<Source
   { sourceId: Schema.String },
 ) {}
 
+/** Raised when a source-definition write targets a personal scope
+ *  (`user_org_*` or `user_workspace_*`). Personal source definitions are
+ *  out of scope for cloud v1 — sources can only be defined at `org` or
+ *  `workspace` scopes. The UI exposes only those targets in the add-source
+ *  selectors; this error guards the contract on the server side. Callers
+ *  whose deployment doesn't use the cloud's `user_*` prefix convention
+ *  pass a plain scope id (no `user_*` prefix) and never trip this.
+ *
+ *  HTTP 422: the request was syntactically valid but targeted an illegal
+ *  scope. The plugin API surfaces it via `.annotate({ httpApiStatus: 422 })`
+ *  in the relevant group's error union (see e.g.
+ *  `packages/plugins/openapi/src/api/group.ts`). */
+export class InvalidSourceWriteTargetError extends Schema.TaggedErrorClass<InvalidSourceWriteTargetError>()(
+  "InvalidSourceWriteTargetError",
+  {
+    scopeId: Schema.String,
+    reason: Schema.String,
+  },
+) {
+  static annotations = { httpApiStatus: 422 };
+}
+
 // ---------------------------------------------------------------------------
 // Secrets
 // ---------------------------------------------------------------------------
@@ -153,6 +175,7 @@ export type ExecutorError =
   | ToolBlockedError
   | SourceNotFoundError
   | SourceRemovalNotAllowedError
+  | InvalidSourceWriteTargetError
   | SecretNotFoundError
   | SecretResolutionError
   | SecretOwnedByConnectionError

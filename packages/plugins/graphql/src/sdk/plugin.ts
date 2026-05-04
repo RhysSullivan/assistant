@@ -7,6 +7,7 @@ import { GraphqlExtensionService, GraphqlHandlers } from "../api/handlers";
 
 import {
   definePlugin,
+  InvalidSourceWriteTargetError,
   SourceDetectionResult,
   type StorageFailure,
   type ToolAnnotations,
@@ -102,13 +103,20 @@ export type GraphqlExtensionFailure =
   | GraphqlExtractionError
   | StorageFailure;
 
+// `addSource` writes a source definition, which the SDK guards against
+// personal scopes; declare the extra error so the failure is typed all
+// the way through to the API edge.
+export type GraphqlSourceWriteFailure =
+  | GraphqlExtensionFailure
+  | InvalidSourceWriteTargetError;
+
 export interface GraphqlPluginExtension {
   /** Add a GraphQL endpoint and register its operations as tools */
   readonly addSource: (
     config: GraphqlSourceConfig,
   ) => Effect.Effect<
     { readonly toolCount: number; readonly namespace: string },
-    GraphqlExtensionFailure
+    GraphqlSourceWriteFailure
   >;
 
   /** Remove all tools from a previously added GraphQL source by namespace.

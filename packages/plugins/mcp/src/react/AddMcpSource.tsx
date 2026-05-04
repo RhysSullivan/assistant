@@ -1,7 +1,10 @@
 import { useReducer, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAtomSet } from "@effect/atom-react";
 
-import { useScope } from "@executor-js/react/api/scope-context";
+import {
+  SourceTargetSelector,
+  useSourceTargetState,
+} from "@executor-js/react/plugins/source-target-selector";
 import { Button } from "@executor-js/react/components/button";
 import {
   CardStack,
@@ -267,7 +270,8 @@ export default function AddMcpSource(props: {
     remoteUrl ? { step: "url" as const, url: remoteUrl } : init,
   );
 
-  const scopeId = useScope();
+  const target = useSourceTargetState();
+  const scopeId = target.value;
   const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promise" });
   const doAdd = useAtomSet(addMcpSource, { mode: "promise" });
   const { beginAdd } = usePendingSources();
@@ -731,6 +735,13 @@ export default function AddMcpSource(props: {
           {probe && (
             <SourceIdentityFields identity={remoteIdentity} namePlaceholder="e.g. Linear" />
           )}
+          {probe && (
+            <SourceTargetSelector
+              value={target.value}
+              onChange={target.setValue}
+              disabled={isAdding}
+            />
+          )}
 
           {/* Authentication */}
           {probe && (
@@ -1012,6 +1023,12 @@ export default function AddMcpSource(props: {
           </CardStack>
 
           <SourceIdentityFields identity={stdioIdentity} namePlaceholder="My MCP Server" />
+
+          <SourceTargetSelector
+            value={target.value}
+            onChange={target.setValue}
+            disabled={isAdding}
+          />
 
           {/* Stdio error */}
           {stdioError && (
