@@ -50,12 +50,24 @@ const parseCookie = (cookieHeader: string | null, name: string): string | null =
 };
 
 // ---------------------------------------------------------------------------
-// MCP middleware — routes /mcp and /.well-known/* to the MCP handler
+// MCP middleware — routes /mcp, /:org/mcp, /:org/:workspace/mcp, and
+// /.well-known/* to the MCP handler. The handler returns null when the
+// path doesn't classify as an MCP route, so the middleware falls through
+// to TanStack Start.
 // ---------------------------------------------------------------------------
+
+const ORG_MCP_PATTERN = /^\/[^/]+\/mcp(?:\/|$)/;
+const WORKSPACE_MCP_PATTERN = /^\/[^/]+\/[^/]+\/mcp(?:\/|$)/;
+
+const isMcpPath = (pathname: string): boolean =>
+  pathname === "/mcp" ||
+  pathname.startsWith("/.well-known/") ||
+  ORG_MCP_PATTERN.test(pathname) ||
+  WORKSPACE_MCP_PATTERN.test(pathname);
 
 const mcpRequestMiddleware = createMiddleware({ type: "request" }).server(
   async ({ pathname, request, next }) => {
-    if (pathname === "/mcp" || pathname.startsWith("/.well-known/")) {
+    if (isMcpPath(pathname)) {
       const response = await mcpFetch(request);
       if (response) return response;
     }
