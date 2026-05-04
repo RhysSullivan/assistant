@@ -2,7 +2,6 @@ import { createFileRoute, Outlet, useNavigate, useParams } from "@tanstack/react
 import { useEffect, useMemo } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { setBaseUrl } from "@executor-js/react/api/base-url";
 
 import { useOrgRoute } from "../../web/org-route";
 import { WorkspaceRouteProvider } from "../../web/workspace-route";
@@ -45,18 +44,6 @@ function WorkspaceLayout() {
   // If the org param drifts mid-navigation we'd resolve a stale workspace —
   // surfaces as a fast remount once the parent updates.
   if (orgHandle !== org) return null;
-
-  // Re-point the executor API base URL at the workspace-prefixed mount.
-  // Mirrors the parent `/$org` layout's `setBaseUrl` call but tacks on
-  // `/${slug}` so executor-side queries (sources/secrets/connections/...)
-  // hit `/api/${org}/${workspace}/...` and the middleware builds the
-  // workspace scope stack. On unmount/back-nav the parent layout re-runs
-  // and resets the URL to the org-only prefix.
-  if (typeof window !== "undefined") {
-    setBaseUrl(
-      `${window.location.origin}/api/${orgHandle}/${workspace.slug}`,
-    );
-  }
 
   return (
     <WorkspaceRouteProvider

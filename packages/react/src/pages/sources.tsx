@@ -1,5 +1,5 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { PlusIcon } from "lucide-react";
@@ -10,6 +10,8 @@ import {
   type SourcePreset,
 } from "@executor-js/sdk/client";
 import { detectSource } from "../api/atoms";
+import { AppLink } from "../api/app-link";
+import { useAppHref } from "../api/href";
 import { useSourcesWithPending } from "../api/optimistic";
 import { useActiveWriteScopeId, useScopeStack } from "../hooks/use-scope";
 import { McpInstallCard } from "../components/mcp-install-card";
@@ -204,6 +206,7 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
   const scopeId = useActiveWriteScopeId();
   const doDetect = useAtomSet(detectSource, { mode: "promise" });
   const navigate = useNavigate();
+  const appHref = useAppHref();
 
   const [query, setQuery] = useState("");
   const [detecting, setDetecting] = useState(false);
@@ -243,13 +246,15 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
       const pluginKey = KIND_TO_PLUGIN_KEY[detected.kind];
       if (pluginKey) {
         closeAndReset();
-        // Path templates depend on the consuming app's route tree (local vs
-        // cloud's `/$org/...`). The shared package can't be typed against
-        // both — `as never` defers to runtime routing.
+        // Cloud mounts these routes under /:org (or /:org/:workspace);
+        // local has them flat. `useAppHref` derives the right prefix from
+        // the active URL.
         void navigate({
-          to: "/sources/add/$pluginKey" as never,
-          params: { pluginKey } as never,
-          search: { url: trimmed, namespace: detected.namespace } as never,
+          to: appHref(
+            "/sources/add/$pluginKey",
+            { pluginKey },
+            { url: trimmed, namespace: detected.namespace },
+          ) as never,
         });
       } else {
         setError(`Detected source type "${detected.kind}" but no plugin is available for it.`);
@@ -259,7 +264,7 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
       setError("Detection failed. Try adding a source manually.");
       setDetecting(false);
     }
-  }, [query, doDetect, navigate, scopeId, closeAndReset]);
+  }, [query, doDetect, navigate, scopeId, closeAndReset, appHref]);
 
   return (
     <Dialog
@@ -310,15 +315,15 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
             <p className="text-xs font-medium text-foreground/80">Or add manually</p>
             <div className="flex flex-wrap gap-2">
               {sourcePlugins.map((p) => (
-                <Link
+                <AppLink
                   key={p.key}
-                  to={"/sources/add/$pluginKey" as never}
-                  params={{ pluginKey: p.key } as never}
+                  to="/sources/add/$pluginKey"
+                  params={{ pluginKey: p.key }}
                   onClick={closeAndReset}
                   className="rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
                 >
                   {p.label}
-                </Link>
+                </AppLink>
               ))}
             </div>
           </div>
@@ -420,10 +425,10 @@ function PresetGrid(props: {
               if (preset.url) search.url = preset.url;
               return (
                 <CardStackEntry key={`${pluginKey}-${preset.id}`} asChild>
-                  <Link
-                    to={"/sources/add/$pluginKey" as never}
-                    params={{ pluginKey } as never}
-                    search={search as never}
+                  <AppLink
+                    to="/sources/add/$pluginKey"
+                    params={{ pluginKey }}
+                    search={search}
                     onClick={props.onPick}
                   >
                     <CardStackEntryMedia>
@@ -447,7 +452,7 @@ function PresetGrid(props: {
                     <CardStackEntryActions>
                       <Badge variant="secondary">{pluginLabel}</Badge>
                     </CardStackEntryActions>
-                  </Link>
+                  </AppLink>
                 </CardStackEntry>
               );
             })
@@ -488,7 +493,7 @@ function SourceGrid(props: { sources: readonly SourceRow[] }) {
               searchText={`${s.name} ${s.id} ${s.kind}`}
               className={overridden ? "opacity-60" : undefined}
             >
-              <Link to={"/sources/$namespace" as never} params={{ namespace: s.id } as never}>
+              <AppLink to="/sources/$namespace" params={{ namespace: s.id }}>
                 <CardStackEntryMedia>
                   <SourceFavicon url={s.url} size={32} />
                 </CardStackEntryMedia>
@@ -509,7 +514,7 @@ function SourceGrid(props: { sources: readonly SourceRow[] }) {
                     <Badge variant="secondary">{s.kind}</Badge>
                   )}
                 </CardStackEntryActions>
-              </Link>
+              </AppLink>
             </CardStackEntry>
           );
         })}

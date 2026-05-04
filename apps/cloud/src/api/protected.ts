@@ -2,12 +2,16 @@
 // because `makeExecutionStack` imports `cloudflare:workers`, which the test
 // harness can't load in the workerd test runtime.
 
-import { HttpApiSwagger } from "effect/unstable/httpapi";
+import { HttpApiBuilder, HttpApiSwagger } from "effect/unstable/httpapi";
 import {
   HttpRouter,
   HttpServerRequest,
 } from "effect/unstable/http";
 import { Effect, Layer } from "effect";
+
+import { observabilityMiddleware } from "@executor-js/api";
+
+import { ErrorCaptureLive } from "../observability";
 
 import {
   ExecutionEngineService,
@@ -32,7 +36,7 @@ import { HttpResponseError } from "./error-response";
 import { RequestScopedServicesLive } from "./layers";
 import {
   ProtectedCloudApi,
-  ProtectedCloudApiLive,
+  ProtectedCloudApiHandlers,
   RouterConfig,
 } from "./protected-layers";
 import { requestScopedMiddleware } from "./request-scoped";
@@ -206,17 +210,32 @@ const WorkspacePrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
 // the layer rebuilds per HTTP request, satisfying Cloudflare Workers'
 // I/O isolation. Exposed as a factory so tests can swap in a counting
 // fake — see `apps/cloud/src/api.request-scope.node.test.ts`.
+// Build a fresh `HttpApiBuilder.layer(ProtectedCloudApi)` per mount. Each
+// layer instance registers its own `router.add(...)` calls; sharing one
+// instance across two prefixed routers makes Effect's layer-memoization
+// install only the first prefix, leaving `/:org/:workspace/...` unrouted.
+const makeProtectedLayer = () =>
+  HttpApiBuilder.layer(ProtectedCloudApi).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        ProtectedCloudApiHandlers,
+        observabilityMiddleware(ProtectedCloudApi),
+      ),
+    ),
+    Layer.provide(ErrorCaptureLive),
+  );
+
 export const makeProtectedApiLive = (
   rsLive: Layer.Layer<DbService | UserStoreService>,
 ) => {
   const protectedMiddleware = ExecutionStackMiddleware.combine(
     requestScopedMiddleware(rsLive),
   ).layer;
-  const orgMount = ProtectedCloudApiLive.pipe(
+  const orgMount = makeProtectedLayer().pipe(
     Layer.provide(protectedMiddleware),
     Layer.provide(OrgPrefixedRouterLayer),
   );
-  const workspaceMount = ProtectedCloudApiLive.pipe(
+  const workspaceMount = makeProtectedLayer().pipe(
     Layer.provide(protectedMiddleware),
     Layer.provide(WorkspacePrefixedRouterLayer),
   );

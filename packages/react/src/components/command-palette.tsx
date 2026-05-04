@@ -5,6 +5,7 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { PlusIcon } from "lucide-react";
 import { SourceFavicon } from "./source-favicon";
 import { sourcesAtom } from "../api/atoms";
+import { useAppHref } from "../api/href";
 import { useActiveWriteScopeId } from "../hooks/use-scope";
 import { useSourcePlugins } from "@executor-js/sdk/client";
 import {
@@ -101,26 +102,25 @@ export function CommandPalette() {
   // Path templates depend on the consuming app's route tree (local vs cloud's
   // `/$org/...`). The shared package can't be typed against both — `as never`
   // defers to runtime routing.
+  const appHref = useAppHref();
   const goToSource = useCallback(
     (id: string) => {
       close();
       void navigate({
-        to: "/sources/$namespace" as never,
-        params: { namespace: id } as never,
+        to: appHref("/sources/$namespace", { namespace: id }) as never,
       });
     },
-    [close, navigate],
+    [close, navigate, appHref],
   );
 
   const goToAdd = useCallback(
     (pluginKey: string) => {
       close();
       void navigate({
-        to: "/sources/add/$pluginKey" as never,
-        params: { pluginKey } as never,
+        to: appHref("/sources/add/$pluginKey", { pluginKey }) as never,
       });
     },
-    [close, navigate],
+    [close, navigate, appHref],
   );
 
   const goToPreset = useCallback(
@@ -129,12 +129,10 @@ export function CommandPalette() {
       const search: Record<string, string> = { preset: presetId };
       if (presetUrl) search.url = presetUrl;
       void navigate({
-        to: "/sources/add/$pluginKey" as never,
-        params: { pluginKey } as never,
-        search: search as never,
+        to: appHref("/sources/add/$pluginKey", { pluginKey }, search) as never,
       });
     },
-    [close, navigate],
+    [close, navigate, appHref],
   );
 
   return (

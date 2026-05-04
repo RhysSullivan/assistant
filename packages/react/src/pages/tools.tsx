@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { effectivePolicyFromSorted } from "@executor-js/sdk";
 
 import { policiesOptimisticAtom, toolsAtom } from "../api/atoms";
+import { AppLink } from "../api/app-link";
 import { useActiveWriteScopeId } from "../hooks/use-scope";
 import { usePolicyActions } from "../hooks/use-policy-actions";
 import { ToolTree, type ToolSummary } from "../components/tool-tree";
@@ -77,7 +77,7 @@ export function ToolsPage() {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button asChild variant="outline" size="sm">
-            <Link to={"/policies" as never}>Manage policies</Link>
+            <AppLink to="/policies">Manage policies</AppLink>
           </Button>
         </div>
       </div>

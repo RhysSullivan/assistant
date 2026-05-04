@@ -13,6 +13,11 @@ import {
 } from "../api/atoms";
 import { policyWriteKeys } from "../api/reactivity-keys";
 import { useActiveWriteScopeId } from "../hooks/use-scope";
+import {
+  CredentialTargetSelector,
+  useCredentialTargetState,
+} from "../plugins/credential-target-selector";
+import type { ScopeId } from "@executor-js/sdk";
 import { badgeVariants } from "../components/badge";
 import { cn } from "../lib/utils";
 import {
@@ -102,11 +107,20 @@ const isValidPattern = (pattern: string): boolean => {
 // ---------------------------------------------------------------------------
 
 function AddPolicyForm(props: {
-  onSubmit: (input: { pattern: string; action: ToolPolicyAction }) => void;
+  onSubmit: (input: {
+    pattern: string;
+    action: ToolPolicyAction;
+    scopeId: ScopeId;
+  }) => void;
   busy: boolean;
 }) {
   const [pattern, setPattern] = useState("");
   const [action, setAction] = useState<ToolPolicyAction>("require_approval");
+  // Policies live at every scope in the URL context's stack — same model
+  // as secrets/connections. The selector defaults to the active write
+  // scope (workspace in workspace context, org in global) and lets the
+  // user opt into a personal-only override without leaving the form.
+  const target = useCredentialTargetState();
   const valid = isValidPattern(pattern);
 
   return (
@@ -115,7 +129,7 @@ function AddPolicyForm(props: {
       onSubmit={(e) => {
         e.preventDefault();
         if (!valid) return;
-        props.onSubmit({ pattern, action });
+        props.onSubmit({ pattern, action, scopeId: target.value });
         setPattern("");
         setAction("require_approval");
       }}
@@ -154,6 +168,12 @@ function AddPolicyForm(props: {
           </SelectContent>
         </Select>
       </div>
+      <CredentialTargetSelector
+        value={target.value}
+        onChange={target.setValue}
+        disabled={props.busy}
+        label="Apply to"
+      />
       <div className="flex items-center justify-end">
         <Button type="submit" disabled={!valid || props.busy} size="sm">
           Add policy
@@ -263,11 +283,19 @@ export function PoliciesPage() {
   });
   const [busy, setBusy] = useState(false);
 
-  const handleCreate = async (input: { pattern: string; action: ToolPolicyAction }) => {
+  const handleCreate = async (input: {
+    pattern: string;
+    action: ToolPolicyAction;
+    scopeId: ScopeId;
+  }) => {
     setBusy(true);
     try {
+      // The form passes the explicit target — the page-level `scopeId`
+      // (active write scope) drives the optimistic atom + reactivity
+      // family for cache invalidation, but the actual write lands at
+      // whichever scope the user picked.
       await doCreate({
-        params: { scopeId },
+        params: { scopeId: input.scopeId },
         payload: { pattern: input.pattern, action: input.action },
         reactivityKeys: policyWriteKeys,
       });

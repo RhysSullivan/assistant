@@ -192,6 +192,13 @@ export interface CreatePluginAtomClientOptions {
    *  when forwarding to the Effect handler) — same convention as the
    *  core `ExecutorApiClient`. */
   readonly baseUrl?: string;
+  /** Override the HTTP client layer. Hosts that need URL-context-aware
+   *  prefixing (e.g. cloud's `/api/:org/...` mounting) inject a wrapped
+   *  `FetchHttpClient.layer` here so plugin requests pick up the active
+   *  context the same way the core `ExecutorApiClient` does. */
+  readonly httpClient?: import("effect").Layer.Layer<
+    import("effect/unstable/http").HttpClient.HttpClient
+  >;
 }
 
 /**
@@ -211,14 +218,14 @@ export const createPluginAtomClient = <
   group: G,
   options: CreatePluginAtomClientOptions = {},
 ) => {
-  const { baseUrl = "/api" } = options;
+  const { baseUrl = "/api", httpClient = FetchHttpClient.layer } = options;
   const pluginId = group.identifier;
   const bundle = HttpApi.make(`plugin-${pluginId}`).add(group);
   return AtomHttpApi.Service<`Plugin_${G["identifier"]}Client`>()(
     `Plugin_${pluginId}Client`,
     {
       api: bundle,
-      httpClient: FetchHttpClient.layer,
+      httpClient,
       baseUrl,
     },
   );

@@ -1,9 +1,16 @@
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useMemo } from "react";
+import { useParams } from "@tanstack/react-router";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+
+import { workspacesAtom } from "./workspaces";
 
 // ---------------------------------------------------------------------------
-// WorkspaceRouteContext — provided by the `/$org/$workspace` layout, consumed
-// by descendants (shell nav, nav links, etc.) that need to know the URL-active
-// workspace. Mirrors `OrgRouteContext` but for the inner workspace segment.
+// WorkspaceRouteContext — provided by the `/$org/$workspace` layout. The
+// hook below also falls back to deriving the value from URL params +
+// `workspacesAtom` so callers rendered ABOVE the workspace layout (e.g. the
+// Shell + UserFooter, which live in the parent `/$org` layout) still see the
+// active workspace.
 // ---------------------------------------------------------------------------
 
 export type WorkspaceRouteValue = {
@@ -25,16 +32,39 @@ export const WorkspaceRouteProvider = (props: {
 );
 
 export const useWorkspaceRoute = (): WorkspaceRouteValue => {
-  const value = useContext(WorkspaceRouteContext);
+  const value = useOptionalWorkspaceRoute();
   if (!value) {
     throw new Error(
-      "useWorkspaceRoute must be used within a WorkspaceRouteProvider",
+      "useWorkspaceRoute requires a workspace URL segment or WorkspaceRouteProvider",
     );
   }
   return value;
 };
 
-/** Optional variant for shell components rendered both inside and outside the
- *  workspace layout. Returns `null` when the URL is org-only. */
-export const useOptionalWorkspaceRoute = (): WorkspaceRouteValue | null =>
-  useContext(WorkspaceRouteContext);
+/**
+ * Returns the active workspace if one is encoded in the URL, otherwise null.
+ * Resolution order:
+ *   1. WorkspaceRouteContext (set by the `/$org/$workspace` layout)
+ *   2. URL `workspace` param + workspacesAtom lookup (so callers rendered
+ *      above the layout — the parent shell — still see workspace context).
+ */
+export const useOptionalWorkspaceRoute = (): WorkspaceRouteValue | null => {
+  const fromContext = useContext(WorkspaceRouteContext);
+  const params = useParams({ strict: false }) as {
+    workspace?: string;
+  };
+  const slug = params.workspace ?? null;
+  const result = useAtomValue(workspacesAtom);
+  return useMemo<WorkspaceRouteValue | null>(() => {
+    if (fromContext) return fromContext;
+    if (!slug) return null;
+    if (!AsyncResult.isSuccess(result)) return null;
+    const found = result.value.workspaces.find((w) => w.slug === slug);
+    if (!found) return null;
+    return {
+      workspaceId: found.id,
+      workspaceSlug: found.slug,
+      workspaceName: found.name,
+    };
+  }, [fromContext, slug, result]);
+};

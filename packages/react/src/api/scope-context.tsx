@@ -1,9 +1,11 @@
 import * as React from "react";
-import { useAtomValue } from "@effect/atom-react";
+import { useLocation } from "@tanstack/react-router";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
 import type { ScopeId } from "@executor-js/sdk";
 import { scopeAtom } from "./atoms";
+import { parseUrlContext } from "./url-context";
 
 // ---------------------------------------------------------------------------
 // Scope context — bridges the server's `/scope/info` payload into React.
@@ -55,15 +57,49 @@ const ScopeContext = React.createContext<ScopeInfo | null>(null);
 /**
  * Provides the server scope to all children.
  * Renders the optional `fallback` until the scope is fetched.
+ *
+ * The scope endpoint's response depends on the URL context — the cloud
+ * middleware builds a workspace executor when the URL has `/:org/:workspace`
+ * and a global executor otherwise — so `scopeAtom`'s cache must invalidate
+ * when the user navigates between contexts. We watch `window.location.pathname`
+ * (parsed via `parseUrlContext`) and trigger a refresh whenever the active
+ * org/workspace pair changes. The cached value is reused inside a single
+ * context (cheap re-renders don't refetch).
  */
 export function ScopeProvider(props: React.PropsWithChildren<{ fallback?: React.ReactNode }>) {
   const result = useAtomValue(scopeAtom);
+  const refresh = useAtomRefresh(scopeAtom);
+  const contextKey = useUrlContextKey();
+  const lastKey = React.useRef(contextKey);
+  React.useEffect(() => {
+    if (lastKey.current !== contextKey) {
+      lastKey.current = contextKey;
+      refresh();
+    }
+  }, [contextKey, refresh]);
 
   if (AsyncResult.isSuccess(result)) {
     return <ScopeContext.Provider value={result.value}>{props.children}</ScopeContext.Provider>;
   }
 
   return <>{props.fallback ?? null}</>;
+}
+
+/**
+ * Returns a stable cache key derived from the active URL context. Different
+ * `/:org` and `/:org/:workspace` paths produce different keys; same context
+ * with different leaf paths returns the same key (so we don't refetch on
+ * page navigation within the same scope stack).
+ */
+function useUrlContextKey(): string {
+  const location = useLocation();
+  return React.useMemo(() => {
+    const ctx = parseUrlContext(location.pathname);
+    if (ctx.kind === "workspace")
+      return `ws:${ctx.orgHandle}/${ctx.workspaceSlug}`;
+    if (ctx.kind === "global") return `org:${ctx.orgHandle}`;
+    return "none";
+  }, [location.pathname]);
 }
 
 /**
