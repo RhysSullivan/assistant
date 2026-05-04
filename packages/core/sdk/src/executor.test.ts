@@ -501,8 +501,7 @@ describe("createExecutor", () => {
           "personal-test"
         ].registerAt(personalScope).pipe(Effect.exit);
         expect(exit._tag).toBe("Failure");
-        const err = Result.isFailure(exit) ? exit.cause : null;
-        const errStr = JSON.stringify(err);
+        const errStr = JSON.stringify(exit);
         expect(errStr).toContain("InvalidSourceWriteTargetError");
 
         // Same call to a non-personal scope (the org) succeeds.
