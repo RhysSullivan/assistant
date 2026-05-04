@@ -13,7 +13,7 @@ import {
   type WorkOSVaultClient,
   type WorkOSVaultObject,
   type WorkOSVaultObjectMetadata,
-  type WorkOSVaultSdk,
+  type WorkOSVaultPromiseApi,
 } from "./client";
 
 export class TestWorkOSVaultNotFoundError extends Data.TaggedError(
@@ -210,7 +210,7 @@ export const makeTestWorkOSVaultClient = (
   // that still calls into the underlying SDK directly via `client.use(...)`.
   // Each method runs the in-memory effect and rethrows the tagged error so
   // callers see the same `.status` shape they would from a real SDK rejection.
-  const rawClient: WorkOSVaultSdk = {
+  const rawClient: WorkOSVaultPromiseApi = {
     createObject: (opts) => Effect.runPromise(createObject(opts)),
     readObjectByName: (name) => Effect.runPromise(readObjectByName(name)),
     updateObject: (opts) => Effect.runPromise(updateObject(opts)),
