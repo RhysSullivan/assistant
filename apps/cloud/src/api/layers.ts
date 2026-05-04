@@ -13,6 +13,7 @@ import { DbService } from "../services/db";
 import { TelemetryLive } from "../services/telemetry";
 import { OrgHttpApi } from "../org/compose";
 import { OrgHandlers } from "../org/handlers";
+import { WorkspacesHandlers } from "../workspaces/handlers";
 
 import { CoreSharedServices } from "./core-shared-services";
 import { ProtectedCloudApi, RouterConfig } from "./protected-layers";
@@ -66,7 +67,7 @@ export const makeOrgApiLive = (
   rsLive: Layer.Layer<DbService | UserStoreService>,
 ) =>
   HttpApiBuilder.layer(OrgHttpApi).pipe(
-    Layer.provide(OrgHandlers),
+    Layer.provide(Layer.mergeAll(OrgHandlers, WorkspacesHandlers)),
     Layer.provide(requestScopedMiddleware(rsLive).layer),
     Layer.provideMerge(OrgAuthLive),
   );

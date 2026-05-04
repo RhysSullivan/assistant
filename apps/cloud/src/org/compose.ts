@@ -1,6 +1,10 @@
 import { HttpApi } from "effect/unstable/httpapi";
 import { OrgAuth } from "../auth/middleware";
+import { WorkspacesApi } from "../workspaces/api";
 import { OrgApi } from "./api";
 
 /** Org API with org-level auth — requires authenticated session with an org. */
-export const OrgHttpApi = HttpApi.make("org").add(OrgApi).middleware(OrgAuth);
+export const OrgHttpApi = HttpApi.make("org")
+  .add(OrgApi)
+  .add(WorkspacesApi)
+  .middleware(OrgAuth);
