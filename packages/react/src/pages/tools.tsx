@@ -77,7 +77,7 @@ export function ToolsPage() {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button asChild variant="outline" size="sm">
-            <Link to="/policies">Manage policies</Link>
+            <Link to={"/policies" as never}>Manage policies</Link>
           </Button>
         </div>
       </div>

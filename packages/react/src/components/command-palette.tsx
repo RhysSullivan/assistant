@@ -98,10 +98,16 @@ export function CommandPalette() {
 
   const close = useCallback(() => setOpen(false), []);
 
+  // Path templates depend on the consuming app's route tree (local vs cloud's
+  // `/$org/...`). The shared package can't be typed against both — `as never`
+  // defers to runtime routing.
   const goToSource = useCallback(
     (id: string) => {
       close();
-      void navigate({ to: "/sources/$namespace", params: { namespace: id } });
+      void navigate({
+        to: "/sources/$namespace" as never,
+        params: { namespace: id } as never,
+      });
     },
     [close, navigate],
   );
@@ -110,8 +116,8 @@ export function CommandPalette() {
     (pluginKey: string) => {
       close();
       void navigate({
-        to: "/sources/add/$pluginKey",
-        params: { pluginKey },
+        to: "/sources/add/$pluginKey" as never,
+        params: { pluginKey } as never,
       });
     },
     [close, navigate],
@@ -123,9 +129,9 @@ export function CommandPalette() {
       const search: Record<string, string> = { preset: presetId };
       if (presetUrl) search.url = presetUrl;
       void navigate({
-        to: "/sources/add/$pluginKey",
-        params: { pluginKey },
-        search,
+        to: "/sources/add/$pluginKey" as never,
+        params: { pluginKey } as never,
+        search: search as never,
       });
     },
     [close, navigate],

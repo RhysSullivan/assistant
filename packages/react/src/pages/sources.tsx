@@ -179,10 +179,13 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
       const pluginKey = KIND_TO_PLUGIN_KEY[detected.kind];
       if (pluginKey) {
         closeAndReset();
+        // Path templates depend on the consuming app's route tree (local vs
+        // cloud's `/$org/...`). The shared package can't be typed against
+        // both — `as never` defers to runtime routing.
         void navigate({
-          to: "/sources/add/$pluginKey",
-          params: { pluginKey },
-          search: { url: trimmed, namespace: detected.namespace },
+          to: "/sources/add/$pluginKey" as never,
+          params: { pluginKey } as never,
+          search: { url: trimmed, namespace: detected.namespace } as never,
         });
       } else {
         setError(`Detected source type "${detected.kind}" but no plugin is available for it.`);
@@ -245,8 +248,8 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
               {sourcePlugins.map((p) => (
                 <Link
                   key={p.key}
-                  to="/sources/add/$pluginKey"
-                  params={{ pluginKey: p.key }}
+                  to={"/sources/add/$pluginKey" as never}
+                  params={{ pluginKey: p.key } as never}
                   onClick={closeAndReset}
                   className="rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
                 >
@@ -354,9 +357,9 @@ function PresetGrid(props: {
               return (
                 <CardStackEntry key={`${pluginKey}-${preset.id}`} asChild>
                   <Link
-                    to="/sources/add/$pluginKey"
-                    params={{ pluginKey }}
-                    search={search}
+                    to={"/sources/add/$pluginKey" as never}
+                    params={{ pluginKey } as never}
+                    search={search as never}
                     onClick={props.onPick}
                   >
                     <CardStackEntryMedia>
@@ -420,7 +423,7 @@ function SourceGrid(props: {
           const SummaryComponent = plugin?.summary;
           return (
             <CardStackEntry key={s.id} asChild searchText={`${s.name} ${s.id} ${s.kind}`}>
-              <Link to="/sources/$namespace" params={{ namespace: s.id }}>
+              <Link to={"/sources/$namespace" as never} params={{ namespace: s.id } as never}>
                 <CardStackEntryMedia>
                   <SourceFavicon url={s.url} size={32} />
                 </CardStackEntryMedia>

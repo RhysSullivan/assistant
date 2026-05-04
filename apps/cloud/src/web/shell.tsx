@@ -1,12 +1,10 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useAtomValue, useAtomSet } from "@effect/atom-react";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Exit from "effect/Exit";
 import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
 import { useScope } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
 import { Skeleton } from "@executor-js/react/components/skeleton";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import {
   Dialog,
   DialogClose,
@@ -29,20 +27,94 @@ import {
 } from "@executor-js/react/components/dropdown-menu";
 import { SourceFavicon } from "@executor-js/react/components/source-favicon";
 import { CommandPalette } from "@executor-js/react/components/command-palette";
-import { authWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { AUTH_PATHS } from "../auth/api";
-import { organizationsAtom, switchOrganization, useAuth } from "./auth";
+import { useAuth } from "./auth";
+import { useOrgRoute } from "./org-route";
 import {
   CreateOrganizationFields,
   useCreateOrganizationForm,
 } from "./components/create-organization-form";
 
+// ── ShellSkeleton ────────────────────────────────────────────────────────
+
+export function ShellSkeleton() {
+  return (
+    <div className="flex h-screen overflow-hidden">
+      {/* Desktop sidebar skeleton */}
+      <aside className="hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
+        <div className="flex h-12 shrink-0 items-center border-b border-sidebar-border px-4">
+          <Skeleton className="h-4 w-20" />
+        </div>
+        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
+          <Skeleton className="h-7 w-full rounded-md" />
+          <Skeleton className="h-7 w-full rounded-md" />
+          <Skeleton className="h-7 w-full rounded-md" />
+          <Skeleton className="h-7 w-full rounded-md" />
+          <div className="mt-5 mb-2 px-2.5">
+            <Skeleton className="h-3 w-14" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Skeleton className="h-7 w-11/12 rounded-md" />
+            <Skeleton className="h-7 w-10/12 rounded-md" />
+            <Skeleton className="h-7 w-9/12 rounded-md" />
+          </div>
+        </nav>
+        <div className="shrink-0 border-t border-sidebar-border px-3 py-2.5">
+          <div className="flex items-center gap-2.5">
+            <Skeleton className="size-7 rounded-full" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main content skeleton */}
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Mobile top bar */}
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-4 md:hidden">
+          <Skeleton className="size-7 rounded-md" />
+          <Skeleton className="h-4 w-20" />
+          <div className="w-7 shrink-0" />
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-6 px-6 py-8">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-6 w-40" />
+              <Skeleton className="h-4 w-64" />
+            </div>
+            <Skeleton className="h-8 w-28 rounded-md" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-24 w-full rounded-lg" />
+            ))}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
 // ── NavItem ──────────────────────────────────────────────────────────────
 
-function NavItem(props: { to: string; label: string; active: boolean; onNavigate?: () => void }) {
+function NavItem(props: {
+  to: string;
+  params: Record<string, string>;
+  label: string;
+  active: boolean;
+  onNavigate?: () => void;
+}) {
   return (
     <Link
-      to={props.to}
+      // The Shell's static route templates don't enroll in TanStack's typed
+      // Link param inference (we hand-pick `to` against the generated tree)
+      // — `as never` lets us hand both the `to` template and `params` object
+      // through without per-prop typing gymnastics.
+      to={props.to as never}
+      params={props.params as never}
       onClick={props.onNavigate}
       className={[
         "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
@@ -59,6 +131,7 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
 // ── SourceList ───────────────────────────────────────────────────────────
 
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
+  const { orgHandle } = useOrgRoute();
   const scopeId = useScope();
   const sources = useSourcesWithPending(scopeId);
 
@@ -84,14 +157,14 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
       ) : (
         <div className="flex flex-col gap-px">
           {value.map((s) => {
-            const detailPath = `/sources/${s.id}`;
+            const detailPath = `/${orgHandle}/sources/${s.id}`;
             const active =
               props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
             return (
               <Link
                 key={s.id}
-                to="/sources/$namespace"
-                params={{ namespace: s.id }}
+                to="/$org/sources/$namespace"
+                params={{ org: orgHandle, namespace: s.id }}
                 onClick={props.onNavigate}
                 className={[
                   "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
@@ -148,43 +221,33 @@ function Avatar(props: {
 }
 
 function OrganizationSwitcherItems(props: { activeOrganizationId: string | null }) {
-  const organizations = useAtomValue(organizationsAtom);
-  const doSwitchOrganization = useAtomSet(switchOrganization, { mode: "promiseExit" });
+  const auth = useAuth();
 
-  const handleSwitch = async (organizationId: string) => {
-    if (organizationId === props.activeOrganizationId) return;
-    const exit = await doSwitchOrganization({
-      payload: { organizationId },
-      reactivityKeys: authWriteKeys,
-    });
-    if (Exit.isSuccess(exit)) window.location.reload();
-  };
-
-  return AsyncResult.match(organizations, {
-    onInitial: () => <DropdownMenuItem disabled>Loading…</DropdownMenuItem>,
-    onFailure: () => <DropdownMenuItem disabled>Failed to load organizations</DropdownMenuItem>,
-    onSuccess: ({ value }) =>
-      value.organizations.length === 0 ? (
-        <DropdownMenuItem disabled>No organizations</DropdownMenuItem>
-      ) : (
-        <>
-          {value.organizations.map((organization: { id: string; name: string }) => {
-            const isActive = organization.id === props.activeOrganizationId;
-            return (
-              <DropdownMenuItem
-                key={organization.id}
-                disabled={isActive}
-                onClick={() => handleSwitch(organization.id)}
-                className="text-xs"
-              >
-                <span className="min-w-0 flex-1 truncate">{organization.name}</span>
-                {isActive && <CheckIcon />}
-              </DropdownMenuItem>
-            );
-          })}
-        </>
-      ),
-  });
+  if (auth.status !== "authenticated") {
+    return <DropdownMenuItem disabled>Loading…</DropdownMenuItem>;
+  }
+  if (auth.organizations.length === 0) {
+    return <DropdownMenuItem disabled>No organizations</DropdownMenuItem>;
+  }
+  return (
+    <>
+      {auth.organizations.map((organization) => {
+        const isActive = organization.id === props.activeOrganizationId;
+        return (
+          <DropdownMenuItem key={organization.id} disabled={isActive} className="text-xs" asChild>
+            <Link
+              to="/$org"
+              params={{ org: organization.handle }}
+              className="flex w-full items-center gap-2"
+            >
+              <span className="min-w-0 flex-1 truncate">{organization.name}</span>
+              {isActive && <CheckIcon />}
+            </Link>
+          </DropdownMenuItem>
+        );
+      })}
+    </>
+  );
 }
 
 function CheckIcon() {
@@ -203,6 +266,7 @@ function CheckIcon() {
 
 function UserFooter() {
   const auth = useAuth();
+  const orgRoute = useOrgRoute();
   const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false);
 
   const suggestedOrganizationName =
@@ -212,7 +276,15 @@ function UserFooter() {
 
   const form = useCreateOrganizationForm({
     defaultName: suggestedOrganizationName,
-    onSuccess: () => window.location.reload(),
+    // The form returns the new org's handle on success — navigate via the URL
+    // by reloading at the new handle. Once we wire useNavigate in here we can
+    // do a soft navigation instead.
+    onSuccess: (org) => {
+      // Navigate to the new org's URL — the URL is the source of truth for
+      // active org now, so a hard reload at the new handle re-renders the
+      // shell with the right context.
+      window.location.href = `/${org.handle}`;
+    },
   });
 
   if (auth.status !== "authenticated") return null;
@@ -243,9 +315,7 @@ function UserFooter() {
                 <p className="truncate text-xs font-medium text-foreground">
                   {auth.user.name ?? auth.user.email}
                 </p>
-                {auth.organization && (
-                  <p className="truncate text-xs text-muted-foreground">{auth.organization.name}</p>
-                )}
+                <p className="truncate text-xs text-muted-foreground">{orgRoute.orgName}</p>
               </div>
               <svg
                 viewBox="0 0 16 16"
@@ -268,12 +338,10 @@ function UserFooter() {
             </DropdownMenuLabel>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger className="text-xs">
-                <span className="min-w-0 flex-1 truncate">
-                  {auth.organization?.name ?? "No organization"}
-                </span>
+                <span className="min-w-0 flex-1 truncate">{orgRoute.orgName}</span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-56">
-                <OrganizationSwitcherItems activeOrganizationId={auth.organization?.id ?? null} />
+                <OrganizationSwitcherItems activeOrganizationId={orgRoute.orgId} />
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-xs"
@@ -354,40 +422,72 @@ function UserFooter() {
 // ── SidebarContent ───────────────────────────────────────────────────────
 
 function SidebarContent(props: { pathname: string; onNavigate?: () => void; showBrand?: boolean }) {
-  const isHome = props.pathname === "/";
-  const isSecrets = props.pathname === "/secrets";
-  const isConnections = props.pathname === "/connections";
-  const isPolicies = props.pathname === "/policies";
-  const isBilling = props.pathname === "/billing" || props.pathname.startsWith("/billing/");
-  const isOrg = props.pathname === "/org";
+  const { orgHandle } = useOrgRoute();
+  const orgPrefix = `/${orgHandle}`;
+  const params = { org: orgHandle };
+  const isHome =
+    props.pathname === orgPrefix || props.pathname === `${orgPrefix}/`;
+  const isSecrets = props.pathname === `${orgPrefix}/secrets`;
+  const isConnections = props.pathname === `${orgPrefix}/connections`;
+  const isPolicies = props.pathname === `${orgPrefix}/policies`;
+  const isBilling =
+    props.pathname === `${orgPrefix}/-/billing` ||
+    props.pathname.startsWith(`${orgPrefix}/-/billing/`);
+  const isOrg = props.pathname === `${orgPrefix}/-/settings`;
 
   return (
     <>
       {props.showBrand !== false && (
         <div className="flex h-12 shrink-0 items-center border-b border-sidebar-border px-4">
-          <Link to="/" className="flex items-center gap-1.5">
+          <Link to="/$org" params={params} className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>
         </div>
       )}
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
-        <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
         <NavItem
-          to="/connections"
+          to="/$org"
+          params={params}
+          label="Sources"
+          active={isHome}
+          onNavigate={props.onNavigate}
+        />
+        <NavItem
+          to="/$org/connections"
+          params={params}
           label="Connections"
           active={isConnections}
           onNavigate={props.onNavigate}
         />
-        <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
         <NavItem
-          to="/policies"
+          to="/$org/secrets"
+          params={params}
+          label="Secrets"
+          active={isSecrets}
+          onNavigate={props.onNavigate}
+        />
+        <NavItem
+          to="/$org/policies"
+          params={params}
           label="Policies"
           active={isPolicies}
           onNavigate={props.onNavigate}
         />
-        <NavItem to="/org" label="Organization" active={isOrg} onNavigate={props.onNavigate} />
-        <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />
+        <NavItem
+          to="/$org/-/settings"
+          params={params}
+          label="Organization"
+          active={isOrg}
+          onNavigate={props.onNavigate}
+        />
+        <NavItem
+          to="/$org/-/billing"
+          params={params}
+          label="Billing"
+          active={isBilling}
+          onNavigate={props.onNavigate}
+        />
 
         <div className="mt-5 mb-1 px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
           <span>Sources</span>
@@ -404,6 +504,7 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
 // ── Shell ─────────────────────────────────────────────────────────────────
 
 export function Shell() {
+  const { orgHandle } = useOrgRoute();
   const location = useLocation();
   const pathname = location.pathname;
   const lastPathname = useRef(pathname);
@@ -443,7 +544,7 @@ export function Shell() {
           />
           <div className="relative flex h-full w-[84vw] max-w-xs flex-col border-r border-sidebar-border bg-sidebar shadow-2xl">
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
-              <Link to="/" className="flex items-center gap-1.5">
+              <Link to="/$org" params={{ org: orgHandle }} className="flex items-center gap-1.5">
                 <span className="font-display text-base tracking-tight text-foreground">
                   executor
                 </span>
@@ -496,7 +597,7 @@ export function Shell() {
               />
             </svg>
           </Button>
-          <Link to="/" className="flex items-center gap-1.5">
+          <Link to="/$org" params={{ org: orgHandle }} className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>
           <div className="w-8 shrink-0" />
