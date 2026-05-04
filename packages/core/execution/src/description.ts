@@ -54,6 +54,7 @@ const formatDescription = (sources: readonly Source[]): string => {
     "- For tools that return large collections (e.g. `getStates`, `getAll`), filter results in code rather than calling per-item tools.",
     "- Do not use `fetch` — all API calls go through `tools.*`.",
     "- If execution pauses for interaction, resume it with the returned `resumePayload`.",
+    "- TypeScript type syntax (`: T`, `as T`, generics, interfaces, type aliases) is stripped before execution — feel free to write idiomatic TypeScript using the shapes from `tools.describe.tool()`. Decorators and `enum` are not supported.",
   ];
 
   if (sources.length > 0) {

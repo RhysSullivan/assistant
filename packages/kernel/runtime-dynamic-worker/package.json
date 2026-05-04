@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@executor-js/codemode-core": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "sucrase": "^3.35.1"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.14.2",

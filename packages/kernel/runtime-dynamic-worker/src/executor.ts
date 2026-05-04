@@ -21,6 +21,7 @@ import {
 } from "@executor-js/codemode-core";
 
 import { buildExecutorModule } from "./module-template";
+import { stripTypeScript } from "./strip-types";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -399,24 +400,36 @@ const startDynamicWorker = (
   options: DynamicWorkerExecutorOptions,
   code: string,
   timeoutMs: number,
-): Effect.Effect<DynamicWorkerEntrypoint> =>
-  Effect.sync((): DynamicWorkerEntrypoint => {
-    const recoveredBody = recoverExecutionBody(code);
-    const executorModule = buildExecutorModule(recoveredBody, timeoutMs);
-    const { [ENTRY_MODULE]: _, ...safeModules } = options.modules ?? {};
+): Effect.Effect<DynamicWorkerEntrypoint, DynamicWorkerExecutionError> =>
+  Effect.try({
+    try: (): DynamicWorkerEntrypoint => {
+      const recoveredBody = recoverExecutionBody(code);
+      // The dynamic Worker isolate only accepts plain JavaScript; TS type
+      // syntax in user code (`: T`, `as T`, generics) would otherwise
+      // surface as "Unexpected token ':'" inside `evaluate()` and bubble
+      // out via DynamicWorkerExecutionError. Stripping here gives the
+      // model a clear syntax-error message at the front door instead.
+      const strippedBody = stripTypeScript(recoveredBody);
+      const executorModule = buildExecutorModule(strippedBody, timeoutMs);
+      const { [ENTRY_MODULE]: _, ...safeModules } = options.modules ?? {};
 
-    const worker = options.loader.get(`executor-${crypto.randomUUID()}`, () => ({
-      compatibilityDate: "2025-06-01",
-      compatibilityFlags: ["nodejs_compat"],
-      mainModule: ENTRY_MODULE,
-      modules: {
-        ...safeModules,
-        [ENTRY_MODULE]: executorModule,
-      },
-      globalOutbound: options.globalOutbound ?? null,
-    }));
+      const worker = options.loader.get(`executor-${crypto.randomUUID()}`, () => ({
+        compatibilityDate: "2025-06-01",
+        compatibilityFlags: ["nodejs_compat"],
+        mainModule: ENTRY_MODULE,
+        modules: {
+          ...safeModules,
+          [ENTRY_MODULE]: executorModule,
+        },
+        globalOutbound: options.globalOutbound ?? null,
+      }));
 
-    return asDynamicWorkerEntrypoint(worker.getEntrypoint());
+      return asDynamicWorkerEntrypoint(worker.getEntrypoint());
+    },
+    catch: (cause) =>
+      new DynamicWorkerExecutionError({
+        message: renderTransportMessage(serializeWorkerErrorValue(cause)),
+      }),
   }).pipe(
     Effect.withSpan("executor.runtime.startup", {
       attributes: {
