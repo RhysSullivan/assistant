@@ -15,8 +15,14 @@
 // Each test picks its own org id (usually a random UUID) so rows don't
 // collide across tests. The harness seeds an organizations row whose
 // `handle` equals the org id so `resolveOrgContext(orgId)` succeeds.
+//
+// Workspace requests use `asWorkspace(orgId, workspaceSlug, …)`, which
+// pre-seeds the workspace row + rewrites outgoing URLs to
+// `/api/${orgId}/${workspaceSlug}${path}`. The middleware reads both
+// segments off the URL params and builds a workspace-scoped executor.
 
 import { Effect, Layer } from "effect";
+import { eq } from "drizzle-orm";
 import { HttpApiBuilder, HttpApiClient, HttpApiSwagger } from "effect/unstable/httpapi";
 import {
   FetchHttpClient,
@@ -51,9 +57,17 @@ import {
   RouterConfig,
 } from "../../api/protected-layers";
 import { DbService } from "../db";
-import { orgScopeId, userOrgScopeId } from "../ids";
-import { buildGlobalScopeStack } from "../scope-stack";
-import { organizations } from "../schema";
+import {
+  orgScopeId,
+  userOrgScopeId,
+  userWorkspaceScopeId,
+  workspaceScopeId,
+} from "../ids";
+import {
+  buildGlobalScopeStack,
+  buildWorkspaceScopeStack,
+} from "../scope-stack";
+import { organizations, workspaces } from "../schema";
 
 export const TEST_BASE_URL = "http://test.local";
 /**
@@ -81,6 +95,7 @@ const createTestScopedExecutor = (
   userId: string,
   orgId: string,
   orgName: string,
+  workspace: { id: string; name: string } | null,
 ) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
@@ -88,12 +103,21 @@ const createTestScopedExecutor = (
     const schema = collectSchemas(plugins);
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });
+    const scopes = workspace
+      ? buildWorkspaceScopeStack({
+          userId,
+          organizationId: orgId,
+          organizationName: orgName,
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+        })
+      : buildGlobalScopeStack({
+          userId,
+          organizationId: orgId,
+          organizationName: orgName,
+        });
     return yield* createExecutor({
-      scopes: buildGlobalScopeStack({
-        userId,
-        organizationId: orgId,
-        organizationName: orgName,
-      }),
+      scopes,
       adapter,
       blobs,
       plugins,
@@ -119,25 +143,88 @@ const seedTestOrg = (orgId: string) =>
     );
   });
 
+/**
+ * Same approach as `seedTestOrg`: idempotent insert of a workspace under the
+ * given org so `resolveWorkspaceContext(orgId, slug)` succeeds. Returns the
+ * workspace row (loaded via SELECT after the upsert), so callers know the
+ * generated `workspace_<...>` id without a second round-trip.
+ */
+const seedTestWorkspace = (orgId: string, slug: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* DbService;
+    const id = `workspace_test_${orgId}_${slug}`;
+    yield* Effect.promise(() =>
+      db
+        .insert(workspaces)
+        .values({
+          id,
+          organizationId: orgId,
+          slug,
+          name: `Workspace ${slug}`,
+        })
+        .onConflictDoNothing(),
+    );
+    const rows = yield* Effect.promise(() =>
+      db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.organizationId, orgId)),
+    );
+    const found = rows.find((r) => r.slug === slug);
+    if (!found) {
+      return yield* Effect.die(
+        new Error(`failed to seed workspace ${slug} in org ${orgId}`),
+      );
+    }
+    return found;
+  });
+
 // ---------------------------------------------------------------------------
 // HTTP plumbing
 // ---------------------------------------------------------------------------
 
-// Pull the URL `:org` segment from a request path. The protected API mounts
-// under `/api/:org/...`. Returning `null` for a malformed prefix forces the
-// downstream handler to surface a typed error rather than panicking.
-const orgHandleFromPath = (pathname: string): string | null => {
+// Pull the URL `:org` (+ optional `:workspace`) segments from a request path.
+// The protected API mounts under `/api/:org/...` and `/api/:org/:workspace/...`.
+// Returning `null` for a malformed prefix forces the downstream handler to
+// surface a typed error rather than panicking.
+//
+// Workspace detection is conservative: any path with three+ segments after
+// `/api/` is *potentially* workspace-scoped, but the tests pre-seed the
+// workspace row before issuing the request via `asWorkspace(...)`, so we
+// gate on the seeded set. That avoids accidentally treating an org-only
+// endpoint with extra path segments (e.g. `/scopes/:id/sources`) as a
+// workspace request.
+const seededWorkspaces = new Map<string, Set<string>>();
+const orgHandleFromPath = (pathname: string):
+  | { orgId: string; workspaceSlug: string | null }
+  | null => {
   const parts = pathname.split("/").filter((part) => part.length > 0);
   if (parts.length < 2 || parts[0] !== "api") return null;
-  return parts[1] ?? null;
+  const orgId = parts[1] ?? null;
+  if (!orgId) return null;
+  const candidate = parts[2] ?? null;
+  const orgSet = seededWorkspaces.get(orgId);
+  const workspaceSlug =
+    candidate && orgSet?.has(candidate) ? candidate : null;
+  return { orgId, workspaceSlug };
+};
+
+const rememberWorkspace = (orgId: string, slug: string) => {
+  let set = seededWorkspaces.get(orgId);
+  if (!set) {
+    set = new Set();
+    seededWorkspaces.set(orgId, set);
+  }
+  set.add(slug);
 };
 
 // Test version of the production `ExecutionStackMiddleware` — reads the
-// org handle from the URL `/api/:org/...` prefix (matching production),
-// builds a test-scoped executor against the live postgres test db with a
-// fake WorkOS vault, and provides `AuthContext` + the executor services
-// to the handler. The optional `x-test-user-id` header overrides the
-// default per-org user.
+// org (and optional workspace) handle from the URL prefix (matching
+// production: `/api/:org/...` and `/api/:org/:workspace/...`), builds a
+// test-scoped executor against the live postgres test db with a fake
+// WorkOS vault, and provides `AuthContext` + the executor services to the
+// handler. The optional `x-test-user-id` header overrides the default
+// per-org user.
 const TestExecutionStackMiddleware = HttpRouter.middleware<{
   provides:
     | AuthContext
@@ -156,23 +243,36 @@ const TestExecutionStackMiddleware = HttpRouter.middleware<{
         const request = yield* HttpServerRequest.HttpServerRequest;
         const webRequest = yield* HttpServerRequest.toWeb(request);
         const url = new URL(webRequest.url);
-        const orgId = orgHandleFromPath(url.pathname);
-        if (!orgId) {
+        const parsed = orgHandleFromPath(url.pathname);
+        if (!parsed) {
           return yield* Effect.die(
             new Error(`missing /api/:org prefix in ${url.pathname}`),
           );
         }
-        // Lazily seed the org row so production-mode `resolveOrgContext` (used
-        // anywhere that takes the URL handle as truth) finds it. The test
-        // harness can't pre-seed at factory time without leaking sockets.
+        const { orgId, workspaceSlug } = parsed;
+        // Lazily seed the org row so production-mode `resolveOrgContext`
+        // (used anywhere that takes the URL handle as truth) finds it.
+        // The test harness can't pre-seed at factory time without leaking
+        // sockets.
         yield* seedTestOrg(orgId);
+        // Resolve the workspace row (if present) BEFORE building the
+        // executor — `buildWorkspaceScopeStack` needs the deterministic
+        // `workspace_<id>` to scope reads/writes against.
+        const workspace = workspaceSlug
+          ? yield* seedTestWorkspace(orgId, workspaceSlug)
+          : null;
         const userHeader = request.headers[TEST_USER_HEADER];
         const userId =
           typeof userHeader === "string" && userHeader.length > 0
             ? userHeader
             : defaultUserFor(orgId);
         const orgName = `Org ${orgId}`;
-        const executor = yield* createTestScopedExecutor(userId, orgId, orgName);
+        const executor = yield* createTestScopedExecutor(
+          userId,
+          orgId,
+          orgName,
+          workspace ? { id: workspace.id, name: workspace.name } : null,
+        );
         const engine = createExecutionEngine({
           executor,
           codeExecutor: makeQuickJsExecutor(),
@@ -197,19 +297,36 @@ const TestExecutionStackMiddleware = HttpRouter.middleware<{
 ).layer;
 
 // Mirror the production setup — the protected API mounts under `/api/:org`
-// via a prefixed router view. The outer `HttpRouter` from
-// `HttpServer.layerServices` is the underlying state; the prefix wrapper
-// rewrites added paths only.
-const PrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
+// AND `/api/:org/:workspace` via prefixed router views. The outer
+// `HttpRouter` from `HttpServer.layerServices` is the underlying state;
+// each prefix wrapper rewrites added paths only. Both prefixes serve the
+// SAME endpoints — the request URL determines which scope stack the
+// middleware builds.
+const OrgPrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
   Effect.map(HttpRouter.HttpRouter.asEffect(), (router) =>
     router.prefixed("/api/:org"),
   ),
 );
 
-const TestApiLive = HttpApiBuilder.layer(ProtectedCloudApi).pipe(
+const WorkspacePrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
+  Effect.map(HttpRouter.HttpRouter.asEffect(), (router) =>
+    router.prefixed("/api/:org/:workspace"),
+  ),
+);
+
+const orgMount = HttpApiBuilder.layer(ProtectedCloudApi).pipe(
   Layer.provide(ProtectedCloudApiHandlers),
   Layer.provide(TestExecutionStackMiddleware),
-  Layer.provide(PrefixedRouterLayer),
+  Layer.provide(OrgPrefixedRouterLayer),
+);
+
+const workspaceMount = HttpApiBuilder.layer(ProtectedCloudApi).pipe(
+  Layer.provide(ProtectedCloudApiHandlers),
+  Layer.provide(TestExecutionStackMiddleware),
+  Layer.provide(WorkspacePrefixedRouterLayer),
+);
+
+const TestApiLive = Layer.mergeAll(orgMount, workspaceMount).pipe(
   Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
   Layer.provideMerge(RouterConfig),
   Layer.provideMerge(DbService.Live),
@@ -218,19 +335,20 @@ const TestApiLive = HttpApiBuilder.layer(ProtectedCloudApi).pipe(
 
 const handler = HttpRouter.toWebHandler(TestApiLive, { disableLogger: true }).handler;
 
-// Rewrite outgoing request URLs to `/api/${orgId}${path}` so the prefixed
-// router matches. Tests construct `HttpApiClient.make(...)` against
-// `TEST_BASE_URL` and call endpoint methods that build paths like
-// `/scopes/.../sources` — we splice the org segment in front before the
-// request reaches the in-process handler.
-const rewriteRequestForOrg = async (
+// Rewrite outgoing request URLs to `/api/${orgId}${path}` (or
+// `/api/${orgId}/${workspaceSlug}${path}` for workspace requests) so the
+// prefixed router matches. Tests construct `HttpApiClient.make(...)`
+// against `TEST_BASE_URL` and call endpoint methods that build paths like
+// `/scopes/.../sources` — we splice the org (+workspace) segment in front
+// before the request reaches the in-process handler.
+const rewriteRequestForPrefix = async (
   base: Request,
-  orgId: string,
+  prefix: string,
   extraHeaders: Record<string, string> = {},
 ): Promise<Request> => {
   const url = new URL(base.url);
-  if (!url.pathname.startsWith(`/api/${orgId}/`) && url.pathname !== `/api/${orgId}`) {
-    url.pathname = `/api/${orgId}${url.pathname.startsWith("/") ? "" : "/"}${url.pathname}`;
+  if (!url.pathname.startsWith(`${prefix}/`) && url.pathname !== prefix) {
+    url.pathname = `${prefix}${url.pathname.startsWith("/") ? "" : "/"}${url.pathname}`;
   }
   // Buffer the body — Node's `RequestInit` rejects stream bodies without
   // `duplex: "half"`, and forwarding a Request through `new Request(url, {...})`
@@ -245,6 +363,25 @@ const rewriteRequestForOrg = async (
     body,
   });
 };
+
+const rewriteRequestForOrg = (
+  base: Request,
+  orgId: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<Request> =>
+  rewriteRequestForPrefix(base, `/api/${orgId}`, extraHeaders);
+
+const rewriteRequestForWorkspace = (
+  base: Request,
+  orgId: string,
+  workspaceSlug: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<Request> =>
+  rewriteRequestForPrefix(
+    base,
+    `/api/${orgId}/${workspaceSlug}`,
+    extraHeaders,
+  );
 
 export const fetchForOrg = (orgId: string): typeof globalThis.fetch =>
   (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -263,6 +400,26 @@ export const fetchForUser = (
     return handler(req);
   }) as typeof globalThis.fetch;
 
+export const fetchForWorkspace = (
+  orgId: string,
+  workspaceSlug: string,
+  userId?: string,
+): typeof globalThis.fetch =>
+  (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const base = input instanceof Request ? input : new Request(input, init);
+    const extraHeaders: Record<string, string> = {};
+    if (userId !== undefined) {
+      extraHeaders[TEST_USER_HEADER] = userId;
+    }
+    const req = await rewriteRequestForWorkspace(
+      base,
+      orgId,
+      workspaceSlug,
+      extraHeaders,
+    );
+    return handler(req);
+  }) as typeof globalThis.fetch;
+
 export const clientLayerForOrg = (orgId: string) =>
   FetchHttpClient.layer.pipe(
     Layer.provide(Layer.succeed(FetchHttpClient.Fetch)(fetchForOrg(orgId))),
@@ -272,6 +429,19 @@ export const clientLayerForUser = (userId: string, orgId: string) =>
   FetchHttpClient.layer.pipe(
     Layer.provide(
       Layer.succeed(FetchHttpClient.Fetch)(fetchForUser(userId, orgId)),
+    ),
+  );
+
+export const clientLayerForWorkspace = (
+  orgId: string,
+  workspaceSlug: string,
+  userId?: string,
+) =>
+  FetchHttpClient.layer.pipe(
+    Layer.provide(
+      Layer.succeed(FetchHttpClient.Fetch)(
+        fetchForWorkspace(orgId, workspaceSlug, userId),
+      ),
     ),
   );
 
@@ -288,6 +458,46 @@ export const asOrg = <A, E>(
     const client = yield* HttpApiClient.make(ProtectedCloudApi, { baseUrl: TEST_BASE_URL });
     return yield* body(client);
   }).pipe(Effect.provide(clientLayerForOrg(orgId))) as Effect.Effect<A, E>;
+
+/**
+ * Run the body with a `ProtectedCloudApi` client whose URLs target the
+ * `/api/${orgId}/${workspaceSlug}/...` mount. The harness pre-registers
+ * the slug so the in-process middleware treats subsequent requests as
+ * workspace-scoped (third URL segment after `/api/` is treated as a
+ * workspace slug only when seeded — see `orgHandleFromPath`). The actual
+ * row insert happens lazily on first request inside the middleware via
+ * `seedTestWorkspace`, so the executor's scope stack ends up with the
+ * deterministic `workspace_<...>` id.
+ */
+export const asWorkspace = <A, E>(
+  orgId: string,
+  workspaceSlug: string,
+  body: (client: ApiShape) => Effect.Effect<A, E>,
+): Effect.Effect<A, E> => {
+  rememberWorkspace(orgId, workspaceSlug);
+  return Effect.gen(function* () {
+    const client = yield* HttpApiClient.make(ProtectedCloudApi, { baseUrl: TEST_BASE_URL });
+    return yield* body(client);
+  }).pipe(
+    Effect.provide(clientLayerForWorkspace(orgId, workspaceSlug)),
+  ) as Effect.Effect<A, E>;
+};
+
+/** As `asWorkspace` but threads a specific user id through. */
+export const asWorkspaceUser = <A, E>(
+  userId: string,
+  orgId: string,
+  workspaceSlug: string,
+  body: (client: ApiShape) => Effect.Effect<A, E>,
+): Effect.Effect<A, E> => {
+  rememberWorkspace(orgId, workspaceSlug);
+  return Effect.gen(function* () {
+    const client = yield* HttpApiClient.make(ProtectedCloudApi, { baseUrl: TEST_BASE_URL });
+    return yield* body(client);
+  }).pipe(
+    Effect.provide(clientLayerForWorkspace(orgId, workspaceSlug, userId)),
+  ) as Effect.Effect<A, E>;
+};
 
 // Same as `asOrg` but also threads a specific user id through the fake
 // OrgAuth, so the built executor's user-org scope id is
@@ -310,6 +520,19 @@ export const asUser = <A, E>(
 export const testUserOrgScopeId = (userId: string, orgId: string) =>
   userOrgScopeId(userId, orgId);
 
+// Workspace-scoped variants. The harness derives workspace ids
+// deterministically from the seed slug (`workspace_test_<orgId>_<slug>`),
+// so tests can build expected scope ids without round-tripping the row.
+export const testWorkspaceId = (orgId: string, slug: string) =>
+  `workspace_test_${orgId}_${slug}`;
+export const testWorkspaceScopeId = (orgId: string, slug: string) =>
+  workspaceScopeId(testWorkspaceId(orgId, slug));
+export const testUserWorkspaceScopeId = (
+  userId: string,
+  orgId: string,
+  slug: string,
+) => userWorkspaceScopeId(userId, testWorkspaceId(orgId, slug));
+
 // Re-exports so call sites don't need a second import.
 export { ProtectedCloudApi };
-export { orgScopeId, userOrgScopeId };
+export { orgScopeId, userOrgScopeId, workspaceScopeId, userWorkspaceScopeId };

@@ -1,6 +1,6 @@
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { HttpServer } from "effect/unstable/http";
-import { Layer } from "effect";
+import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { Effect, Layer } from "effect";
 
 import { OrgAuthLive, SessionAuthLive } from "../auth/middleware-live";
 import { UserStoreService } from "../auth/context";
@@ -63,6 +63,20 @@ export const makeNonProtectedApiLive = (
 
 // Routes scoped to a specific org (membership management, switching, etc.).
 // Auth is enforced by `OrgAuth` middleware declared on `OrgHttpApi`.
+//
+// OrgHttpApi mounts under `/api/:org/...` so workspace endpoints are
+// addressable per-org (`POST /api/:org/workspaces`,
+// `GET /api/:org/workspaces/:slug`). The auth middleware still checks
+// the session's `organizationId` for now — the URL `:org` segment is
+// available to handlers if/when we tighten the check to require the
+// URL org to match the session org. v1 is fine: every org member can
+// access every endpoint inside any org they belong to.
+const OrgPrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
+  Effect.map(HttpRouter.HttpRouter.asEffect(), (router) =>
+    router.prefixed("/api/:org"),
+  ),
+);
+
 export const makeOrgApiLive = (
   rsLive: Layer.Layer<DbService | UserStoreService>,
 ) =>
@@ -70,6 +84,7 @@ export const makeOrgApiLive = (
     Layer.provide(Layer.mergeAll(OrgHandlers, WorkspacesHandlers)),
     Layer.provide(requestScopedMiddleware(rsLive).layer),
     Layer.provideMerge(OrgAuthLive),
+    Layer.provide(OrgPrefixedRouterLayer),
   );
 
 // Default exports use the production per-request layer. Existing callers

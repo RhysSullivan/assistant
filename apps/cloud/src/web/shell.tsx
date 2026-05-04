@@ -1,5 +1,6 @@
-import { Link, Outlet, useLocation } from "@tanstack/react-router";
+import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { useAtomValue } from "@effect/atom-react";
 import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
 import { useScope } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
@@ -30,10 +31,16 @@ import { CommandPalette } from "@executor-js/react/components/command-palette";
 import { AUTH_PATHS } from "../auth/api";
 import { useAuth } from "./auth";
 import { useOrgRoute } from "./org-route";
+import { useOptionalWorkspaceRoute } from "./workspace-route";
+import { workspacesAtom } from "./workspaces";
 import {
   CreateOrganizationFields,
   useCreateOrganizationForm,
 } from "./components/create-organization-form";
+import {
+  CreateWorkspaceFields,
+  useCreateWorkspaceForm,
+} from "./components/create-workspace-form";
 
 // ── ShellSkeleton ────────────────────────────────────────────────────────
 
@@ -132,6 +139,7 @@ function NavItem(props: {
 
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const { orgHandle } = useOrgRoute();
+  const workspace = useOptionalWorkspaceRoute();
   const scopeId = useScope();
   const sources = useSourcesWithPending(scopeId);
 
@@ -157,14 +165,26 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
       ) : (
         <div className="flex flex-col gap-px">
           {value.map((s) => {
-            const detailPath = `/${orgHandle}/sources/${s.id}`;
+            const detailPath = workspace
+              ? `/${orgHandle}/${workspace.workspaceSlug}/sources/${s.id}`
+              : `/${orgHandle}/sources/${s.id}`;
             const active =
               props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
+            const to = workspace
+              ? "/$org/$workspace/sources/$namespace"
+              : "/$org/sources/$namespace";
+            const params: Record<string, string> = workspace
+              ? {
+                  org: orgHandle,
+                  workspace: workspace.workspaceSlug,
+                  namespace: s.id,
+                }
+              : { org: orgHandle, namespace: s.id };
             return (
               <Link
                 key={s.id}
-                to="/$org/sources/$namespace"
-                params={{ org: orgHandle, namespace: s.id }}
+                to={to as never}
+                params={params as never}
                 onClick={props.onNavigate}
                 className={[
                   "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
@@ -220,8 +240,22 @@ function Avatar(props: {
   );
 }
 
-function OrganizationSwitcherItems(props: { activeOrganizationId: string | null }) {
+// Per-org "Global / <workspace>" switcher items. Mirrors the structure laid
+// out in the workspaces plan: `<orgName> / Global` pinned at the top, then a
+// separator, then `<orgName> / <workspaceName>` for each workspace.
+//
+// The query for workspaces runs against the *active* org only (the
+// CloudApiClient's baseUrl tracks the current `/$org` URL). For non-active
+// orgs we just show the Global entry — switching to that org loads its
+// workspaces fresh on next render.
+function ContextSwitcherItems(props: {
+  activeOrganizationId: string | null;
+  activeWorkspaceId: string | null;
+}) {
   const auth = useAuth();
+  const workspacesResult = useAtomValue(workspacesAtom);
+  const workspaces =
+    AsyncResult.isSuccess(workspacesResult) ? workspacesResult.value.workspaces : null;
 
   if (auth.status !== "authenticated") {
     return <DropdownMenuItem disabled>Loading…</DropdownMenuItem>;
@@ -229,21 +263,59 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
   if (auth.organizations.length === 0) {
     return <DropdownMenuItem disabled>No organizations</DropdownMenuItem>;
   }
+
   return (
     <>
       {auth.organizations.map((organization) => {
-        const isActive = organization.id === props.activeOrganizationId;
+        const isActiveOrg = organization.id === props.activeOrganizationId;
+        const orgWorkspaces = isActiveOrg ? (workspaces ?? []) : [];
+        const isGlobalActive = isActiveOrg && props.activeWorkspaceId === null;
         return (
-          <DropdownMenuItem key={organization.id} disabled={isActive} className="text-xs" asChild>
-            <Link
-              to="/$org"
-              params={{ org: organization.handle }}
-              className="flex w-full items-center gap-2"
+          <div key={organization.id}>
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+              {organization.name}
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              disabled={isGlobalActive}
+              className="text-xs"
+              asChild
             >
-              <span className="min-w-0 flex-1 truncate">{organization.name}</span>
-              {isActive && <CheckIcon />}
-            </Link>
-          </DropdownMenuItem>
+              <Link
+                to="/$org"
+                params={{ org: organization.handle }}
+                className="flex w-full items-center gap-2"
+              >
+                <span className="min-w-0 flex-1 truncate">Global</span>
+                {isGlobalActive && <CheckIcon />}
+              </Link>
+            </DropdownMenuItem>
+            {orgWorkspaces.length > 0 && <DropdownMenuSeparator />}
+            {orgWorkspaces.map((workspace) => {
+              const isActive = workspace.id === props.activeWorkspaceId;
+              return (
+                <DropdownMenuItem
+                  key={workspace.id}
+                  disabled={isActive}
+                  className="text-xs"
+                  asChild
+                >
+                  <Link
+                    to="/$org/$workspace"
+                    params={{
+                      org: organization.handle,
+                      workspace: workspace.slug,
+                    }}
+                    className="flex w-full items-center gap-2"
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {workspace.name}
+                    </span>
+                    {isActive && <CheckIcon />}
+                  </Link>
+                </DropdownMenuItem>
+              );
+            })}
+          </div>
         );
       })}
     </>
@@ -267,7 +339,10 @@ function CheckIcon() {
 function UserFooter() {
   const auth = useAuth();
   const orgRoute = useOrgRoute();
+  const workspaceRoute = useOptionalWorkspaceRoute();
+  const navigate = useNavigate();
   const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false);
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
 
   const suggestedOrganizationName =
     auth.status === "authenticated" && auth.user.name?.trim() !== "" && auth.user.name != null
@@ -287,12 +362,38 @@ function UserFooter() {
     },
   });
 
+  // Workspace name suggestion is intentionally generic — workspaces are
+  // project-shaped, not user-shaped. The user can always rename later.
+  const workspaceForm = useCreateWorkspaceForm({
+    defaultName: "",
+    onSuccess: (workspace) => {
+      setCreateWorkspaceOpen(false);
+      void navigate({
+        to: "/$org/$workspace",
+        params: { org: orgRoute.orgHandle, workspace: workspace.slug },
+      });
+    },
+  });
+
   if (auth.status !== "authenticated") return null;
 
   const openCreateOrganization = () => {
     form.reset(suggestedOrganizationName);
     setCreateOrganizationOpen(true);
   };
+
+  const openCreateWorkspace = () => {
+    workspaceForm.reset("");
+    setCreateWorkspaceOpen(true);
+  };
+
+  // Trigger label format per the plan: `<orgName> / Global` or
+  // `<orgName> / <workspaceName>`. The org name is constant in this layout
+  // (parent route resolves it); the workspace name only appears under
+  // workspace context.
+  const contextLabel = workspaceRoute
+    ? `${orgRoute.orgName} / ${workspaceRoute.workspaceName}`
+    : `${orgRoute.orgName} / Global`;
 
   return (
     <div className="shrink-0 border-t border-sidebar-border px-3 py-2.5">
@@ -303,83 +404,138 @@ function UserFooter() {
           if (!open) form.reset(suggestedOrganizationName);
         }}
       >
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-1 py-1 text-left hover:bg-sidebar-active/60"
-            >
-              <Avatar url={auth.user.avatarUrl} name={auth.user.name} email={auth.user.email} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-foreground">
-                  {auth.user.name ?? auth.user.email}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">{orgRoute.orgName}</p>
-              </div>
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                className="size-3.5 shrink-0 text-muted-foreground"
+        <Dialog
+          open={createWorkspaceOpen}
+          onOpenChange={(open) => {
+            setCreateWorkspaceOpen(open);
+            if (!open) workspaceForm.reset("");
+          }}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-1 py-1 text-left hover:bg-sidebar-active/60"
               >
-                <path
-                  d="M4 6l4 4 4-4"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="top" className="w-64">
-            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-              Organization
-            </DropdownMenuLabel>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="text-xs">
-                <span className="min-w-0 flex-1 truncate">{orgRoute.orgName}</span>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-56">
-                <OrganizationSwitcherItems activeOrganizationId={orgRoute.orgId} />
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-xs"
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    openCreateOrganization();
-                  }}
+                <Avatar url={auth.user.avatarUrl} name={auth.user.name} email={auth.user.email} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-foreground">
+                    {auth.user.name ?? auth.user.email}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">{contextLabel}</p>
+                </div>
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  className="size-3.5 shrink-0 text-muted-foreground"
                 >
-                  Create organization
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-              Signed in as
-            </DropdownMenuLabel>
-            <DropdownMenuItem disabled className="gap-2 text-xs opacity-100">
-              <Avatar url={auth.user.avatarUrl} name={auth.user.name} email={auth.user.email} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-foreground">
-                  {auth.user.name ?? auth.user.email}
-                </p>
-                {auth.user.name && (
-                  <p className="truncate text-muted-foreground">{auth.user.email}</p>
-                )}
-              </div>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-xs text-destructive focus:text-destructive"
-              onClick={async () => {
-                await fetch(AUTH_PATHS.logout, { method: "POST" });
-                window.location.href = "/";
+                  <path
+                    d="M4 6l4 4 4-4"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="w-64">
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                Context
+              </DropdownMenuLabel>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="text-xs">
+                  <span className="min-w-0 flex-1 truncate">{contextLabel}</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-56">
+                  <ContextSwitcherItems
+                    activeOrganizationId={orgRoute.orgId}
+                    activeWorkspaceId={workspaceRoute?.workspaceId ?? null}
+                  />
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-xs"
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      openCreateWorkspace();
+                    }}
+                  >
+                    Create workspace
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-xs"
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      openCreateOrganization();
+                    }}
+                  >
+                    Create organization
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                Signed in as
+              </DropdownMenuLabel>
+              <DropdownMenuItem disabled className="gap-2 text-xs opacity-100">
+                <Avatar url={auth.user.avatarUrl} name={auth.user.name} email={auth.user.email} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-foreground">
+                    {auth.user.name ?? auth.user.email}
+                  </p>
+                  {auth.user.name && (
+                    <p className="truncate text-muted-foreground">{auth.user.email}</p>
+                  )}
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-xs text-destructive focus:text-destructive"
+                onClick={async () => {
+                  await fetch(AUTH_PATHS.logout, { method: "POST" });
+                  window.location.href = "/";
+                }}
+              >
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DialogContent className="sm:max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle className="font-display text-xl">Create workspace</DialogTitle>
+              <DialogDescription className="text-sm leading-relaxed">
+                Workspaces are project contexts inside {orgRoute.orgName}. They share global
+                sources and add their own.
+              </DialogDescription>
+            </DialogHeader>
+
+            <CreateWorkspaceFields
+              name={workspaceForm.name}
+              onNameChange={(name) => {
+                workspaceForm.setName(name);
+                if (workspaceForm.error) workspaceForm.setError(null);
               }}
-            >
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              error={workspaceForm.error}
+              onSubmit={() => void workspaceForm.submit()}
+            />
+
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="ghost" size="sm" disabled={workspaceForm.creating}>
+                  Cancel
+                </Button>
+              </DialogClose>
+              <Button
+                size="sm"
+                onClick={() => void workspaceForm.submit()}
+                disabled={!workspaceForm.canSubmit || workspaceForm.creating}
+              >
+                {workspaceForm.creating ? "Creating…" : "Create workspace"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
@@ -423,23 +579,67 @@ function UserFooter() {
 
 function SidebarContent(props: { pathname: string; onNavigate?: () => void; showBrand?: boolean }) {
   const { orgHandle } = useOrgRoute();
+  const workspaceRoute = useOptionalWorkspaceRoute();
+
   const orgPrefix = `/${orgHandle}`;
-  const params = { org: orgHandle };
-  const isHome =
-    props.pathname === orgPrefix || props.pathname === `${orgPrefix}/`;
-  const isSecrets = props.pathname === `${orgPrefix}/secrets`;
-  const isConnections = props.pathname === `${orgPrefix}/connections`;
-  const isPolicies = props.pathname === `${orgPrefix}/policies`;
+  const inWorkspace = workspaceRoute !== null;
+  const wsPrefix = inWorkspace
+    ? `${orgPrefix}/${workspaceRoute.workspaceSlug}`
+    : null;
+  const navPrefix = wsPrefix ?? orgPrefix;
+
+  const isHome = props.pathname === navPrefix || props.pathname === `${navPrefix}/`;
+  const isSecrets = props.pathname === `${navPrefix}/secrets`;
+  const isConnections = props.pathname === `${navPrefix}/connections`;
+  const isPolicies = props.pathname === `${navPrefix}/policies`;
+  // Org-admin paths (billing/settings) only render in global context — they
+  // don't have workspace equivalents per the plan ("In workspace context, the
+  // main working nav remains focused on sources, connections, secrets, and
+  // policies").
   const isBilling =
     props.pathname === `${orgPrefix}/-/billing` ||
     props.pathname.startsWith(`${orgPrefix}/-/billing/`);
   const isOrg = props.pathname === `${orgPrefix}/-/settings`;
 
+  // Build link targets. Workspace context uses the `/$org/$workspace/...`
+  // routes; global context stays on `/$org/...`. Casting `to` and `params` is
+  // localized to the union here and matches the existing `as never` pattern
+  // NavItem already uses for hand-picked typed templates.
+  type Link = { to: string; params: Record<string, string> };
+  const sourcesLink: Link = inWorkspace
+    ? {
+        to: "/$org/$workspace",
+        params: { org: orgHandle, workspace: workspaceRoute.workspaceSlug },
+      }
+    : { to: "/$org", params: { org: orgHandle } };
+  const connectionsLink: Link = inWorkspace
+    ? {
+        to: "/$org/$workspace/connections",
+        params: { org: orgHandle, workspace: workspaceRoute.workspaceSlug },
+      }
+    : { to: "/$org/connections", params: { org: orgHandle } };
+  const secretsLink: Link = inWorkspace
+    ? {
+        to: "/$org/$workspace/secrets",
+        params: { org: orgHandle, workspace: workspaceRoute.workspaceSlug },
+      }
+    : { to: "/$org/secrets", params: { org: orgHandle } };
+  const policiesLink: Link = inWorkspace
+    ? {
+        to: "/$org/$workspace/policies",
+        params: { org: orgHandle, workspace: workspaceRoute.workspaceSlug },
+      }
+    : { to: "/$org/policies", params: { org: orgHandle } };
+
   return (
     <>
       {props.showBrand !== false && (
         <div className="flex h-12 shrink-0 items-center border-b border-sidebar-border px-4">
-          <Link to="/$org" params={params} className="flex items-center gap-1.5">
+          <Link
+            to={sourcesLink.to as never}
+            params={sourcesLink.params as never}
+            className="flex items-center gap-1.5"
+          >
             <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>
         </div>
@@ -447,47 +647,51 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <NavItem
-          to="/$org"
-          params={params}
+          to={sourcesLink.to}
+          params={sourcesLink.params}
           label="Sources"
           active={isHome}
           onNavigate={props.onNavigate}
         />
         <NavItem
-          to="/$org/connections"
-          params={params}
+          to={connectionsLink.to}
+          params={connectionsLink.params}
           label="Connections"
           active={isConnections}
           onNavigate={props.onNavigate}
         />
         <NavItem
-          to="/$org/secrets"
-          params={params}
+          to={secretsLink.to}
+          params={secretsLink.params}
           label="Secrets"
           active={isSecrets}
           onNavigate={props.onNavigate}
         />
         <NavItem
-          to="/$org/policies"
-          params={params}
+          to={policiesLink.to}
+          params={policiesLink.params}
           label="Policies"
           active={isPolicies}
           onNavigate={props.onNavigate}
         />
-        <NavItem
-          to="/$org/-/settings"
-          params={params}
-          label="Organization"
-          active={isOrg}
-          onNavigate={props.onNavigate}
-        />
-        <NavItem
-          to="/$org/-/billing"
-          params={params}
-          label="Billing"
-          active={isBilling}
-          onNavigate={props.onNavigate}
-        />
+        {!inWorkspace && (
+          <>
+            <NavItem
+              to="/$org/-/settings"
+              params={{ org: orgHandle }}
+              label="Organization"
+              active={isOrg}
+              onNavigate={props.onNavigate}
+            />
+            <NavItem
+              to="/$org/-/billing"
+              params={{ org: orgHandle }}
+              label="Billing"
+              active={isBilling}
+              onNavigate={props.onNavigate}
+            />
+          </>
+        )}
 
         <div className="mt-5 mb-1 px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
           <span>Sources</span>
@@ -505,6 +709,7 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
 
 export function Shell() {
   const { orgHandle } = useOrgRoute();
+  const workspaceRoute = useOptionalWorkspaceRoute();
   const location = useLocation();
   const pathname = location.pathname;
   const lastPathname = useRef(pathname);
@@ -513,6 +718,12 @@ export function Shell() {
     lastPathname.current = pathname;
     if (mobileSidebarOpen) setMobileSidebarOpen(false);
   }
+  const homeLink: { to: string; params: Record<string, string> } = workspaceRoute
+    ? {
+        to: "/$org/$workspace",
+        params: { org: orgHandle, workspace: workspaceRoute.workspaceSlug },
+      }
+    : { to: "/$org", params: { org: orgHandle } };
 
   // Lock scroll when mobile sidebar open
   useEffect(() => {
@@ -544,7 +755,11 @@ export function Shell() {
           />
           <div className="relative flex h-full w-[84vw] max-w-xs flex-col border-r border-sidebar-border bg-sidebar shadow-2xl">
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
-              <Link to="/$org" params={{ org: orgHandle }} className="flex items-center gap-1.5">
+              <Link
+                to={homeLink.to as never}
+                params={homeLink.params as never}
+                className="flex items-center gap-1.5"
+              >
                 <span className="font-display text-base tracking-tight text-foreground">
                   executor
                 </span>
@@ -597,7 +812,11 @@ export function Shell() {
               />
             </svg>
           </Button>
-          <Link to="/$org" params={{ org: orgHandle }} className="flex items-center gap-1.5">
+          <Link
+            to={homeLink.to as never}
+            params={homeLink.params as never}
+            className="flex items-center gap-1.5"
+          >
             <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>
           <div className="w-8 shrink-0" />
