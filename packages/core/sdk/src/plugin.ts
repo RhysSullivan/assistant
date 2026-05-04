@@ -29,15 +29,18 @@ import type {
   ElicitationResponse,
 } from "./elicitation";
 import type {
+  ConnectionInUseError,
   ConnectionNotFoundError,
   ConnectionProviderNotRegisteredError,
   ConnectionReauthRequiredError,
   ConnectionRefreshNotSupportedError,
+  SecretInUseError,
   SecretOwnedByConnectionError,
 } from "./errors";
 import type { OAuthService } from "./oauth";
 import type { Scope } from "./scope";
 import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
+import type { Usage, UsagesForConnectionInput, UsagesForSecretInput } from "./usages";
 
 // ---------------------------------------------------------------------------
 // StorageDeps — backing passed to a plugin's `storage` factory. The only
@@ -160,10 +163,15 @@ export interface PluginCtx<TStore = unknown> {
     /** Delete a secret from its pinned provider and the core table.
      *  Rejects with `SecretOwnedByConnectionError` if the row is owned
      *  by a connection — callers must go through `connections.remove`
-     *  to drop the whole sign-in. */
+     *  to drop the whole sign-in. Rejects with `SecretInUseError` if
+     *  any plugin reports the secret as in use; the caller should ask
+     *  the user to detach the listed sources first. */
     readonly remove: (
       id: string,
-    ) => Effect.Effect<void, SecretOwnedByConnectionError | StorageFailure>;
+    ) => Effect.Effect<
+      void,
+      SecretOwnedByConnectionError | SecretInUseError | StorageFailure
+    >;
   };
 
   /** Connections — product-level sign-in state. Owns backing secret
@@ -206,7 +214,12 @@ export interface PluginCtx<TStore = unknown> {
       | ConnectionRefreshError
       | StorageFailure
     >;
-    readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
+    /** Refuses with `ConnectionInUseError` if any plugin reports the
+     *  connection as in use. Caller surfaces the `usages` list to the
+     *  user. */
+    readonly remove: (
+      id: string,
+    ) => Effect.Effect<void, ConnectionInUseError | StorageFailure>;
   };
 
   /** Shared OAuth service. Plugins use this to probe/start/complete OAuth
@@ -445,6 +458,26 @@ export interface PluginSpec<
     readonly sourceId: string;
     readonly toolRows: readonly ToolRow[];
   }) => Effect.Effect<Record<string, ToolAnnotations>, unknown>;
+
+  /** Find every place a secret id is referenced by this plugin's stored
+   *  rows. Implementations query their normalized columns (e.g.
+   *  `WHERE secret_id = $1`) and return one `Usage` per hit, with
+   *  `ownerKind` / `slot` tagging the location. The executor fans out
+   *  across all plugins and the result powers the Secrets-tab "Used
+   *  by" list and the deletion-blocking check in `secrets.remove`.
+   *
+   *  Plugins that never store secret refs (secret-provider-only
+   *  plugins like keychain / file-secrets / 1password) omit this. */
+  readonly usagesForSecret?: (input: {
+    readonly ctx: PluginCtx<TStore>;
+    readonly args: UsagesForSecretInput;
+  }) => Effect.Effect<readonly Usage[], unknown>;
+
+  /** Same shape as `usagesForSecret`, but for connection refs. */
+  readonly usagesForConnection?: (input: {
+    readonly ctx: PluginCtx<TStore>;
+    readonly args: UsagesForConnectionInput;
+  }) => Effect.Effect<readonly Usage[], unknown>;
 
   /** Called when `executor.sources.remove(id)` targets a source owned
    *  by this plugin. Plugin-side cleanup only; the executor deletes

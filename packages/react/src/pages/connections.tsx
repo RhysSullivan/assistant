@@ -1,9 +1,10 @@
-import { useAtomSet } from "@effect/atom-react";
+import { Suspense } from "react";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { ConnectionId } from "@executor-js/sdk";
+import { ConnectionId, type ScopeId } from "@executor-js/sdk";
 import { toast } from "sonner";
 
-import { removeConnection } from "../api/atoms";
+import { connectionUsagesAtom, removeConnection } from "../api/atoms";
 import { useConnectionsWithPendingRemovals, usePendingConnectionRemovals } from "../api/optimistic";
 import { connectionWriteKeys } from "../api/reactivity-keys";
 import { useScope, useScopeStack } from "../hooks/use-scope";
@@ -51,10 +52,44 @@ const connectionScopeLabel = (
 };
 
 // ---------------------------------------------------------------------------
+// Used-by footer — same shape as the secrets page. Returns null when a
+// connection isn't referenced anywhere so newly-created connections
+// don't get a stray "Used by 0" line before any source binds to them.
+// ---------------------------------------------------------------------------
+
+function ConnectionUsageFooter(props: {
+  scopeId: ScopeId;
+  connectionId: ConnectionId;
+}) {
+  const usages = useAtomValue(
+    connectionUsagesAtom(props.scopeId, props.connectionId),
+  );
+  return AsyncResult.match(usages, {
+    onInitial: () => null,
+    onFailure: () => null,
+    onSuccess: ({ value }) => {
+      if (value.length === 0) return null;
+      const labels = value
+        .map((u) => u.ownerName ?? u.ownerId)
+        .filter((s, i, a) => a.indexOf(s) === i);
+      const visible = labels.slice(0, 3);
+      const hidden = labels.length - visible.length;
+      return (
+        <CardStackEntryDescription className="mt-1 text-xs text-muted-foreground">
+          Used by {visible.join(", ")}
+          {hidden > 0 ? ` +${hidden} more` : ""}
+        </CardStackEntryDescription>
+      );
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Connection row
 // ---------------------------------------------------------------------------
 
 function ConnectionRow(props: {
+  scopeId: ScopeId;
   connection: {
     id: string;
     scopeId: string;
@@ -80,6 +115,12 @@ function ConnectionRow(props: {
         <CardStackEntryDescription className="text-xs text-muted-foreground">
           {displayProvider(connection.provider)}
         </CardStackEntryDescription>
+        <Suspense fallback={null}>
+          <ConnectionUsageFooter
+            scopeId={props.scopeId}
+            connectionId={ConnectionId.make(connection.id)}
+          />
+        </Suspense>
       </CardStackEntryContent>
       <CardStackEntryActions>
         <Badge variant="outline">{scopeLabel}</Badge>
@@ -185,6 +226,7 @@ export function ConnectionsPage() {
                     }) => (
                       <ConnectionRow
                         key={c.id}
+                        scopeId={scopeId}
                         connection={{
                           id: c.id,
                           scopeId: c.scopeId,

@@ -51,5 +51,11 @@ export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (han
         yield* executor.secrets.remove(path.secretId);
         return { removed: true };
       })),
+    )
+    .handle("usages", ({ params: path }) =>
+      capture(Effect.gen(function* () {
+        const executor = yield* ExecutorService;
+        return yield* executor.secrets.usages(path.secretId);
+      })),
     ),
 );

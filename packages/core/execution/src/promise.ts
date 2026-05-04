@@ -101,6 +101,7 @@ const wrapPromiseExecutor = (pe: PromiseExecutor): EffectExecutor => ({
     set: (input) => fromPromise(() => pe.secrets.set(input)),
     remove: (id) => fromPromise(() => pe.secrets.remove(id)),
     list: () => fromPromise(() => pe.secrets.list()),
+    usages: (id) => fromPromise(() => pe.secrets.usages(id)),
     providers: () => fromPromise(() => pe.secrets.providers()),
   },
   connections: {
@@ -111,6 +112,7 @@ const wrapPromiseExecutor = (pe: PromiseExecutor): EffectExecutor => ({
     setIdentityLabel: (id, label) => fromPromise(() => pe.connections.setIdentityLabel(id, label)),
     accessToken: (id) => fromPromise(() => pe.connections.accessToken(id)),
     remove: (id) => fromPromise(() => pe.connections.remove(id)),
+    usages: (id) => fromPromise(() => pe.connections.usages(id)),
     providers: () => fromPromise(() => pe.connections.providers()),
   },
   oauth: {

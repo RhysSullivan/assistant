@@ -98,6 +98,21 @@ export class SecretOwnedByConnectionError extends Schema.TaggedErrorClass<Secret
   },
 ) {}
 
+/** Raised when `secrets.remove(id)` is called on a secret that's still
+ *  referenced by one or more sources / bindings across plugins. The UI's
+ *  "Used by" list tells the user which sources to detach first. App-
+ *  level RESTRICT — the codebase doesn't enforce DB-level FKs because
+ *  composite `(scope_id, id)` PKs make single-column references
+ *  impossible to constrain in sqlite. `usageCount` is a hint for the
+ *  caller; the full list is queryable via `secrets.usages(id)`. */
+export class SecretInUseError extends Schema.TaggedErrorClass<SecretInUseError>()(
+  "SecretInUseError",
+  {
+    secretId: SecretId,
+    usageCount: Schema.Number,
+  },
+) {}
+
 // ---------------------------------------------------------------------------
 // Connections
 // ---------------------------------------------------------------------------
@@ -141,6 +156,16 @@ export class ConnectionReauthRequiredError extends Schema.TaggedErrorClass<Conne
   },
 ) {}
 
+/** Raised when `connections.remove(id)` is called on a connection that's
+ *  still referenced by sources / bindings. Mirrors `SecretInUseError`. */
+export class ConnectionInUseError extends Schema.TaggedErrorClass<ConnectionInUseError>()(
+  "ConnectionInUseError",
+  {
+    connectionId: ConnectionId,
+    usageCount: Schema.Number,
+  },
+) {}
+
 // ---------------------------------------------------------------------------
 // Union type for convenience in signatures.
 // ---------------------------------------------------------------------------
@@ -156,7 +181,9 @@ export type ExecutorError =
   | SecretNotFoundError
   | SecretResolutionError
   | SecretOwnedByConnectionError
+  | SecretInUseError
   | ConnectionNotFoundError
   | ConnectionProviderNotRegisteredError
   | ConnectionRefreshNotSupportedError
-  | ConnectionReauthRequiredError;
+  | ConnectionReauthRequiredError
+  | ConnectionInUseError;

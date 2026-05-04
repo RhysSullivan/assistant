@@ -55,10 +55,12 @@ export {
   SecretNotFoundError,
   SecretResolutionError,
   SecretOwnedByConnectionError,
+  SecretInUseError,
   ConnectionNotFoundError,
   ConnectionProviderNotRegisteredError,
   ConnectionRefreshNotSupportedError,
   ConnectionReauthRequiredError,
+  ConnectionInUseError,
   type ExecutorError,
 } from "./errors";
 
@@ -117,6 +119,13 @@ export {
   resolveSecretBackedMap,
   type ResolveSecretBackedMapOptions,
 } from "./secret-backed-value";
+
+// Usage tracking — secret/connection refs across plugins
+export {
+  Usage,
+  type UsagesForSecretInput,
+  type UsagesForConnectionInput,
+} from "./usages";
 
 // Connections
 export {

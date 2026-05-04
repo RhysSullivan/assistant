@@ -40,5 +40,13 @@ export const ConnectionsHandlers = HttpApiBuilder.group(
             return { removed: true };
           }),
         ),
+      )
+      .handle("usages", ({ params: path }) =>
+        capture(
+          Effect.gen(function* () {
+            const executor = yield* ExecutorService;
+            return yield* executor.connections.usages(path.connectionId);
+          }),
+        ),
       ),
 );

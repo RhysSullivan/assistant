@@ -1,10 +1,10 @@
 import { useMemo, useState, Suspense } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { secretsAtom, removeSecret } from "../api/atoms";
+import { secretsAtom, secretUsagesAtom, removeSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import { useSecretProviderPlugins } from "@executor-js/sdk/client";
-import { SecretId } from "@executor-js/sdk";
+import { SecretId, type ScopeId } from "@executor-js/sdk";
 import { SecretForm } from "../plugins/secret-form";
 import { useScope } from "../hooks/use-scope";
 import {
@@ -123,10 +123,43 @@ function AddSecretDialogContent(props: {
 }
 
 // ---------------------------------------------------------------------------
+// Used-by footer — fetched per-secret. Keeps the list compact: shows the
+// count plus the first few owner names, with a "+N more" tail. Empty
+// state collapses to nothing so secrets that aren't referenced anywhere
+// don't get a noisy "Used by 0" line.
+// ---------------------------------------------------------------------------
+
+function SecretUsageFooter(props: {
+  scopeId: ScopeId;
+  secretId: SecretId;
+}) {
+  const usages = useAtomValue(secretUsagesAtom(props.scopeId, props.secretId));
+  return AsyncResult.match(usages, {
+    onInitial: () => null,
+    onFailure: () => null,
+    onSuccess: ({ value }) => {
+      if (value.length === 0) return null;
+      const labels = value
+        .map((u) => u.ownerName ?? u.ownerId)
+        .filter((s, i, a) => a.indexOf(s) === i);
+      const visible = labels.slice(0, 3);
+      const hidden = labels.length - visible.length;
+      return (
+        <CardStackEntryDescription className="mt-1 text-xs text-muted-foreground">
+          Used by {visible.join(", ")}
+          {hidden > 0 ? ` +${hidden} more` : ""}
+        </CardStackEntryDescription>
+      );
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Secret row
 // ---------------------------------------------------------------------------
 
 function SecretRow(props: {
+  scopeId: ScopeId;
   showProvider: boolean;
   secret: { id: string; name: string; provider?: string };
   onRemove: () => void;
@@ -147,6 +180,12 @@ function SecretRow(props: {
             {secret.id}
           </span>
         </CardStackEntryTitle>
+        <Suspense fallback={null}>
+          <SecretUsageFooter
+            scopeId={props.scopeId}
+            secretId={SecretId.make(secret.id)}
+          />
+        </Suspense>
       </CardStackEntryContent>
       <CardStackEntryActions>
         {showProvider && secret.provider && <Badge variant="outline">{secret.provider}</Badge>}
@@ -306,6 +345,7 @@ export function SecretsPage(props: {
                     }) => (
                       <SecretRow
                         key={s.id}
+                        scopeId={scopeId}
                         showProvider={showProviderInfo}
                         secret={{
                           id: s.id,

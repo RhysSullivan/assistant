@@ -3,7 +3,9 @@ import { Schema } from "effect";
 
 import {
   ConnectionId,
+  ConnectionInUseError,
   ScopeId,
+  Usage,
 } from "@executor-js/sdk";
 
 import { InternalError } from "../observability";
@@ -34,6 +36,8 @@ const ConnectionRefResponse = Schema.Struct({
 // Group
 // ---------------------------------------------------------------------------
 
+const ConnectionInUse = ConnectionInUseError.annotate({ httpApiStatus: 409 });
+
 export const ConnectionsApi = HttpApiGroup.make("connections")
   .add(
     HttpApiEndpoint.get("list", "/scopes/:scopeId/connections", {
@@ -46,6 +50,17 @@ export const ConnectionsApi = HttpApiGroup.make("connections")
     HttpApiEndpoint.delete("remove", "/scopes/:scopeId/connections/:connectionId", {
       params: ConnectionParams,
       success: Schema.Struct({ removed: Schema.Boolean }),
-      error: InternalError,
+      error: [InternalError, ConnectionInUse],
     }),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "usages",
+      "/scopes/:scopeId/connections/:connectionId/usages",
+      {
+        params: ConnectionParams,
+        success: Schema.Array(Usage),
+        error: InternalError,
+      },
+    ),
   );

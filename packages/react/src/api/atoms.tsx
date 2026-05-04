@@ -1,4 +1,10 @@
-import { PolicyId, type ScopeId, type ToolId, type SecretId } from "@executor-js/sdk";
+import {
+  PolicyId,
+  type ConnectionId,
+  type ScopeId,
+  type SecretId,
+  type ToolId,
+} from "@executor-js/sdk";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
@@ -70,6 +76,34 @@ export const connectionsAtom = (scopeId: ScopeId) =>
     params: { scopeId },
     timeToLive: "30 seconds",
     reactivityKeys: [ReactivityKey.connections],
+  });
+
+export const secretUsagesAtom = (scopeId: ScopeId, secretId: SecretId) =>
+  ExecutorApiClient.query("secrets", "usages", {
+    params: { scopeId, secretId },
+    timeToLive: "30 seconds",
+    // Refresh whenever any source / connection / secret changes — adding
+    // an oauth source pulls in a new connection-secret link and we want
+    // the usage list to reflect it.
+    reactivityKeys: [
+      ReactivityKey.secrets,
+      ReactivityKey.sources,
+      ReactivityKey.connections,
+    ],
+  });
+
+export const connectionUsagesAtom = (
+  scopeId: ScopeId,
+  connectionId: ConnectionId,
+) =>
+  ExecutorApiClient.query("connections", "usages", {
+    params: { scopeId, connectionId },
+    timeToLive: "30 seconds",
+    reactivityKeys: [
+      ReactivityKey.connections,
+      ReactivityKey.sources,
+      ReactivityKey.secrets,
+    ],
   });
 
 export const policiesAtom = (scopeId: ScopeId) =>

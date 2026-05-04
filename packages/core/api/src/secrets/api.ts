@@ -3,9 +3,11 @@ import { Schema } from "effect";
 import {
   ScopeId,
   SecretId,
+  SecretInUseError,
   SecretNotFoundError,
   SecretOwnedByConnectionError,
   SecretResolutionError,
+  Usage,
 } from "@executor-js/sdk";
 
 import { InternalError } from "../observability";
@@ -52,6 +54,7 @@ const SecretResolution = SecretResolutionError.annotate(
 const SecretOwnedByConnection = SecretOwnedByConnectionError.annotate(
   { httpApiStatus: 409 },
 );
+const SecretInUse = SecretInUseError.annotate({ httpApiStatus: 409 });
 
 // ---------------------------------------------------------------------------
 // Group
@@ -84,6 +87,13 @@ export const SecretsApi = HttpApiGroup.make("secrets")
     HttpApiEndpoint.delete("remove", "/scopes/:scopeId/secrets/:secretId", {
       params: SecretParams,
       success: Schema.Struct({ removed: Schema.Boolean }),
-      error: [InternalError, SecretNotFound, SecretOwnedByConnection],
+      error: [InternalError, SecretNotFound, SecretOwnedByConnection, SecretInUse],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("usages", "/scopes/:scopeId/secrets/:secretId/usages", {
+      params: SecretParams,
+      success: Schema.Array(Usage),
+      error: InternalError,
     }),
   );
