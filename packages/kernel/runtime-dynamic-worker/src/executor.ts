@@ -136,7 +136,12 @@ const renderTransportMessage = (value: unknown): string => {
     return value.message;
   }
 
-  if (typeof value === "object" && value !== null && "message" in value && typeof value.message === "string") {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "message" in value &&
+    typeof value.message === "string"
+  ) {
     return value.message;
   }
 
@@ -156,8 +161,12 @@ const renderTransportMessage = (value: unknown): string => {
 };
 
 export const serializeWorkerCause = (cause: Cause.Cause<unknown>): SerializedWorkerError => {
-  const failures = cause.reasons.filter(Cause.isFailReason).map((reason) => serializeWorkerErrorValue(reason.error));
-  const defects = cause.reasons.filter(Cause.isDieReason).map((reason) => serializeWorkerErrorValue(reason.defect));
+  const failures = cause.reasons
+    .filter(Cause.isFailReason)
+    .map((reason) => serializeWorkerErrorValue(reason.error));
+  const defects = cause.reasons
+    .filter(Cause.isDieReason)
+    .map((reason) => serializeWorkerErrorValue(reason.defect));
   const interrupted = cause.reasons.some(Cause.isInterruptReason);
   const primary = failures[0] ?? defects[0] ?? null;
   const kind =

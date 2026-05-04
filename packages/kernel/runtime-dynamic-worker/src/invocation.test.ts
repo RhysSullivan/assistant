@@ -144,7 +144,10 @@ describe("makeDynamicWorkerExecutor", () => {
     const invoker = makeInvoker(() => null);
 
     const result = await Effect.runPromise(
-      executor.execute(["Use this snippet.", "", "```ts", "async () => 42", "```"].join("\n"), invoker),
+      executor.execute(
+        ["Use this snippet.", "", "```ts", "async () => 42", "```"].join("\n"),
+        invoker,
+      ),
     );
 
     expect(result.error).toBeUndefined();
@@ -392,7 +395,11 @@ describe("makeDynamicWorkerExecutor", () => {
       );
 
       expect(result.error).toBeUndefined();
-      expect(result.result).toEqual({ kind: "Uint8Array", length: 4, bytes: [0xca, 0xfe, 0xba, 0xbe] });
+      expect(result.result).toEqual({
+        kind: "Uint8Array",
+        length: 4,
+        bytes: [0xca, 0xfe, 0xba, 0xbe],
+      });
     }),
   );
 
@@ -414,5 +421,4 @@ describe("makeDynamicWorkerExecutor", () => {
       expect(result.result).toEqual({ kind: "Blob", type: "text/plain", text: "DOWNLOAD" });
     }),
   );
-
 });
