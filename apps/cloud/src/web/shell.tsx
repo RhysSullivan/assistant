@@ -1,8 +1,11 @@
 import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
-import { useActiveWriteScopeId } from "@executor-js/react/api/scope-context";
+import {
+  useActiveWriteScopeId,
+  useScopeStack,
+} from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
 import { Skeleton } from "@executor-js/react/components/skeleton";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
@@ -137,11 +140,99 @@ function NavItem(props: {
 
 // ── SourceList ───────────────────────────────────────────────────────────
 
+// A source in the listing — taken from the API response shape so we can
+// reason about scope buckets and override state without a second type
+// declaration. Mirrors `Source` from `@executor-js/sdk` minus optimistic
+// flags added by `useSourcesWithPending`.
+type SidebarSource = {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: string;
+  readonly url?: string;
+  readonly scopeId?: string;
+  readonly overriddenBy?: string;
+};
+
+function SourceLink(props: {
+  source: SidebarSource;
+  pathname: string;
+  orgHandle: string;
+  workspaceSlug: string | null;
+  onNavigate?: () => void;
+  overridden?: boolean;
+}) {
+  const { source: s, pathname, orgHandle, workspaceSlug, onNavigate, overridden } = props;
+  const detailPath = workspaceSlug
+    ? `/${orgHandle}/${workspaceSlug}/sources/${s.id}`
+    : `/${orgHandle}/sources/${s.id}`;
+  const active = pathname === detailPath || pathname.startsWith(`${detailPath}/`);
+  const to = workspaceSlug
+    ? "/$org/$workspace/sources/$namespace"
+    : "/$org/sources/$namespace";
+  const params: Record<string, string> = workspaceSlug
+    ? { org: orgHandle, workspace: workspaceSlug, namespace: s.id }
+    : { org: orgHandle, namespace: s.id };
+  return (
+    <Link
+      to={to as never}
+      params={params as never}
+      onClick={onNavigate}
+      className={[
+        "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+        overridden
+          ? "text-muted-foreground opacity-60 hover:opacity-80"
+          : active
+            ? "bg-sidebar-active text-foreground font-medium"
+            : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
+      ].join(" ")}
+    >
+      <SourceFavicon url={s.url} />
+      <span className="flex-1 truncate">{s.name}</span>
+      {overridden ? (
+        <span className="rounded bg-muted px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Overridden
+        </span>
+      ) : (
+        <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
+          {s.kind}
+        </span>
+      )}
+    </Link>
+  );
+}
+
+function SidebarSectionLabel(props: { children: ReactNode }) {
+  return (
+    <div className="mt-3 mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      {props.children}
+    </div>
+  );
+}
+
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const { orgHandle } = useOrgRoute();
   const workspace = useOptionalWorkspaceRoute();
   const scopeId = useActiveWriteScopeId();
+  const stack = useScopeStack();
   const sources = useSourcesWithPending(scopeId);
+
+  // Identify which scopes count as "workspace bucket" vs "global bucket".
+  // The executor builds the workspace stack as
+  // `[user_workspace, workspace, user_org, org]`. Sources owned by either
+  // of the first two scopes are workspace sources; the rest are global
+  // (including `user-org` overrides, which v1 doesn't write but we won't
+  // hide if they exist).
+  const workspaceScopes = new Set<string>();
+  const globalScopes = new Set<string>();
+  if (workspace) {
+    for (const s of stack) {
+      if (s.id.startsWith("workspace_") || s.id.startsWith("user_workspace_")) {
+        workspaceScopes.add(s.id);
+      } else {
+        globalScopes.add(s.id);
+      }
+    }
+  }
 
   return AsyncResult.match(sources, {
     onInitial: () => (
@@ -157,52 +248,94 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
     onFailure: () => (
       <div className="px-2.5 py-2 text-xs text-muted-foreground">No sources yet</div>
     ),
-    onSuccess: ({ value }) =>
-      value.length === 0 ? (
-        <div className="px-2.5 py-2 text-sm leading-relaxed text-muted-foreground">
-          No sources yet
-        </div>
-      ) : (
+    onSuccess: ({ value }) => {
+      const all = value as readonly SidebarSource[];
+      if (all.length === 0) {
+        return (
+          <div className="px-2.5 py-2 text-sm leading-relaxed text-muted-foreground">
+            No sources yet
+          </div>
+        );
+      }
+
+      // Global context — flat list, no buckets.
+      if (!workspace) {
+        return (
+          <div className="flex flex-col gap-px">
+            {all.map((s) => (
+              <SourceLink
+                key={`${s.id}-${s.scopeId ?? "static"}`}
+                source={s}
+                pathname={props.pathname}
+                orgHandle={orgHandle}
+                workspaceSlug={null}
+                onNavigate={props.onNavigate}
+                overridden={Boolean(s.overriddenBy)}
+              />
+            ))}
+          </div>
+        );
+      }
+
+      // Workspace context — split into Workspace + Global buckets, with
+      // shadowed global sources rendered as `Overridden` (still listed so
+      // the user can see what's inherited and where the override comes
+      // from).
+      const ws: SidebarSource[] = [];
+      const global: SidebarSource[] = [];
+      for (const s of all) {
+        if (s.scopeId && workspaceScopes.has(s.scopeId)) {
+          ws.push(s);
+        } else if (s.scopeId && globalScopes.has(s.scopeId)) {
+          global.push(s);
+        } else {
+          // Static sources (no scopeId) and rows from scopes outside this
+          // request's stack land in the global bucket — they're not owned
+          // by the workspace.
+          global.push(s);
+        }
+      }
+
+      return (
         <div className="flex flex-col gap-px">
-          {value.map((s) => {
-            const detailPath = workspace
-              ? `/${orgHandle}/${workspace.workspaceSlug}/sources/${s.id}`
-              : `/${orgHandle}/sources/${s.id}`;
-            const active =
-              props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
-            const to = workspace
-              ? "/$org/$workspace/sources/$namespace"
-              : "/$org/sources/$namespace";
-            const params: Record<string, string> = workspace
-              ? {
-                  org: orgHandle,
-                  workspace: workspace.workspaceSlug,
-                  namespace: s.id,
-                }
-              : { org: orgHandle, namespace: s.id };
-            return (
-              <Link
-                key={s.id}
-                to={to as never}
-                params={params as never}
-                onClick={props.onNavigate}
-                className={[
-                  "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
-                  active
-                    ? "bg-sidebar-active text-foreground font-medium"
-                    : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
-                ].join(" ")}
-              >
-                <SourceFavicon url={s.url} />
-                <span className="flex-1 truncate">{s.name}</span>
-                <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
-                  {s.kind}
-                </span>
-              </Link>
-            );
-          })}
+          <SidebarSectionLabel>Workspace</SidebarSectionLabel>
+          {ws.length === 0 ? (
+            <div className="px-2.5 py-1 text-xs text-muted-foreground">
+              No workspace sources
+            </div>
+          ) : (
+            ws.map((s) => (
+              <SourceLink
+                key={`${s.id}-${s.scopeId ?? "static"}`}
+                source={s}
+                pathname={props.pathname}
+                orgHandle={orgHandle}
+                workspaceSlug={workspace.workspaceSlug}
+                onNavigate={props.onNavigate}
+              />
+            ))
+          )}
+          <SidebarSectionLabel>Global</SidebarSectionLabel>
+          {global.length === 0 ? (
+            <div className="px-2.5 py-1 text-xs text-muted-foreground">
+              No global sources
+            </div>
+          ) : (
+            global.map((s) => (
+              <SourceLink
+                key={`${s.id}-${s.scopeId ?? "static"}`}
+                source={s}
+                pathname={props.pathname}
+                orgHandle={orgHandle}
+                workspaceSlug={workspace.workspaceSlug}
+                onNavigate={props.onNavigate}
+                overridden={Boolean(s.overriddenBy)}
+              />
+            ))
+          )}
         </div>
-      ),
+      );
+    },
   });
 }
 

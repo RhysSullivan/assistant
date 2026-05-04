@@ -29,6 +29,9 @@ const SourceResponse = Schema.Struct({
   canRemove: Schema.optional(Schema.Boolean),
   canRefresh: Schema.optional(Schema.Boolean),
   canEdit: Schema.optional(Schema.Boolean),
+  /** Set when an inner scope has another row with the same id. The UI
+   *  renders this row as muted/disabled with an `Overridden` badge. */
+  overriddenBy: Schema.optional(ScopeId),
 });
 
 const SourceRemoveResponse = Schema.Struct({

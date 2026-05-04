@@ -1963,30 +1963,41 @@ export const createExecutor = <
     const listSources = () =>
       Effect.gen(function* () {
         const dynamic = yield* core.findMany({ model: "source" });
-        // Dedup by id with innermost scope winning. Without this, a user
-        // who shadowed an org-wide source at their inner scope would see
-        // two rows — their override and the outer default — which is
-        // inconsistent with how `secrets.list` and every other list
-        // surface dedup shadowed entries.
-        const byId = new Map<string, typeof dynamic[number]>();
-        const byIdRank = new Map<string, number>();
+        // Group by id and pick the innermost row as the "effective" one.
+        // Outer rows under the same id stay in the list with `overriddenBy`
+        // set to the winning scope id so the UI can render an `Overridden`
+        // badge (cloud workspace context shows global sources shadowed by
+        // workspace sources). Tool invocation still uses the innermost
+        // row — only this list surface returns the duplicates.
+        const byIdInnermost = new Map<string, typeof dynamic[number]>();
+        const byIdInnermostRank = new Map<string, number>();
         for (const row of dynamic) {
           const rank = scopeRank(row);
-          const existing = byIdRank.get(row.id);
+          const existing = byIdInnermostRank.get(row.id);
           if (existing === undefined || rank < existing) {
-            byId.set(row.id, row);
-            byIdRank.set(row.id, rank);
+            byIdInnermost.set(row.id, row);
+            byIdInnermostRank.set(row.id, rank);
           }
         }
-        const dynamicDeduped = [...byId.values()];
         const staticList: Source[] = [];
         for (const { source, pluginId } of staticSources.values()) {
           staticList.push(staticDeclToSource(source, pluginId));
         }
-        const merged = [...staticList, ...dynamicDeduped.map(rowToSource)];
+        const projected: Source[] = dynamic.map((row) => {
+          const winner = byIdInnermost.get(row.id);
+          if (!winner || winner.scope_id === row.scope_id) {
+            return rowToSource(row);
+          }
+          return {
+            ...rowToSource(row),
+            overriddenBy: winner.scope_id as string,
+          };
+        });
+        const merged = [...staticList, ...projected];
         yield* Effect.annotateCurrentSpan({
           "executor.sources.static_count": staticList.length,
-          "executor.sources.dynamic_count": dynamicDeduped.length,
+          "executor.sources.dynamic_count": projected.length,
+          "executor.sources.dynamic_effective_count": byIdInnermost.size,
         });
         return merged;
       }).pipe(Effect.withSpan("executor.sources.list"));
