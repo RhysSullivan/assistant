@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
-// Shared execution stack — the wiring that turns an organization into a
+// Shared execution stack — the wiring that turns a request context into a
 // runnable executor + engine. Used by the protected HTTP API (per-request)
-// and the MCP session DO (per-session) so changes to the stack flow to both.
+// and the MCP session DO (per-session) so changes flow to both.
 // ---------------------------------------------------------------------------
 
 import { env } from "cloudflare:workers";
@@ -12,23 +12,29 @@ import { makeDynamicWorkerExecutor } from "@executor-js/runtime-dynamic-worker";
 
 import { withExecutionUsageTracking } from "../api/execution-usage";
 import { AutumnService } from "./autumn";
-import { createScopedExecutor } from "./executor";
+import {
+  createGlobalExecutor,
+  createWorkspaceExecutor,
+} from "./executor";
+import type {
+  GlobalContext,
+  WorkspaceContext,
+} from "./scope-stack";
 
-export const makeExecutionStack = (
-  userId: string,
-  organizationId: string,
-  organizationName: string,
-) =>
+const buildExecutor = (ctx: GlobalContext | WorkspaceContext) =>
+  "workspaceId" in ctx
+    ? createWorkspaceExecutor(ctx)
+    : createGlobalExecutor(ctx);
+
+export const makeExecutionStack = (ctx: GlobalContext | WorkspaceContext) =>
   Effect.gen(function* () {
-    const executor = yield* createScopedExecutor(
-      userId,
-      organizationId,
-      organizationName,
-    ).pipe(Effect.withSpan("McpSessionDO.createScopedExecutor"));
+    const executor = yield* buildExecutor(ctx).pipe(
+      Effect.withSpan("McpSessionDO.createExecutor"),
+    );
     const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
     const autumn = yield* AutumnService;
     const engine = withExecutionUsageTracking(
-      organizationId,
+      ctx.organizationId,
       createExecutionEngine({ executor, codeExecutor }),
       (orgId) => Effect.runFork(autumn.trackExecution(orgId)),
     );

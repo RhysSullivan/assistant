@@ -282,11 +282,11 @@ export class McpSessionDO extends DurableObject {
   ) {
     const self = this;
     return Effect.gen(function* () {
-      const { executor, engine } = yield* makeExecutionStack(
-        sessionMeta.userId,
-        sessionMeta.organizationId,
-        sessionMeta.organizationName,
-      );
+      const { executor, engine } = yield* makeExecutionStack({
+        userId: sessionMeta.userId,
+        organizationId: sessionMeta.organizationId,
+        organizationName: sessionMeta.organizationName,
+      });
       // Build the description here so the postgres query it runs
       // (`executor.sources.list`) lands as a child of
       // `McpSessionDO.createRuntime`. host-mcp would otherwise call
