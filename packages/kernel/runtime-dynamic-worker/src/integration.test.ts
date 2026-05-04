@@ -18,11 +18,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { env } from "cloudflare:workers";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import {
-  HttpClient,
-  HttpClientResponse,
-  type HttpClientRequest,
-} from "effect/unstable/http";
+import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/unstable/http";
 
 import {
   createExecutor,
@@ -238,10 +234,7 @@ describe("sandbox → openApiPlugin integration", () => {
 
   it.effect("application/json: primitive object body round-trips unchanged", () =>
     Effect.gen(function* () {
-      const { invoker, captured } = yield* buildSandboxBridge(
-        makeSpec("application/json"),
-        "j",
-      );
+      const { invoker, captured } = yield* buildSandboxBridge(makeSpec("application/json"), "j");
       const sandbox = makeDynamicWorkerExecutor({ loader });
 
       const result = yield* sandbox.execute(
