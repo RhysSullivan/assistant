@@ -65,8 +65,15 @@ const ALL_TARGETS: Target[] = [
 
 const platformName = (t: Target) => (t.os === "win32" ? "windows" : t.os);
 
-const targetPackageName = (t: Target) =>
-  ["executor", platformName(t), t.arch, t.abi].filter(Boolean).join("-");
+/** Per-platform suffix used in dist directory names, npm dist-tags, and the
+ *  semver prerelease segment of variant package versions. e.g. "linux-x64",
+ *  "linux-x64-musl", "darwin-arm64". */
+const platformTag = (t: Target) =>
+  [platformName(t), t.arch, t.abi].filter(Boolean).join("-");
+
+/** Dist directory name (e.g. dist/executor-linux-x64). Only used as a build
+ *  artifact convention; the actual npm package name inside is `executor`. */
+const targetPackageName = (t: Target) => `executor-${platformTag(t)}`;
 
 const bunTargetKeys = [
   "linux-x64",
@@ -311,17 +318,25 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
         console.log(`  OK: ${version.trim()}`);
       }
 
-      // Platform package.json. No `bin` field on purpose — the wrapper's
-      // launcher walks node_modules to locate `bin/executor` directly. Adding
-      // a bin here would race with the wrapper for the global `executor`
-      // entry under flat installs.
+      // Variant package.json. All variants publish to the SAME npm package
+      // name (`executor`) under platform-tagged versions (e.g.
+      // `1.4.14-linux-x64`). The wrapper references each variant via an
+      // `npm:` alias in its optionalDependencies. This mirrors codex's
+      // pattern and avoids ever having to claim a new npm package name when
+      // a new platform is added — a single trusted-publishing config on the
+      // `executor` package covers everything.
+      //
+      // No `bin` field on purpose — the wrapper's launcher resolves the
+      // platform binary via require.resolve on the alias name and execs it.
+      const tag = platformTag(target);
+      const variantVersion = `${meta.version}-${tag}`;
       await writeFile(
         join(outDir, "package.json"),
         JSON.stringify(
           {
-            name,
-            version: meta.version,
-            description: `${meta.description} (${name})`,
+            name: meta.name,
+            version: variantVersion,
+            description: `${meta.description} (${tag})`,
             os: [target.os],
             cpu: [target.arch],
             homepage: meta.homepage,
@@ -334,7 +349,12 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
         ) + "\n",
       );
 
-      binaries[name] = meta.version;
+      // The local alias name (`executor-linux-x64`, ...) is what the
+      // wrapper's launcher passes to require.resolve at runtime. It's
+      // bound at install time by npm's `npm:executor@<variant-version>`
+      // alias spec in optionalDependencies.
+      const aliasName = `${meta.name}-${tag}`;
+      binaries[aliasName] = `npm:${meta.name}@${variantVersion}`;
     }
 
     return binaries;
@@ -376,8 +396,14 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
         repository: meta.repository,
         license: meta.license,
         bin: { executor: "bin/executor" },
-        // Per-platform compiled binaries. npm/bun install only the entry
-        // matching the current os/cpu; everything else is a no-op.
+        // Per-platform compiled binaries published as platform-tagged
+        // versions of `executor` itself, referenced via npm:alias specs:
+        //   "executor-linux-x64": "npm:executor@1.4.14-linux-x64"
+        // npm/bun fetch only the variant matching the current os/cpu (set
+        // on each variant's package.json); everything else is a no-op.
+        // The local alias name on the left is what the launcher passes to
+        // require.resolve at runtime — npm puts the variant at
+        // `node_modules/executor-<plat>-<arch>/` so resolution just works.
         optionalDependencies: binaries,
         engines: {
           node: ">=20",
@@ -539,23 +565,45 @@ const publishPackedPackage = async (pkgDir: string, channel: string) => {
   }
 };
 
+/** Extract the platform-tag suffix from a variant version string.
+ *  e.g. "1.4.14-linux-x64" -> "linux-x64".
+ *  Variants get a per-platform npm dist-tag (not `latest` or `beta`) so
+ *  publishing them doesn't move the channel pointer. The wrapper alone
+ *  drives `latest`/`beta`. */
+const variantTagFromVersion = (version: string): string => {
+  const idx = version.indexOf("-");
+  if (idx === -1) {
+    throw new Error(
+      `Variant version missing platform-tag suffix (expected '<base>-<tag>'): ${version}`,
+    );
+  }
+  return version.slice(idx + 1);
+};
+
 const publish = async (channel: string) => {
   const meta = await readMetadata();
 
-  // Publish per-platform packages first so the wrapper's
-  // optionalDependencies resolve to packages that already exist on npm
-  // by the time anyone installs the wrapper.
+  // Variants publish first so the wrapper's optionalDependencies resolve.
+  // All variants and the wrapper publish to the same npm package
+  // (`executor`) — variants under platform-tagged versions, wrapper under
+  // the channel tag. Single trusted-publishing config covers everything.
   const platformDirs: string[] = [];
   for (const entry of new Bun.Glob("executor-*/package.json").scanSync({ cwd: distDir })) {
     platformDirs.push(join(distDir, dirname(entry)));
   }
   platformDirs.sort();
 
-  console.log(`Publishing ${platformDirs.length} platform package(s)...`);
-  await Promise.all(platformDirs.map((dir) => publishPackedPackage(dir, channel)));
+  console.log(`Publishing ${platformDirs.length} platform variant(s)...`);
+  await Promise.all(
+    platformDirs.map(async (dir) => {
+      const pkg = (await Bun.file(join(dir, "package.json")).json()) as { version: string };
+      const tag = variantTagFromVersion(pkg.version);
+      await publishPackedPackage(dir, tag);
+    }),
+  );
 
   const wrapperDir = join(distDir, meta.name);
-  console.log(`Publishing wrapper ${wrapperDir}...`);
+  console.log(`Publishing wrapper ${wrapperDir} under @${channel}...`);
   await publishPackedPackage(wrapperDir, channel);
 };
 
@@ -573,20 +621,23 @@ const ZIP_ASSET_SCRIPT = [
 ].join("\n");
 
 const createReleaseAssets = async () => {
+  // The dir name (e.g. "executor-linux-x64") still encodes the platform tag.
+  // Don't read `pkg.name` here — under the npm:alias pattern every variant's
+  // package.json has the same `name: "executor"`, so all assets would collide
+  // on the same filename.
   for (const entry of new Bun.Glob("executor-*/package.json").scanSync({ cwd: distDir })) {
-    const pkgDir = join(distDir, dirname(entry));
-    const pkg = await Bun.file(join(pkgDir, "package.json")).json();
-    const name = pkg.name as string;
+    const dirName = dirname(entry);
+    const pkgDir = join(distDir, dirName);
 
-    if (name.includes("linux")) {
-      await $`tar -czf ${join(distDir, `${name}.tar.gz`)} *`.cwd(join(pkgDir, "bin"));
+    if (dirName.includes("linux")) {
+      await $`tar -czf ${join(distDir, `${dirName}.tar.gz`)} *`.cwd(join(pkgDir, "bin"));
     } else {
-      await $`python3 -c ${ZIP_ASSET_SCRIPT} ${join(distDir, `${name}.zip`)}`.cwd(
+      await $`python3 -c ${ZIP_ASSET_SCRIPT} ${join(distDir, `${dirName}.zip`)}`.cwd(
         join(pkgDir, "bin"),
       );
     }
 
-    console.log(`Created release asset: ${name}`);
+    console.log(`Created release asset: ${dirName}`);
   }
 };
 
