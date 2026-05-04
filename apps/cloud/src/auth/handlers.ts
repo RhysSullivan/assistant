@@ -110,11 +110,17 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           const workos = yield* WorkOSAuth;
           const users = yield* UserStoreService;
           const cookieState = request.cookies[STATE_COOKIE] ?? null;
-          if (!cookieState || !timingSafeEqual(cookieState, query.state)) {
-            return deleteResponseCookie(
-              HttpServerResponse.text("Invalid login state", { status: 400 }),
-              STATE_COOKIE,
-            );
+          // CSRF check is only enforced when the redirect carries a state
+          // value — some WorkOS-initiated redirects don't include one.
+          // When state is present, it MUST match the cookie we set on
+          // /login.
+          if (query.state !== undefined) {
+            if (!cookieState || !timingSafeEqual(cookieState, query.state)) {
+              return deleteResponseCookie(
+                HttpServerResponse.text("Invalid login state", { status: 400 }),
+                STATE_COOKIE,
+              );
+            }
           }
 
           const result = yield* workos.authenticateWithCode(query.code);
@@ -124,19 +130,24 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
 
           let sealedSession = result.sealedSession;
 
-          // If the auth response didn't surface an org but the user already
-          // belongs to one, rehydrate the session with it. If they have no
-          // memberships at all, leave the session org-less — the frontend
-          // AuthGate will render the onboarding flow. We never auto-create
-          // organizations on login.
+          // If the auth response didn't surface an org but the user is already
+          // an *active* member of one, rehydrate the session with it. Pending
+          // memberships (which represent unaccepted invitations on WorkOS's
+          // side) are skipped — refreshing into one 400s, and silently
+          // attaching an unaccepted org would also bypass invite consent.
+          // If they have no active memberships, leave the session org-less —
+          // AuthGate's onboarding flow surfaces pending invites and the
+          // create-org form. We never auto-create organizations on login.
           if (!result.organizationId && sealedSession) {
             const memberships = yield* workos.listUserMemberships(result.user.id);
-            const existing = memberships.data[0];
-            if (existing) {
-              const refreshed = yield* workos.refreshSession(
-                sealedSession,
-                existing.organizationId,
-              );
+            const existingActive = memberships.data.find((m) => m.status === "active");
+            if (existingActive) {
+              // Best-effort refresh — if WorkOS rejects (e.g. the membership
+              // was just revoked), fall through to an org-less session rather
+              // than 500ing the entire callback.
+              const refreshed = yield* workos
+                .refreshSession(sealedSession, existingActive.organizationId)
+                .pipe(Effect.orElseSucceed(() => null));
               if (refreshed) sealedSession = refreshed;
             }
           }
@@ -254,6 +265,105 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
               {
                 userId: session.accountId,
                 newOrgId: org.id,
+                refreshReturnedSession: refreshed != null,
+                verifiedOrgId: verified?.organizationId ?? null,
+              },
+            );
+            deleteCookie("wos-session", { path: "/" });
+            return yield* Effect.fail(new WorkOSError());
+          }
+
+          setCookie("wos-session", refreshed, COOKIE_OPTIONS);
+          return { id: org.id, name: org.name };
+        }),
+      )
+      .handle("pendingInvitations", () =>
+        Effect.gen(function* () {
+          const workos = yield* WorkOSAuth;
+          const session = yield* SessionContext;
+
+          const invitations = yield* workos.listInvitationsByEmail(session.email);
+          const pending = invitations.data.filter(
+            (i) => i.state === "pending" && i.organizationId !== null,
+          );
+
+          // Resolve org names + inviter identities in parallel. Treat
+          // individual failures as "skip the field" rather than failing the
+          // whole list — a stale invitation pointing at a deleted org
+          // shouldn't block the user from seeing the others, and a missing
+          // inviter is normal (admin-/API-created invitations have no
+          // inviter user).
+          const enriched = yield* Effect.all(
+            pending.map((inv) =>
+              Effect.gen(function* () {
+                const org = yield* workos
+                  .getOrganization(inv.organizationId!)
+                  .pipe(Effect.orElseSucceed(() => null));
+                if (!org) return null;
+                const inviter = inv.inviterUserId
+                  ? yield* workos.getUser(inv.inviterUserId).pipe(
+                      Effect.map((u) => ({
+                        email: u.email,
+                        name:
+                          [u.firstName, u.lastName].filter(Boolean).join(" ") || null,
+                      })),
+                      Effect.orElseSucceed(() => null),
+                    )
+                  : null;
+                return {
+                  id: inv.id,
+                  organizationId: org.id,
+                  organizationName: org.name,
+                  createdAt: inv.createdAt,
+                  inviter,
+                };
+              }),
+            ),
+            { concurrency: "unbounded" },
+          );
+
+          return {
+            invitations: enriched.filter((i): i is NonNullable<typeof i> => i !== null),
+          };
+        }),
+      )
+      .handle("acceptInvitation", ({ payload }) =>
+        Effect.gen(function* () {
+          const workos = yield* WorkOSAuth;
+          const users = yield* UserStoreService;
+          const session = yield* SessionContext;
+
+          const invitation = yield* workos.acceptInvitation(payload.invitationId);
+
+          // Defensive: invitations created without an org shouldn't reach
+          // this UI, but the SDK type allows null so guard anyway.
+          if (!invitation.organizationId) {
+            yield* Effect.logWarning("acceptInvitation: invitation has no organizationId", {
+              invitationId: payload.invitationId,
+            });
+            return yield* Effect.fail(new WorkOSError());
+          }
+
+          // Mirror the org locally so domain tables can FK against it.
+          const org = yield* workos.getOrganization(invitation.organizationId);
+          yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
+
+          // Attach the just-accepted org to the current session. Same shape
+          // as createOrganization: refresh + verify; if we can't pin the
+          // session in-place, clear the cookie and let the user bounce
+          // through login again. The acceptance has already succeeded
+          // server-side, so the next login will pick up the membership.
+          const refreshed = yield* workos.refreshSession(session.sealedSession, org.id);
+          const verified = refreshed
+            ? yield* workos.authenticateSealedSession(refreshed)
+            : null;
+
+          if (!refreshed || !verified || verified.organizationId !== org.id) {
+            yield* Effect.logWarning(
+              "acceptInvitation: unable to attach org to current session",
+              {
+                userId: session.accountId,
+                orgId: org.id,
                 refreshReturnedSession: refreshed != null,
                 verifiedOrgId: verified?.organizationId ?? null,
               },

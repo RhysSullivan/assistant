@@ -185,6 +185,14 @@ const make = Effect.gen(function* () {
         })),
       ),
 
+    /** List invitations for an email address (across all orgs). */
+    listInvitationsByEmail: (email: string) =>
+      use((wos) => wos.userManagement.listInvitations({ email })),
+
+    /** Accept an invitation; returns the (now accepted) invitation. */
+    acceptInvitation: (invitationId: string) =>
+      use((wos) => wos.userManagement.acceptInvitation(invitationId)),
+
     /** Remove an organization membership. */
     deleteOrgMembership: (membershipId: string) =>
       use((wos) => wos.userManagement.deleteOrganizationMembership(membershipId)),

@@ -42,6 +42,13 @@ export const organizationsAtom = Atom.refreshOnWindowFocus(
 export const switchOrganization = CloudApiClient.mutation("cloudAuth", "switchOrganization");
 export const createOrganization = CloudApiClient.mutation("cloudAuth", "createOrganization");
 
+export const pendingInvitationsAtom = CloudApiClient.query("cloudAuth", "pendingInvitations", {
+  timeToLive: "1 minute",
+  reactivityKeys: [ReactivityKey.auth],
+});
+
+export const acceptInvitation = CloudApiClient.mutation("cloudAuth", "acceptInvitation");
+
 // ---------------------------------------------------------------------------
 // Provider + hook
 // ---------------------------------------------------------------------------
