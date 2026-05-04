@@ -7,7 +7,9 @@ import { GraphqlExtensionService, GraphqlHandlers } from "../api/handlers";
 
 import {
   definePlugin,
+  ScopeId,
   SourceDetectionResult,
+  Usage,
   type StorageFailure,
   type ToolAnnotations,
   type ToolRow,
@@ -631,6 +633,82 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
 
     removeSource: ({ ctx, sourceId, scope }) =>
       ctx.storage.removeSource(sourceId, scope),
+
+    // Look up every place this secret appears across the plugin's two
+    // child tables (`graphql_source_header`, `graphql_source_query_param`).
+    // The store runs behind the scoped adapter so reads automatically
+    // walk the executor's scope stack — no scope arg needed.
+    usagesForSecret: ({ ctx, args }) =>
+      Effect.gen(function* () {
+        // Adapter access via the underlying typed view on the store deps.
+        // We thread it through `ctx.storage` rather than re-grabbing it
+        // because the store already owns the typed adapter handle; expose
+        // a single helper rather than re-implementing the where/joins.
+        const headerRows = yield* ctx.storage.findHeaderRowsBySecret(
+          args.secretId,
+        );
+        const paramRows = yield* ctx.storage.findQueryParamRowsBySecret(
+          args.secretId,
+        );
+
+        // Resolve owner names by joining to graphql_source. We batch the
+        // distinct (source_id, scope_id) pairs to one findMany rather
+        // than N+1 lookups.
+        const sourceKeys = new Set<string>();
+        for (const r of [...headerRows, ...paramRows]) {
+          sourceKeys.add(`${r.scope_id}:${r.source_id}`);
+        }
+        const sources = yield* ctx.storage.lookupSourceNames([...sourceKeys]);
+
+        const out: Usage[] = [];
+        for (const r of headerRows) {
+          out.push(
+            new Usage({
+              pluginId: "graphql",
+              scopeId: ScopeId.make(r.scope_id),
+              ownerKind: "graphql-source-header",
+              ownerId: r.source_id,
+              ownerName:
+                sources.get(`${r.scope_id}:${r.source_id}`) ?? null,
+              slot: `header:${r.name}`,
+            }),
+          );
+        }
+        for (const r of paramRows) {
+          out.push(
+            new Usage({
+              pluginId: "graphql",
+              scopeId: ScopeId.make(r.scope_id),
+              ownerKind: "graphql-source-query-param",
+              ownerId: r.source_id,
+              ownerName:
+                sources.get(`${r.scope_id}:${r.source_id}`) ?? null,
+              slot: `query_param:${r.name}`,
+            }),
+          );
+        }
+        return out;
+      }),
+
+    usagesForConnection: ({ ctx, args }) =>
+      Effect.gen(function* () {
+        // OAuth refs only appear in graphql_source.auth_connection_id —
+        // one indexed lookup. No child tables to scan.
+        const sources = yield* ctx.storage.findSourcesByConnection(
+          args.connectionId,
+        );
+        return sources.map(
+          (s) =>
+            new Usage({
+              pluginId: "graphql",
+              scopeId: ScopeId.make(s.scope),
+              ownerKind: "graphql-source-auth",
+              ownerId: s.namespace,
+              ownerName: s.name,
+              slot: "auth.oauth2",
+            }),
+        );
+      }),
 
     detect: ({ url }) =>
       Effect.gen(function* () {

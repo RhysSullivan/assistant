@@ -50,6 +50,13 @@
       "when": 1777850000001,
       "tag": "0006_neat_terror",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1778100000000,
+      "tag": "0007_normalize_graphql",
+      "breakpoints": true
     }
   ]
 }

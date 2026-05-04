@@ -57,6 +57,13 @@
       "when": 1777567556847,
       "tag": "0007_military_young_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1778004191000,
+      "tag": "0008_normalize_graphql",
+      "breakpoints": true
     }
   ]
 }

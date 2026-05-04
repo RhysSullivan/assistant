@@ -507,4 +507,127 @@ describe("graphqlPlugin", () => {
       expect(orgView?.endpoint).toBe("http://org.example.com/graphql");
     }),
   );
+
+  // -------------------------------------------------------------------------
+  // Usage tracking — `usagesForSecret` and `usagesForConnection` should
+  // surface every reference to a secret/connection across the plugin's
+  // normalized child tables, and `secrets.remove` / `connections.remove`
+  // should refuse while a reference exists.
+  // -------------------------------------------------------------------------
+
+  it.effect("usagesForSecret returns one Usage per header/query_param ref", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [makeMemorySecretsPlugin()(), graphqlPlugin()] as const,
+        }),
+      );
+
+      yield* executor.secrets.set({
+        id: SecretId.make("api-key"),
+        scope: ScopeId.make(TEST_SCOPE),
+        name: "API Key",
+        value: "abc123",
+        provider: "memory",
+      });
+
+      yield* executor.graphql.addSource({
+        endpoint: "http://localhost:4000/graphql",
+        scope: TEST_SCOPE,
+        introspectionJson,
+        namespace: "with_secret",
+        headers: { Authorization: { secretId: "api-key", prefix: "Bearer " } },
+        queryParams: { token: { secretId: "api-key" } },
+      });
+
+      const usages = yield* executor.secrets.usages(SecretId.make("api-key"));
+      // Two refs: one header, one query param.
+      expect(usages.length).toBe(2);
+      const slots = usages.map((u) => u.slot).sort();
+      expect(slots).toEqual(["header:Authorization", "query_param:token"]);
+      expect(usages.every((u) => u.pluginId === "graphql")).toBe(true);
+      expect(usages.every((u) => u.ownerId === "with_secret")).toBe(true);
+    }),
+  );
+
+  it.effect("secrets.remove refuses while a graphql source still uses it", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [makeMemorySecretsPlugin()(), graphqlPlugin()] as const,
+        }),
+      );
+
+      yield* executor.secrets.set({
+        id: SecretId.make("locked"),
+        scope: ScopeId.make(TEST_SCOPE),
+        name: "Locked",
+        value: "v",
+        provider: "memory",
+      });
+
+      yield* executor.graphql.addSource({
+        endpoint: "http://localhost:4000/graphql",
+        scope: TEST_SCOPE,
+        introspectionJson,
+        namespace: "ref",
+        headers: { "X-Token": { secretId: "locked" } },
+      });
+
+      const result = yield* executor.secrets.remove(SecretId.make("locked")).pipe(
+        Effect.flip,
+      );
+      expect((result as { _tag: string })._tag).toBe("SecretInUseError");
+
+      // After detaching the source, remove succeeds.
+      yield* executor.graphql.removeSource("ref", TEST_SCOPE);
+      yield* executor.secrets.remove(SecretId.make("locked"));
+    }),
+  );
+
+  it.effect("usagesForConnection returns one Usage per source", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [makeMemorySecretsPlugin()(), graphqlPlugin()] as const,
+        }),
+      );
+
+      const connectionId = ConnectionId.make("graphql-conn");
+      yield* executor.connections.create(
+        new CreateConnectionInput({
+          id: connectionId,
+          scope: ScopeId.make(TEST_SCOPE),
+          provider: "oauth2",
+          identityLabel: "Conn",
+          accessToken: new TokenMaterial({
+            secretId: SecretId.make(`${connectionId}.access_token`),
+            name: "Access Token",
+            value: "tok",
+          }),
+          refreshToken: null,
+          expiresAt: null,
+          oauthScope: null,
+          providerState: null,
+        }),
+      );
+
+      yield* executor.graphql.addSource({
+        endpoint: "http://localhost:4000/graphql",
+        scope: TEST_SCOPE,
+        introspectionJson,
+        namespace: "oauth_ref",
+        auth: { kind: "oauth2", connectionId },
+      });
+
+      const usages = yield* executor.connections.usages(connectionId);
+      expect(usages.length).toBe(1);
+      expect(usages[0]).toMatchObject({
+        pluginId: "graphql",
+        ownerKind: "graphql-source-auth",
+        ownerId: "oauth_ref",
+        slot: "auth.oauth2",
+      });
+    }),
+  );
 });

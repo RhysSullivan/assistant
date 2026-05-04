@@ -209,12 +209,44 @@ export const graphql_source = sqliteTable("graphql_source", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   endpoint: text('endpoint').notNull(),
-  headers: text('headers', { mode: "json" }),
-  query_params: text('query_params', { mode: "json" }),
-  auth: text('auth', { mode: "json" })
+  auth_kind: text({ enum: ['none', 'oauth2'] }).default("none").notNull(),
+  auth_connection_id: text('auth_connection_id')
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("graphql_source_scope_id_idx").on(table.scope_id),
+  index("graphql_source_auth_connection_id_idx").on(table.auth_connection_id),
+]);
+
+export const graphql_source_header = sqliteTable("graphql_source_header", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  source_id: text('source_id').notNull(),
+  name: text('name').notNull(),
+  kind: text({ enum: ['text', 'secret'] }).notNull(),
+  text_value: text('text_value'),
+  secret_id: text('secret_id'),
+  secret_prefix: text('secret_prefix')
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("graphql_source_header_scope_id_idx").on(table.scope_id),
+  index("graphql_source_header_source_id_idx").on(table.source_id),
+  index("graphql_source_header_secret_id_idx").on(table.secret_id),
+]);
+
+export const graphql_source_query_param = sqliteTable("graphql_source_query_param", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  source_id: text('source_id').notNull(),
+  name: text('name').notNull(),
+  kind: text({ enum: ['text', 'secret'] }).notNull(),
+  text_value: text('text_value'),
+  secret_id: text('secret_id'),
+  secret_prefix: text('secret_prefix')
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("graphql_source_query_param_scope_id_idx").on(table.scope_id),
+  index("graphql_source_query_param_source_id_idx").on(table.source_id),
+  index("graphql_source_query_param_secret_id_idx").on(table.secret_id),
 ]);
 
 export const graphql_operation = sqliteTable("graphql_operation", {
@@ -226,13 +258,5 @@ export const graphql_operation = sqliteTable("graphql_operation", {
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("graphql_operation_scope_id_idx").on(table.scope_id),
   index("graphql_operation_source_id_idx").on(table.source_id),
-]);
-
-export const blob = sqliteTable("blob", {
-  namespace: text('namespace').notNull(),
-  key: text('key').notNull(),
-  value: text('value').notNull()
-}, (table) => [
-  primaryKey({ columns: [table.namespace, table.key] }),
 ]);
 
