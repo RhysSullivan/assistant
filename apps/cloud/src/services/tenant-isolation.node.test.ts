@@ -5,9 +5,9 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { ScopeId, SecretId } from "@executor-js/sdk";
+import { SecretId } from "@executor-js/sdk";
 
-import { asOrg } from "./__test-harness__/api-harness";
+import { asOrg, orgScopeId } from "./__test-harness__/api-harness";
 
 const MINIMAL_OPENAPI_SPEC = JSON.stringify({
   openapi: "3.0.0",
@@ -31,13 +31,13 @@ describe("tenant isolation (HTTP)", () => {
 
       yield* asOrg(orgA, (client) =>
         client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(orgA) },
+          params: { scopeId: orgScopeId(orgA) },
           payload: { spec: MINIMAL_OPENAPI_SPEC, namespace: namespaceA },
         }),
       );
 
       const orgBSources = yield* asOrg(orgB, (client) =>
-        client.sources.list({ params: { scopeId: ScopeId.make(orgB) } }),
+        client.sources.list({ params: { scopeId: orgScopeId(orgB) } }),
       );
       expect(orgBSources.map((s) => s.id)).not.toContain(namespaceA);
     }),
@@ -51,13 +51,13 @@ describe("tenant isolation (HTTP)", () => {
 
       yield* asOrg(orgA, (client) =>
         client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(orgA) },
+          params: { scopeId: orgScopeId(orgA) },
           payload: { spec: MINIMAL_OPENAPI_SPEC, namespace: namespaceA },
         }),
       );
 
       const orgBTools = yield* asOrg(orgB, (client) =>
-        client.tools.list({ params: { scopeId: ScopeId.make(orgB) } }),
+        client.tools.list({ params: { scopeId: orgScopeId(orgB) } }),
       );
       expect(orgBTools.map((t) => t.sourceId)).not.toContain(namespaceA);
     }),
@@ -71,14 +71,14 @@ describe("tenant isolation (HTTP)", () => {
 
       yield* asOrg(orgA, (client) =>
         client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(orgA) },
+          params: { scopeId: orgScopeId(orgA) },
           payload: { spec: MINIMAL_OPENAPI_SPEC, namespace: namespaceA },
         }),
       );
 
       const result = yield* asOrg(orgB, (client) =>
         client.openapi
-          .getSource({ params: { scopeId: ScopeId.make(orgB), namespace: namespaceA } })
+          .getSource({ params: { scopeId: orgScopeId(orgB), namespace: namespaceA } })
           .pipe(Effect.result),
       );
 
@@ -96,13 +96,13 @@ describe("tenant isolation (HTTP)", () => {
 
       yield* asOrg(orgA, (client) =>
         client.secrets.set({
-          params: { scopeId: ScopeId.make(orgA) },
+          params: { scopeId: orgScopeId(orgA) },
           payload: { id: SecretId.make(secretIdA), name: "org-a only", value: "super-secret-a" },
         }),
       );
 
       const orgBSecrets = yield* asOrg(orgB, (client) =>
-        client.secrets.list({ params: { scopeId: ScopeId.make(orgB) } }),
+        client.secrets.list({ params: { scopeId: orgScopeId(orgB) } }),
       );
       expect(orgBSecrets.map((s) => s.id)).not.toContain(secretIdA);
     }),
@@ -116,14 +116,14 @@ describe("tenant isolation (HTTP)", () => {
 
       yield* asOrg(orgA, (client) =>
         client.secrets.set({
-          params: { scopeId: ScopeId.make(orgA) },
+          params: { scopeId: orgScopeId(orgA) },
           payload: { id: SecretId.make(secretIdA), name: "org-a only", value: "super-secret-a" },
         }),
       );
 
       const result = yield* asOrg(orgB, (client) =>
         client.secrets
-          .status({ params: { scopeId: ScopeId.make(orgB), secretId: SecretId.make(secretIdA) } })
+          .status({ params: { scopeId: orgScopeId(orgB), secretId: SecretId.make(secretIdA) } })
           .pipe(Effect.result),
       );
 
@@ -141,18 +141,18 @@ describe("tenant isolation (HTTP)", () => {
 
       yield* asOrg(orgA, (client) =>
         client.secrets.set({
-          params: { scopeId: ScopeId.make(orgA) },
+          params: { scopeId: orgScopeId(orgA) },
           payload: { id: SecretId.make(secretIdA), name: "org-a only", value: "super-secret-a" },
         }),
       );
 
       const status = yield* asOrg(orgB, (client) =>
         client.secrets.status({
-          params: { scopeId: ScopeId.make(orgB), secretId: SecretId.make(secretIdA) },
+          params: { scopeId: orgScopeId(orgB), secretId: SecretId.make(secretIdA) },
         }),
       );
       const list = yield* asOrg(orgB, (client) =>
-        client.secrets.list({ params: { scopeId: ScopeId.make(orgB) } }),
+        client.secrets.list({ params: { scopeId: orgScopeId(orgB) } }),
       );
 
       expect(status.status).toBe("missing");
@@ -168,7 +168,7 @@ describe("tenant isolation (HTTP)", () => {
 
       yield* asOrg(orgA, (client) =>
         client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(orgA) },
+          params: { scopeId: orgScopeId(orgA) },
           payload: {
             spec: MINIMAL_OPENAPI_SPEC,
             namespace,
@@ -179,7 +179,7 @@ describe("tenant isolation (HTTP)", () => {
       );
       yield* asOrg(orgB, (client) =>
         client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(orgB) },
+          params: { scopeId: orgScopeId(orgB) },
           payload: {
             spec: MINIMAL_OPENAPI_SPEC,
             namespace,
@@ -191,7 +191,7 @@ describe("tenant isolation (HTTP)", () => {
 
       yield* asOrg(orgA, (client) =>
         client.openapi.updateSource({
-          params: { scopeId: ScopeId.make(orgA), namespace },
+          params: { scopeId: orgScopeId(orgA), namespace },
           payload: {
             name: "Org A Updated API",
             baseUrl: "https://org-a-updated.example.com",
@@ -200,10 +200,10 @@ describe("tenant isolation (HTTP)", () => {
       );
 
       const orgASource = yield* asOrg(orgA, (client) =>
-        client.openapi.getSource({ params: { scopeId: ScopeId.make(orgA), namespace } }),
+        client.openapi.getSource({ params: { scopeId: orgScopeId(orgA), namespace } }),
       );
       const orgBSource = yield* asOrg(orgB, (client) =>
-        client.openapi.getSource({ params: { scopeId: ScopeId.make(orgB), namespace } }),
+        client.openapi.getSource({ params: { scopeId: orgScopeId(orgB), namespace } }),
       );
       expect(orgASource?.name).toBe("Org A Updated API");
       expect(orgASource?.config.baseUrl).toBe("https://org-a-updated.example.com");

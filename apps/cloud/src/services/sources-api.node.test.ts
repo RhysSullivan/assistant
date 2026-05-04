@@ -12,11 +12,12 @@ import { resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
-import { ScopeId, SecretId } from "@executor-js/sdk";
+import { SecretId } from "@executor-js/sdk";
 
 import {
   asOrg,
   asUser,
+  orgScopeId,
   testUserOrgScopeId,
 } from "./__test-harness__/api-harness";
 
@@ -306,7 +307,7 @@ describe("sources api (HTTP)", () => {
       yield* asOrg(org, (client) =>
         Effect.gen(function* () {
           const result = yield* client.openapi.addSpec({
-            params: { scopeId: ScopeId.make(org) },
+            params: { scopeId: orgScopeId(org) },
             payload: { spec: MINIMAL_OPENAPI_SPEC, namespace },
           });
           expect(result.namespace).toBe(namespace);
@@ -315,7 +316,7 @@ describe("sources api (HTTP)", () => {
       );
 
       const sources = yield* asOrg(org, (client) =>
-        client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
+        client.sources.list({ params: { scopeId: orgScopeId(org) } }),
       );
       expect(sources.map((s) => s.id)).toContain(namespace);
     }),
@@ -328,13 +329,13 @@ describe("sources api (HTTP)", () => {
 
       yield* asOrg(org, (client) =>
         client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(org) },
+          params: { scopeId: orgScopeId(org) },
           payload: { spec: MINIMAL_OPENAPI_SPEC, namespace },
         }),
       );
 
       const fetched = yield* asOrg(org, (client) =>
-        client.openapi.getSource({ params: { scopeId: ScopeId.make(org), namespace } }),
+        client.openapi.getSource({ params: { scopeId: orgScopeId(org), namespace } }),
       );
       expect(fetched).not.toBeNull();
       expect(fetched?.namespace).toBe(namespace);
@@ -346,7 +347,7 @@ describe("sources api (HTTP)", () => {
       const org = `org_${crypto.randomUUID()}`;
       const preview = yield* asOrg(org, (client) =>
         client.openapi.previewSpec({
-          params: { scopeId: ScopeId.make(org) },
+          params: { scopeId: orgScopeId(org) },
           payload: { spec: MINIMAL_OPENAPI_SPEC },
         }),
       );
@@ -372,7 +373,7 @@ describe("sources api (HTTP)", () => {
       );
       const org = `org_${crypto.randomUUID()}`;
       const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const scopeId = ScopeId.make(org);
+      const scopeId = orgScopeId(org);
 
       const addResult = yield* asOrg(org, (client) =>
         client.openapi.addSpec({
@@ -432,7 +433,7 @@ describe("sources api (HTTP)", () => {
     Effect.gen(function* () {
       const org = `org_${crypto.randomUUID()}`;
       const namespace = `mcp_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const scopeId = ScopeId.make(org);
+      const scopeId = orgScopeId(org);
 
       const addResult = yield* asOrg(org, (client) =>
         client.mcp
@@ -478,7 +479,7 @@ describe("sources api (HTTP)", () => {
       );
       const org = `org_${crypto.randomUUID()}`;
       const namespace = `gql_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const scopeId = ScopeId.make(org);
+      const scopeId = orgScopeId(org);
 
       const added = yield* asOrg(org, (client) =>
         client.graphql.addSource({
@@ -541,7 +542,7 @@ describe("sources api (HTTP)", () => {
       );
       const org = `org_${crypto.randomUUID()}`;
       const namespace = `mcp_${crypto.randomUUID().replace(/-/g, "_")}`;
-      const scopeId = ScopeId.make(org);
+      const scopeId = orgScopeId(org);
 
       const added = yield* asOrg(org, (client) =>
         client.mcp.addSource({
@@ -609,17 +610,17 @@ describe("sources api (HTTP)", () => {
       yield* asOrg(org, (client) =>
         Effect.gen(function* () {
           yield* client.openapi.addSpec({
-            params: { scopeId: ScopeId.make(org) },
+            params: { scopeId: orgScopeId(org) },
             payload: { spec: MINIMAL_OPENAPI_SPEC, namespace },
           });
           yield* client.sources.remove({
-            params: { scopeId: ScopeId.make(org), sourceId: namespace },
+            params: { scopeId: orgScopeId(org), sourceId: namespace },
           });
         }),
       );
 
       const after = yield* asOrg(org, (client) =>
-        client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
+        client.sources.list({ params: { scopeId: orgScopeId(org) } }),
       );
       expect(after.map((s) => s.id)).not.toContain(namespace);
     }),
@@ -632,7 +633,7 @@ describe("sources api (HTTP)", () => {
 
       const result = yield* asOrg(org, (client) =>
         client.sources
-          .remove({ params: { scopeId: ScopeId.make(org), sourceId: ghost } })
+          .remove({ params: { scopeId: orgScopeId(org), sourceId: ghost } })
           .pipe(Effect.result),
       );
       expect(result._tag).toBe("Success");
@@ -648,7 +649,7 @@ describe("sources api (HTTP)", () => {
 
       const result = yield* asOrg(org, (client) =>
         client.sources
-          .remove({ params: { scopeId: ScopeId.make(org), sourceId: "openapi" } })
+          .remove({ params: { scopeId: orgScopeId(org), sourceId: "openapi" } })
           .pipe(Effect.result),
       );
       expect(result._tag).toBe("Failure");
@@ -663,18 +664,18 @@ describe("sources api (HTTP)", () => {
       yield* asOrg(org, (client) =>
         Effect.gen(function* () {
           yield* client.openapi.addSpec({
-            params: { scopeId: ScopeId.make(org) },
+            params: { scopeId: orgScopeId(org) },
             payload: { spec: MINIMAL_OPENAPI_SPEC, namespace },
           });
           yield* client.openapi.updateSource({
-            params: { scopeId: ScopeId.make(org), namespace },
+            params: { scopeId: orgScopeId(org), namespace },
             payload: { name: "Renamed API", baseUrl: "https://override.example.com" },
           });
         }),
       );
 
       const fetched = yield* asOrg(org, (client) =>
-        client.openapi.getSource({ params: { scopeId: ScopeId.make(org), namespace } }),
+        client.openapi.getSource({ params: { scopeId: orgScopeId(org), namespace } }),
       );
       expect(fetched?.name).toBe("Renamed API");
       expect(fetched?.config.baseUrl).toBe("https://override.example.com");
@@ -692,7 +693,7 @@ describe("sources api (HTTP)", () => {
 
       yield* asOrg(orgId, (client) =>
         client.openapi.addSpec({
-          params: { scopeId: ScopeId.make(orgId) },
+          params: { scopeId: orgScopeId(orgId) },
           payload: {
             spec: MINIMAL_OPENAPI_SPEC,
             namespace,
@@ -710,7 +711,7 @@ describe("sources api (HTTP)", () => {
       yield* asUser(aliceId, orgId, (client) =>
         Effect.gen(function* () {
           yield* client.secrets.set({
-            params: { scopeId: ScopeId.make(aliceScope) },
+            params: { scopeId: aliceScope },
             payload: {
               id: SecretId.make("alice_pat"),
               name: "Alice PAT",
@@ -718,11 +719,11 @@ describe("sources api (HTTP)", () => {
             },
           });
           const binding = yield* client.openapi.setSourceBinding({
-            params: { scopeId: ScopeId.make(aliceScope) },
+            params: { scopeId: aliceScope },
             payload: {
               sourceId: namespace,
-              sourceScope: ScopeId.make(orgId),
-              scope: ScopeId.make(aliceScope),
+              sourceScope: orgScopeId(orgId),
+              scope: aliceScope,
               slot: "auth:personal-token",
               value: {
                 kind: "secret",
@@ -732,8 +733,8 @@ describe("sources api (HTTP)", () => {
           });
           expect(binding).toMatchObject({
             sourceId: namespace,
-            sourceScopeId: ScopeId.make(orgId),
-            scopeId: ScopeId.make(aliceScope),
+            sourceScopeId: orgScopeId(orgId),
+            scopeId: aliceScope,
             slot: "auth:personal-token",
             value: {
               kind: "secret",
@@ -748,7 +749,7 @@ describe("sources api (HTTP)", () => {
       yield* asUser(bobId, orgId, (client) =>
         Effect.gen(function* () {
           yield* client.secrets.set({
-            params: { scopeId: ScopeId.make(bobScope) },
+            params: { scopeId: bobScope },
             payload: {
               id: SecretId.make("bob_pat"),
               name: "Bob PAT",
@@ -756,11 +757,11 @@ describe("sources api (HTTP)", () => {
             },
           });
           yield* client.openapi.setSourceBinding({
-            params: { scopeId: ScopeId.make(bobScope) },
+            params: { scopeId: bobScope },
             payload: {
               sourceId: namespace,
-              sourceScope: ScopeId.make(orgId),
-              scope: ScopeId.make(bobScope),
+              sourceScope: orgScopeId(orgId),
+              scope: bobScope,
               slot: "auth:personal-token",
               value: {
                 kind: "secret",
@@ -774,15 +775,15 @@ describe("sources api (HTTP)", () => {
       const aliceBindings = yield* asUser(aliceId, orgId, (client) =>
         client.openapi.listSourceBindings({
           params: {
-            scopeId: ScopeId.make(aliceScope),
+            scopeId: aliceScope,
             namespace,
-            sourceScopeId: ScopeId.make(orgId),
+            sourceScopeId: orgScopeId(orgId),
           },
         }),
       );
       expect(aliceBindings).toContainEqual(
         expect.objectContaining({
-          scopeId: ScopeId.make(aliceScope),
+          scopeId: aliceScope,
           slot: "auth:personal-token",
           value: {
             kind: "secret",
@@ -802,15 +803,15 @@ describe("sources api (HTTP)", () => {
       const bobBindings = yield* asUser(bobId, orgId, (client) =>
         client.openapi.listSourceBindings({
           params: {
-            scopeId: ScopeId.make(bobScope),
+            scopeId: bobScope,
             namespace,
-            sourceScopeId: ScopeId.make(orgId),
+            sourceScopeId: orgScopeId(orgId),
           },
         }),
       );
       expect(bobBindings).toContainEqual(
         expect.objectContaining({
-          scopeId: ScopeId.make(bobScope),
+          scopeId: bobScope,
           slot: "auth:personal-token",
           value: {
             kind: "secret",
@@ -828,10 +829,10 @@ describe("sources api (HTTP)", () => {
       ).toBe(false);
 
       const sources = yield* asOrg(orgId, (client) =>
-        client.sources.list({ params: { scopeId: ScopeId.make(orgId) } }),
+        client.sources.list({ params: { scopeId: orgScopeId(orgId) } }),
       );
       expect(sources.find((source) => source.id === namespace)?.scopeId).toBe(
-        ScopeId.make(orgId),
+        orgScopeId(orgId),
       );
     }),
   );
@@ -845,7 +846,7 @@ describe("sources api (HTTP)", () => {
 
         const result = yield* asOrg(org, (client) =>
           client.openapi.addSpec({
-            params: { scopeId: ScopeId.make(org) },
+            params: { scopeId: orgScopeId(org) },
             payload: { spec: CLOUDFLARE_SPEC, namespace },
           }),
         );
@@ -853,7 +854,7 @@ describe("sources api (HTTP)", () => {
         expect(result.toolCount).toBeGreaterThan(1000);
 
         const sources = yield* asOrg(org, (client) =>
-          client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
+          client.sources.list({ params: { scopeId: orgScopeId(org) } }),
         );
         expect(sources.map((s) => s.id)).toContain(namespace);
 
@@ -862,11 +863,11 @@ describe("sources api (HTTP)", () => {
         // fanning out to per-row deletes).
         yield* asOrg(org, (client) =>
           client.sources.remove({
-            params: { scopeId: ScopeId.make(org), sourceId: namespace },
+            params: { scopeId: orgScopeId(org), sourceId: namespace },
           }),
         );
         const after = yield* asOrg(org, (client) =>
-          client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
+          client.sources.list({ params: { scopeId: orgScopeId(org) } }),
         );
         expect(after.map((s) => s.id)).not.toContain(namespace);
       }),
