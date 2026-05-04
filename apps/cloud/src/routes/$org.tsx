@@ -2,7 +2,6 @@ import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router"
 import { useEffect } from "react";
 import { AutumnProvider } from "autumn-js/react";
 import { ExecutorProvider } from "@executor-js/react/api/provider";
-import { setBaseUrl } from "@executor-js/react/api/base-url";
 import { Toaster } from "@executor-js/react/components/sonner";
 import { ExecutorPluginsProvider } from "@executor-js/sdk/client";
 import { plugins as clientPlugins } from "virtual:executor/plugins-client";
@@ -36,14 +35,6 @@ function OrgLayout() {
 
   if (auth.status !== "authenticated") return null;
   if (!matched) return null;
-
-  // Point the executor API client at this org's prefixed routes. Done before
-  // first render of the executor providers so all queries see the right URL.
-  // The cloud app is single-tenant per page, so a one-shot setter is fine —
-  // when the URL handle changes, this re-runs at the start of the next render.
-  if (typeof window !== "undefined") {
-    setBaseUrl(`${window.location.origin}/api/${matched.handle}`);
-  }
 
   return (
     <OrgRouteProvider
