@@ -64,25 +64,50 @@ export const makeNonProtectedApiLive = (
 // Routes scoped to a specific org (membership management, switching, etc.).
 // Auth is enforced by `OrgAuth` middleware declared on `OrgHttpApi`.
 //
-// OrgHttpApi mounts under `/api/:org/...` so workspace endpoints are
-// addressable per-org (`POST /api/:org/workspaces`,
-// `GET /api/:org/workspaces/:slug`). `start.ts` strips the leading `/api`
-// before forwarding, so the prefix here is `/:org` (not `/api/:org`).
+// OrgHttpApi mounts under `/api/:org/...` AND `/api/:org/:workspace/...` so
+// the same org-level endpoints (workspaces list/create, members, etc.) stay
+// reachable from either context — the URL-context fetch wrapper in the
+// react package always prefixes outgoing `/api/...` requests with the
+// page's URL handle pair. `start.ts` strips the leading `/api` before
+// forwarding, so the prefixes here omit it.
+//
+// Each mount needs its own `HttpApiBuilder.layer(OrgHttpApi)` instance
+// because Effect's Layer system memoizes a shared instance and only the
+// first prefix's routes would register otherwise (see
+// `apps/cloud/src/api/protected.ts` for the same pattern).
 const OrgPrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
   Effect.map(HttpRouter.HttpRouter.asEffect(), (router) =>
     router.prefixed("/:org"),
   ),
 );
 
-export const makeOrgApiLive = (
-  rsLive: Layer.Layer<DbService | UserStoreService>,
-) =>
+const OrgWorkspacePrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
+  Effect.map(HttpRouter.HttpRouter.asEffect(), (router) =>
+    router.prefixed("/:org/:workspace"),
+  ),
+);
+
+const makeOrgLayer = () =>
   HttpApiBuilder.layer(OrgHttpApi).pipe(
     Layer.provide(Layer.mergeAll(OrgHandlers, WorkspacesHandlers)),
-    Layer.provide(requestScopedMiddleware(rsLive).layer),
+  );
+
+export const makeOrgApiLive = (
+  rsLive: Layer.Layer<DbService | UserStoreService>,
+) => {
+  const requestScopedLayer = requestScopedMiddleware(rsLive).layer;
+  const orgMount = makeOrgLayer().pipe(
+    Layer.provide(requestScopedLayer),
     Layer.provideMerge(OrgAuthLive),
     Layer.provide(OrgPrefixedRouterLayer),
   );
+  const workspaceMount = makeOrgLayer().pipe(
+    Layer.provide(requestScopedLayer),
+    Layer.provideMerge(OrgAuthLive),
+    Layer.provide(OrgWorkspacePrefixedRouterLayer),
+  );
+  return Layer.mergeAll(orgMount, workspaceMount);
+};
 
 // Default exports use the production per-request layer. Existing callers
 // that import `NonProtectedApiLive`/`OrgApiLive` continue to work; the
