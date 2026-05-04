@@ -1413,13 +1413,19 @@ describe("cross-scope write preservation (SDK)", () => {
         const outerSources = yield* execOuter.sources.list();
         expect(outerSources.map((s) => s.id)).toContain("shared");
 
-        // Inner executor's list is de-duplicated by id (innermost wins),
-        // so we only expect one entry for "shared" — pinned at the inner
-        // scope. The fact that it shows up at all (combined with the outer
-        // executor still seeing its own row above) proves no rows went
-        // missing.
+        // Inner executor sees BOTH the effective inner row and the
+        // shadowed outer row — the latter has `overriddenBy` set so the
+        // UI can render an `Overridden` badge. Tool invocation still
+        // resolves to the innermost row (covered by the
+        // `tools.invoke picks the innermost tool ...` test below).
         const innerSources = yield* execInner.sources.list();
-        expect(innerSources.filter((s) => s.id === "shared")).toHaveLength(1);
+        const sharedRows = innerSources.filter((s) => s.id === "shared");
+        expect(sharedRows).toHaveLength(2);
+        const effective = sharedRows.find((s) => s.overriddenBy === undefined);
+        const shadowed = sharedRows.find((s) => s.overriddenBy !== undefined);
+        expect(effective).toBeDefined();
+        expect(shadowed).toBeDefined();
+        expect(shadowed!.overriddenBy).toBe(effective!.scopeId);
       }),
   );
 
@@ -1664,7 +1670,7 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
   );
 
   it.effect(
-    "sources.list dedupes by id, keeping the innermost row",
+    "sources.list returns shadowed outer rows with overriddenBy set; effective row wins",
     () =>
       Effect.gen(function* () {
         const { execOuter, execInner } = yield* makeMarkerExecutors();
@@ -1674,8 +1680,16 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
 
         const sources = yield* execInner.sources.list();
         const shared = sources.filter((s) => s.id === "shared");
-        expect(shared).toHaveLength(1);
-        expect(shared[0]?.name).toBe("inner-name");
+        // Both rows surface so the UI can render an `Overridden` badge
+        // for the shadowed outer row. Only the innermost row is
+        // "effective" (no `overriddenBy`); tool invocation continues to
+        // pick that effective row.
+        expect(shared).toHaveLength(2);
+        const effective = shared.find((s) => s.overriddenBy === undefined);
+        const shadowed = shared.find((s) => s.overriddenBy !== undefined);
+        expect(effective?.name).toBe("inner-name");
+        expect(shadowed?.name).toBe("outer-name");
+        expect(shadowed?.overriddenBy).toBe(effective?.scopeId);
       }),
   );
 

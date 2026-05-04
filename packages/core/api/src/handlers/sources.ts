@@ -22,6 +22,9 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
           canRemove: s.canRemove,
           canRefresh: s.canRefresh,
           canEdit: s.canEdit,
+          overriddenBy: s.overriddenBy
+            ? ScopeId.make(s.overriddenBy)
+            : undefined,
         }));
       })),
     )

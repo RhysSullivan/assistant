@@ -11,7 +11,7 @@ import {
 } from "@executor-js/sdk/client";
 import { detectSource } from "../api/atoms";
 import { useSourcesWithPending } from "../api/optimistic";
-import { useActiveWriteScopeId } from "../hooks/use-scope";
+import { useActiveWriteScopeId, useScopeStack } from "../hooks/use-scope";
 import { McpInstallCard } from "../components/mcp-install-card";
 import { Button } from "../components/button";
 import { Badge } from "../components/badge";
@@ -58,10 +58,37 @@ const bestDetection = (
 // Page
 // ---------------------------------------------------------------------------
 
+// A source row with the fields we care about for grid + bucketing. Mirrors
+// the API response in `packages/core/api/src/sources/api.ts` with optional
+// optimistic flags layered in by `useSourcesWithPending`.
+type SourceRow = {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: string;
+  readonly url?: string;
+  readonly runtime?: boolean;
+  readonly scopeId?: string;
+  readonly overriddenBy?: string;
+};
+
 export function SourcesPage() {
   const scopeId = useActiveWriteScopeId();
+  const stack = useScopeStack();
   const sources = useSourcesWithPending(scopeId);
   const [connectOpen, setConnectOpen] = useState(false);
+
+  // Workspace context iff the stack contains a workspace-prefixed entry.
+  // Local CLI hosts get a single `org_*` stack and skip the bucket split.
+  const inWorkspaceContext = stack.some((s) => s.id.startsWith("workspace_"));
+  const workspaceScopes = useMemo(() => {
+    const out = new Set<string>();
+    for (const s of stack) {
+      if (s.id.startsWith("workspace_") || s.id.startsWith("user_workspace_")) {
+        out.add(s.id);
+      }
+    }
+    return out;
+  }, [stack]);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -85,18 +112,55 @@ export function SourcesPage() {
           onInitial: () => <SourcesGridSkeleton />,
           onFailure: () => <p className="text-sm text-destructive">Failed to load sources</p>,
           onSuccess: ({ value }) => {
-            const connectedSources = (
-              value as Array<{
-                readonly id: string;
-                readonly name: string;
-                readonly kind: string;
-                readonly url?: string;
-                readonly runtime?: boolean;
-              }>
-            ).filter((source) => !source.runtime);
+            const connectedSources = (value as ReadonlyArray<SourceRow>).filter(
+              (source) => !source.runtime,
+            );
 
             if (connectedSources.length === 0) {
               return <EmptySources onConnect={() => setConnectOpen(true)} />;
+            }
+
+            // Workspace context — split into Workspace + Global buckets,
+            // with shadowed global rows rendered as `Overridden` so users
+            // can see which inherited sources their workspace replaces.
+            if (inWorkspaceContext) {
+              const workspaceSources: SourceRow[] = [];
+              const globalSources: SourceRow[] = [];
+              for (const s of connectedSources) {
+                if (s.scopeId && workspaceScopes.has(s.scopeId)) {
+                  workspaceSources.push(s);
+                } else {
+                  globalSources.push(s);
+                }
+              }
+              return (
+                <div className="mb-8 space-y-6">
+                  <div className="space-y-2">
+                    <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Workspace
+                    </h2>
+                    {workspaceSources.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No workspace sources yet.
+                      </p>
+                    ) : (
+                      <SourceGrid sources={workspaceSources} />
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Global
+                    </h2>
+                    {globalSources.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No inherited global sources.
+                      </p>
+                    ) : (
+                      <SourceGrid sources={globalSources} />
+                    )}
+                  </div>
+                </div>
+              );
             }
 
             return (
@@ -398,15 +462,7 @@ function PresetGrid(props: {
 // Source grid — flat list of connected sources, click-through to detail
 // ---------------------------------------------------------------------------
 
-function SourceGrid(props: {
-  sources: readonly {
-    id: string;
-    name: string;
-    kind: string;
-    url?: string;
-    runtime?: boolean;
-  }[];
-}) {
+function SourceGrid(props: { sources: readonly SourceRow[] }) {
   const sourcePlugins = useSourcePlugins();
   const pluginByKind = useMemo(() => {
     const out = new Map<string, SourcePlugin>();
@@ -421,8 +477,17 @@ function SourceGrid(props: {
           const pluginKey = KIND_TO_PLUGIN_KEY[s.kind] ?? s.kind;
           const plugin = pluginByKind.get(pluginKey);
           const SummaryComponent = plugin?.summary;
+          const overridden = Boolean(s.overriddenBy);
+          // A scope+id pair uniquely identifies a row even when the same
+          // source id appears at two scopes (effective + shadowed global).
+          const rowKey = `${s.id}-${s.scopeId ?? "static"}`;
           return (
-            <CardStackEntry key={s.id} asChild searchText={`${s.name} ${s.id} ${s.kind}`}>
+            <CardStackEntry
+              key={rowKey}
+              asChild
+              searchText={`${s.name} ${s.id} ${s.kind}`}
+              className={overridden ? "opacity-60" : undefined}
+            >
               <Link to={"/sources/$namespace" as never} params={{ namespace: s.id } as never}>
                 <CardStackEntryMedia>
                   <SourceFavicon url={s.url} size={32} />
@@ -438,7 +503,11 @@ function SourceGrid(props: {
                     </Suspense>
                   )}
                   {s.runtime && <Badge className="bg-muted text-muted-foreground">built-in</Badge>}
-                  <Badge variant="secondary">{s.kind}</Badge>
+                  {overridden ? (
+                    <Badge className="bg-muted text-muted-foreground">Overridden</Badge>
+                  ) : (
+                    <Badge variant="secondary">{s.kind}</Badge>
+                  )}
                 </CardStackEntryActions>
               </Link>
             </CardStackEntry>

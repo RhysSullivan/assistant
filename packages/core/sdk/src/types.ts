@@ -35,6 +35,13 @@ export interface Source {
    *  `ctx.core.sources.register(...)`. UI differentiates built-in vs
    *  user-added with this. */
   readonly runtime: boolean;
+  /** When the executor's scope stack contains another source row with the
+   *  same id at an inner scope, that inner scope's id appears here. The
+   *  current row is "shadowed" — it stays in the list so UI can render an
+   *  `Overridden` badge, but tool invocation always picks the innermost
+   *  row. Undefined for the effective row + every static source. See
+   *  `executor.sources.list` for the rule. */
+  readonly overriddenBy?: string;
 }
 
 export interface Tool {
