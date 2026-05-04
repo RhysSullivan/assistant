@@ -1,7 +1,10 @@
 import { useCallback, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
 
-import { useScope } from "@executor-js/react/api/scope-context";
+import {
+  SourceTargetSelector,
+  useSourceTargetState,
+} from "@executor-js/react/plugins/source-target-selector";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { usePendingSources } from "@executor-js/react/api/optimistic";
 import {
@@ -54,7 +57,8 @@ export default function AddGraphqlSource(props: {
   const [authMode, setAuthMode] = useState<AuthMode>("none");
   const [tokens, setTokens] = useState<OAuthCompletionPayload | null>(null);
 
-  const scopeId = useScope();
+  const target = useSourceTargetState();
+  const scopeId = target.value;
   const doAdd = useAtomSet(addGraphqlSource, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
@@ -170,6 +174,12 @@ export default function AddGraphqlSource(props: {
       </CardStack>
 
       <SourceIdentityFields identity={identity} namePlaceholder="e.g. Shopify API" />
+
+      <SourceTargetSelector
+        value={target.value}
+        onChange={target.setValue}
+        disabled={adding}
+      />
 
       <HttpCredentialsEditor
         credentials={credentials}

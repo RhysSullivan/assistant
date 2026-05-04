@@ -1,9 +1,17 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId, SecretBackedValue } from "@executor-js/sdk/core";
+import { InvalidSourceWriteTargetError, ScopeId, SecretBackedValue } from "@executor-js/sdk/core";
 import { InternalError } from "@executor-js/api";
 
 import { OpenApiParseError, OpenApiExtractionError, OpenApiOAuthError } from "../sdk/errors";
+
+// 422: the request was syntactically valid but targeted a personal scope
+// (`user_org_*` / `user_workspace_*`). The cloud UI should surface a
+// "pick a workspace or global target" message; servers that don't use
+// that prefix convention never see this error.
+const InvalidSourceWriteTarget = InvalidSourceWriteTargetError.annotate({
+  httpApiStatus: 422,
+});
 import { SpecPreview } from "../sdk/preview";
 import { StoredSourceSchema } from "../sdk/store";
 import {
@@ -128,7 +136,10 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
       params: ScopeIdParam,
       payload: AddSpecPayload,
       success: AddSpecResponse,
-      error: DomainErrors,
+      // addSpec is the only source-definition write that the SDK guards
+      // against personal scopes — surface the 422 here so clients can
+      // catch it without inheriting the error on every read endpoint.
+      error: [...DomainErrors, InvalidSourceWriteTarget],
     }),
   )
   .add(

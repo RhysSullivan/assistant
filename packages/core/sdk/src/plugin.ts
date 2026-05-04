@@ -33,6 +33,7 @@ import type {
   ConnectionProviderNotRegisteredError,
   ConnectionReauthRequiredError,
   ConnectionRefreshNotSupportedError,
+  InvalidSourceWriteTargetError,
   SecretOwnedByConnectionError,
 } from "./errors";
 import type { OAuthService } from "./oauth";
@@ -113,7 +114,10 @@ export interface PluginCtx<TStore = unknown> {
     readonly sources: {
       readonly register: (
         input: SourceInput,
-      ) => Effect.Effect<void, StorageFailure>;
+      ) => Effect.Effect<
+        void,
+        StorageFailure | InvalidSourceWriteTargetError
+      >;
       readonly unregister: (
         sourceId: string,
       ) => Effect.Effect<void, StorageFailure>;

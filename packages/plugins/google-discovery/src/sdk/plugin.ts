@@ -1,6 +1,7 @@
 import { Effect, Option } from "effect";
 
 import {
+  InvalidSourceWriteTargetError,
   SourceDetectionResult,
   definePlugin,
   resolveSecretBackedMap,
@@ -95,7 +96,10 @@ export interface GoogleDiscoveryPluginExtension {
     input: GoogleDiscoveryAddSourceInput,
   ) => Effect.Effect<
     { readonly toolCount: number; readonly namespace: string },
-    GoogleDiscoveryParseError | GoogleDiscoverySourceError | StorageFailure
+    | GoogleDiscoveryParseError
+    | GoogleDiscoverySourceError
+    | InvalidSourceWriteTargetError
+    | StorageFailure
   >;
   readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
   readonly getSource: (

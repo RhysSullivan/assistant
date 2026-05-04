@@ -6,6 +6,7 @@ import { McpGroup } from "../api/group";
 import { McpExtensionService, McpHandlers } from "../api/handlers";
 
 import {
+  InvalidSourceWriteTargetError,
   SourceDetectionResult,
   definePlugin,
   resolveSecretBackedMap as resolveSharedSecretBackedMap,
@@ -1031,6 +1032,15 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
  */
 export type McpExtensionFailure = McpConnectionError | McpToolDiscoveryError | StorageFailure;
 
+// Source-creating methods (`addSource`, `refreshSource`) can also fail
+// with `InvalidSourceWriteTargetError` when the cloud's URL context puts
+// a personal scope in the executor stack and the caller targets it. The
+// API surface in `../api/group.ts` declares the same error so the HTTP
+// schema accepts a 422.
+export type McpSourceWriteFailure =
+  | McpExtensionFailure
+  | InvalidSourceWriteTargetError;
+
 export interface McpPluginExtension {
   readonly probeEndpoint: (
     input: string | McpProbeEndpointInput,
@@ -1039,7 +1049,7 @@ export interface McpPluginExtension {
     config: McpSourceConfig,
   ) => Effect.Effect<
     { readonly toolCount: number; readonly namespace: string },
-    McpExtensionFailure
+    McpSourceWriteFailure
   >;
   readonly removeSource: (
     namespace: string,

@@ -4,7 +4,11 @@ import { Option } from "effect";
 
 import { ConnectionId, ScopeId, SecretId } from "@executor-js/sdk/core";
 import { startOAuth } from "@executor-js/react/api/atoms";
-import { useScope, useUserScope } from "@executor-js/react/api/scope-context";
+import { useUserScope } from "@executor-js/react/api/scope-context";
+import {
+  SourceTargetSelector,
+  useSourceTargetState,
+} from "@executor-js/react/plugins/source-target-selector";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 
 // `addSpec` with an oauth2 payload persists a source row AND (for
@@ -240,7 +244,10 @@ export default function AddOpenApiSource(props: {
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
-  const scopeId = useScope();
+  // Default to the active write scope; user can flip between Workspace
+  // and Global from the visible target selector below.
+  const target = useSourceTargetState();
+  const scopeId = target.value;
   const userScope = useUserScope();
   const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promise" });
   const doAdd = useAtomSet(addOpenApiSpec, { mode: "promise" });
@@ -834,6 +841,11 @@ export default function AddOpenApiSource(props: {
       {preview && (
         <>
           <SourceIdentityFields identity={identity} />
+          <SourceTargetSelector
+            value={target.value}
+            onChange={target.setValue}
+            disabled={adding}
+          />
 
           {/* Base URL */}
           <CardStack>

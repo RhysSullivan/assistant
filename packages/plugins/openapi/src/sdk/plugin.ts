@@ -7,6 +7,7 @@ import { OpenApiExtensionService, OpenApiHandlers } from "../api/handlers";
 
 import {
   ConnectionId,
+  InvalidSourceWriteTargetError,
   ScopeId,
   SecretId,
   SourceDetectionResult,
@@ -108,11 +109,18 @@ export interface OpenApiUpdateSourceInput {
  * `StorageError` to the opaque `InternalError({ traceId })` at Layer
  * composition. `UniqueViolationError` passes through — plugins can
  * `Effect.catchTag` it if they want a friendlier user-facing error.
+ *
+ * `InvalidSourceWriteTargetError` is raised by the SDK when a source
+ * definition write targets a personal scope (`user_org_*` or
+ * `user_workspace_*`); see `apps/cloud/src/services/ids.ts` for the
+ * cloud's prefix convention. The HTTP edge maps this to a 422 so
+ * clients can surface a "pick a workspace or global target" message.
  */
 export type OpenApiExtensionFailure =
   | OpenApiParseError
   | OpenApiExtractionError
   | OpenApiOAuthError
+  | InvalidSourceWriteTargetError
   | StorageFailure;
 
 export interface OpenApiPluginExtension {
@@ -126,7 +134,11 @@ export interface OpenApiPluginExtension {
     config: OpenApiSpecConfig,
   ) => Effect.Effect<
     { readonly sourceId: string; readonly toolCount: number },
-    OpenApiParseError | OpenApiExtractionError | OpenApiOAuthError | StorageFailure
+    | OpenApiParseError
+    | OpenApiExtractionError
+    | OpenApiOAuthError
+    | InvalidSourceWriteTargetError
+    | StorageFailure
   >;
   readonly removeSpec: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
   readonly getSource: (

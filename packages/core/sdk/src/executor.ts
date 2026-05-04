@@ -48,6 +48,7 @@ import {
   ConnectionProviderNotRegisteredError,
   ConnectionReauthRequiredError,
   ConnectionRefreshNotSupportedError,
+  InvalidSourceWriteTargetError,
   NoHandlerError,
   PluginNotLoadedError,
   SecretOwnedByConnectionError,
@@ -412,6 +413,16 @@ const staticDeclToTool = (
 // never touch these functions.
 // ---------------------------------------------------------------------------
 
+// Source-definition writes only target shareable scopes (org/workspace).
+// Personal scopes (user-org / user-workspace in cloud) are reserved for
+// credentials, connections, and policies — sources written there would
+// be invisible to anyone else, which the v1 product model excludes. The
+// cloud's id helpers in `apps/cloud/src/services/ids.ts` produce
+// `user_org_*` / `user_workspace_*` prefixes; deployments without those
+// conventions (local CLI) never trigger the check.
+const isPersonalScope = (scopeId: string): boolean =>
+  scopeId.startsWith("user_org_") || scopeId.startsWith("user_workspace_");
+
 // Upsert shape: delete any existing source + tools + definitions for
 // `input.id` before creating fresh rows. Keeps replayable — boot-time
 // sync from executor.jsonc can call register() on rows that already
@@ -420,8 +431,19 @@ const writeSourceInput = (
   core: TypedAdapter<CoreSchema>,
   pluginId: string,
   input: SourceInput,
-): Effect.Effect<void, StorageFailure> =>
+): Effect.Effect<void, StorageFailure | InvalidSourceWriteTargetError> =>
   Effect.gen(function* () {
+    if (isPersonalScope(input.scope)) {
+      return yield* Effect.fail(
+        new InvalidSourceWriteTargetError({
+          scopeId: input.scope,
+          reason:
+            "source-definition writes must target a shareable scope " +
+            "(org or workspace); personal scopes are reserved for " +
+            "credentials, connections, and policies.",
+        }),
+      );
+    }
     yield* deleteSourceById(core, input.id, input.scope);
 
     const now = new Date();

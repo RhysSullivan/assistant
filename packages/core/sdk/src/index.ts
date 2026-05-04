@@ -51,6 +51,7 @@ export {
   NoHandlerError,
   SourceNotFoundError,
   SourceRemovalNotAllowedError,
+  InvalidSourceWriteTargetError,
   PluginNotLoadedError,
   SecretNotFoundError,
   SecretResolutionError,

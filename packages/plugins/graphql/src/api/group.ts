@@ -1,6 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId } from "@executor-js/sdk/core";
+import { InvalidSourceWriteTargetError, ScopeId } from "@executor-js/sdk/core";
 import { InternalError } from "@executor-js/api";
 
 import {
@@ -8,6 +8,10 @@ import {
   GraphqlExtractionError,
 } from "../sdk/errors";
 import { GraphqlSourceAuth, HeaderValue } from "../sdk/types";
+
+const InvalidSourceWriteTarget = InvalidSourceWriteTargetError.annotate({
+  httpApiStatus: 422,
+});
 
 // StoredGraphqlSource shape as an HTTP response schema. Kept local to the
 // api layer because the sdk-side `StoredGraphqlSource` is a plain interface.
@@ -102,7 +106,7 @@ export const GraphqlGroup = HttpApiGroup.make("graphql")
       params: ScopeParams,
       payload: AddSourcePayload,
       success: AddSourceResponse,
-      error: GraphqlErrors,
+      error: [...GraphqlErrors, InvalidSourceWriteTarget],
     }),
   )
   .add(

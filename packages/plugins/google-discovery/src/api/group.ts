@@ -1,8 +1,16 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 import { Schema } from "effect";
-import { ScopeId, SecretBackedValue } from "@executor-js/sdk/core";
+import {
+  InvalidSourceWriteTargetError,
+  ScopeId,
+  SecretBackedValue,
+} from "@executor-js/sdk/core";
 import { InternalError } from "@executor-js/api";
 import { GoogleDiscoveryParseError, GoogleDiscoverySourceError } from "../sdk/errors";
+
+const InvalidSourceWriteTarget = InvalidSourceWriteTargetError.annotate({
+  httpApiStatus: 422,
+});
 import { GoogleDiscoveryStoredSourceSchema } from "../sdk/stored-source";
 
 export { HttpApiSchema };
@@ -114,7 +122,7 @@ export const GoogleDiscoveryGroup = HttpApiGroup.make("googleDiscovery")
       params: { scopeId: ScopeId },
       payload: AddSourcePayload,
       success: AddSourceResponse,
-      error: GoogleDiscoveryErrors,
+      error: [...GoogleDiscoveryErrors, InvalidSourceWriteTarget],
     }),
   )
   .add(

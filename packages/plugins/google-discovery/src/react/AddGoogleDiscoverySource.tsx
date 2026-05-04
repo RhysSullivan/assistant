@@ -3,7 +3,10 @@ import { useAtomSet } from "@effect/atom-react";
 
 import { usePendingSources } from "@executor-js/react/api/optimistic";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
-import { useScope } from "@executor-js/react/api/scope-context";
+import {
+  SourceTargetSelector,
+  useSourceTargetState,
+} from "@executor-js/react/plugins/source-target-selector";
 import type { SecretPickerSecret } from "@executor-js/react/plugins/secret-picker";
 import { CreatableSecretPicker } from "@executor-js/react/plugins/secret-header-auth";
 import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
@@ -201,7 +204,8 @@ export default function AddGoogleDiscoverySource(props: {
     slugifyNamespace(probe?.name ?? selectedTemplate?.name ?? "") ||
     "google";
 
-  const scopeId = useScope();
+  const target = useSourceTargetState();
+  const scopeId = target.value;
   const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promise" });
   const doAdd = useAtomSet(addGoogleDiscoverySource, { mode: "promise" });
   const { beginAdd } = usePendingSources();
@@ -450,6 +454,12 @@ export default function AddGoogleDiscoverySource(props: {
         identity={identity}
         namePlaceholder="Google Sheets"
         namespacePlaceholder="google_sheets"
+      />
+
+      <SourceTargetSelector
+        value={target.value}
+        onChange={target.setValue}
+        disabled={adding}
       />
 
       {probe && (
