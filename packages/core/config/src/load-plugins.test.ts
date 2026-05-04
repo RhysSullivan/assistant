@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "@effect/vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import type { AnyPlugin } from "@executor-js/sdk";
 import { loadPluginsFromJsonc } from "./load-plugins";
 
 // Fixtures live under packages/core/config/__test-fixtures__/, which sits
@@ -12,6 +13,26 @@ import { loadPluginsFromJsonc } from "./load-plugins";
 // matches the loader's expectation: a function `(options) => Plugin`.
 const FIXTURES_ROOT = path.resolve(__dirname, "..", "__test-fixtures__");
 const TMP_ROOT = path.join(FIXTURES_ROOT, "tmp");
+
+// Single typed boundary for the loader's runtime-erased `AnyPlugin[]`:
+// fixture plugins are hand-rolled JS objects whose extra fields (id,
+// packageName, __optionsReceived) only matter to these tests, not to the
+// loader. Centralising the bridge here keeps every assertion in the
+// suite working off a precise type instead of repeating cast noise.
+interface FixturePlugin {
+  readonly id: string;
+  readonly packageName: string;
+  readonly __optionsReceived: Record<string, unknown> | null;
+}
+
+const asFixturePlugins = (
+  plugins: readonly AnyPlugin[] | null,
+): readonly FixturePlugin[] => {
+  // Fixture servers return shapes wider than AnyPlugin (they carry
+  // __optionsReceived for test assertions); narrow once here.
+  // oxlint-disable-next-line executor/no-double-cast
+  return plugins as unknown as readonly FixturePlugin[];
+};
 
 const writeJsonc = (name: string, body: string): string => {
   const dir = fs.mkdtempSync(path.join(TMP_ROOT, `${name}-`));
@@ -92,12 +113,10 @@ describe("loadPluginsFromJsonc", () => {
         ]
       }`,
     );
-    const plugins = await loadPluginsFromJsonc({ path: file });
-    expect(plugins).not.toBeNull();
+    const plugins = asFixturePlugins(await loadPluginsFromJsonc({ path: file }));
     expect(plugins).toHaveLength(1);
-    const [alpha] = plugins! as unknown as ReadonlyArray<Record<string, unknown>>;
-    expect(alpha!.id).toBe("alpha");
-    expect(alpha!.packageName).toBe("@loader-fixture/plugin-alpha");
+    expect(plugins[0]!.id).toBe("alpha");
+    expect(plugins[0]!.packageName).toBe("@loader-fixture/plugin-alpha");
   });
 
   it("forwards merged deps + options to the factory; entry options win on conflict", async () => {
@@ -112,14 +131,13 @@ describe("loadPluginsFromJsonc", () => {
         ]
       }`,
     );
-    const plugins = await loadPluginsFromJsonc({
-      path: file,
-      deps: { from: "deps", shared: "deps-loses", onlyDep: 42 },
-    });
-    const [alpha] = plugins! as unknown as ReadonlyArray<{
-      __optionsReceived: Record<string, unknown>;
-    }>;
-    expect(alpha!.__optionsReceived).toEqual({
+    const plugins = asFixturePlugins(
+      await loadPluginsFromJsonc({
+        path: file,
+        deps: { from: "deps", shared: "deps-loses", onlyDep: 42 },
+      }),
+    );
+    expect(plugins[0]!.__optionsReceived).toEqual({
       from: "options",
       shared: "options-wins",
       onlyDep: 42,
@@ -135,14 +153,13 @@ describe("loadPluginsFromJsonc", () => {
         ]
       }`,
     );
-    const plugins = await loadPluginsFromJsonc({
-      path: file,
-      deps: { configFile: "stub-sink" },
-    });
-    const [alpha] = plugins! as unknown as ReadonlyArray<{
-      __optionsReceived: Record<string, unknown>;
-    }>;
-    expect(alpha!.__optionsReceived).toEqual({ configFile: "stub-sink" });
+    const plugins = asFixturePlugins(
+      await loadPluginsFromJsonc({
+        path: file,
+        deps: { configFile: "stub-sink" },
+      }),
+    );
+    expect(plugins[0]!.__optionsReceived).toEqual({ configFile: "stub-sink" });
   });
 
   it("loads multiple plugins in declared order", async () => {
@@ -155,12 +172,8 @@ describe("loadPluginsFromJsonc", () => {
         ]
       }`,
     );
-    const plugins = await loadPluginsFromJsonc({ path: file });
-    expect(plugins).toHaveLength(2);
-    const ids = (plugins as unknown as ReadonlyArray<{ id: string }>).map(
-      (p) => p.id,
-    );
-    expect(ids).toEqual(["beta", "alpha"]);
+    const plugins = asFixturePlugins(await loadPluginsFromJsonc({ path: file }));
+    expect(plugins.map((p) => p.id)).toEqual(["beta", "alpha"]);
   });
 
   it("accepts line and block comments (jsonc semantics)", async () => {
