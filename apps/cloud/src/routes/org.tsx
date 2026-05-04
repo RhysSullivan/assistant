@@ -124,9 +124,12 @@ function OrgPage() {
   const canUseDomains = customerLoading
     ? false
     : check({ featureId: "domain-verification" }).allowed;
-  const canInviteMember = customerLoading
-    ? false
-    : check({ featureId: "members", requiredBalance: 1 }).allowed;
+  const seats = AsyncResult.match(membersResult, {
+    onInitial: () => null,
+    onFailure: () => null,
+    onSuccess: ({ value }) => value.seats ?? null,
+  });
+  const canInviteMember = !seats ? false : seats.unlimited || seats.used < seats.granted;
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editName, setEditName] = useState(orgName);
   const [savingName, setSavingName] = useState(false);
@@ -256,7 +259,7 @@ function OrgPage() {
           {!canUseDomains && (
             <div className="mb-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
               <p className="text-sm text-muted-foreground">
-                Domain verification is available on the Team plan.
+                Join by domain is available on the Team plan.
               </p>
               <Link to="/billing/plans">
                 <Button size="sm" variant="outline">
@@ -281,6 +284,7 @@ function OrgPage() {
             ),
             onSuccess: ({ value }) => {
               if (value.domains.length === 0) {
+                if (!canUseDomains) return null;
                 return (
                   <p className="py-6 text-center text-sm text-muted-foreground">
                     No domains yet. Add your company domain so members can join without an invite.
@@ -324,18 +328,6 @@ function OrgPage() {
               </Link>
             )}
           </div>
-          {!canInviteMember && (
-            <div className="mb-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
-              <p className="text-sm text-muted-foreground">
-                Upgrade to Team to add more than 3 members.
-              </p>
-              <Link to="/billing/plans">
-                <Button size="sm" variant="outline">
-                  View plans
-                </Button>
-              </Link>
-            </div>
-          )}
           <Input
             type="text"
             placeholder="Search by name or email..."

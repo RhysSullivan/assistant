@@ -386,14 +386,16 @@ function SlackContactCta() {
           }}
         >
           <DialogTrigger asChild>
-            <button
+            <Button
               type="button"
-              className="inline-flex items-center gap-1.5 text-foreground hover:text-primary transition-colors"
+              variant="ghost"
+              size="sm"
+              className="text-foreground hover:text-primary"
             >
               <SlackMark className="size-4" />
               Get in touch on Slack
               <span aria-hidden>→</span>
-            </button>
+            </Button>
           </DialogTrigger>
         <DialogContent>
           {inviteUrl ? (

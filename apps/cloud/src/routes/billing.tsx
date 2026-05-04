@@ -125,19 +125,6 @@ function BillingPage() {
                 )}
               </p>
             </div>
-            {!members.unlimited && members.granted > 0 && (
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-300"
-                  style={
-                    {
-                      "--progress": `${Math.min(100, (members.usage / members.granted) * 100)}%`,
-                      width: "var(--progress)",
-                    } as React.CSSProperties
-                  }
-                />
-              </div>
-            )}
           </div>
         )}
 

@@ -10,7 +10,6 @@ import { authorizeOrganization } from "./authorize-organization";
 import { env } from "cloudflare:workers";
 import { WorkOSError } from "./errors";
 import { WorkOSAuth } from "./workos";
-import { AutumnService } from "../services/autumn";
 
 const COOKIE_OPTIONS = {
   path: "/",
@@ -232,13 +231,11 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
           const users = yield* UserStoreService;
-          const autumn = yield* AutumnService;
           const session = yield* SessionContext;
 
           const name = payload.name.trim();
           const org = yield* workos.createOrganization(name);
           yield* workos.createMembership(org.id, session.accountId, "admin");
-          yield* autumn.trackMemberChange(org.id, 1);
           yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
 
           // Try to attach the new org to the current session. This can fail

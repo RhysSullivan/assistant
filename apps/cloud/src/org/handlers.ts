@@ -52,21 +52,51 @@ const assertDomainInSessionOrg = (domainId: string) =>
     }
   });
 
+// Compute live seat usage from WorkOS truth (active+pending memberships +
+// pending invitations) and the per-plan limit from Autumn. Recomputed on
+// every call — no event-counting drift.
+const getMemberSeats = (organizationId: string) =>
+  Effect.gen(function* () {
+    const autumn = yield* AutumnService;
+    const workos = yield* WorkOSAuth;
+
+    const limit = yield* autumn.use((client) =>
+      client.check({ customerId: organizationId, featureId: "members" }),
+    );
+    const memberships = yield* workos.listOrgMembers(organizationId);
+    const invitations = yield* workos.listPendingInvitations(organizationId);
+
+    return {
+      used: memberships.data.length + invitations.data.length,
+      granted: limit.balance?.granted ?? 0,
+      unlimited: limit.balance?.unlimited ?? false,
+    };
+  });
+
 const reserveMemberSlot = Effect.gen(function* () {
   const auth = yield* AuthContext;
-  const autumn = yield* AutumnService;
-  const check = yield* autumn
-    .use((client) =>
-      client.check({
-        customerId: auth.organizationId,
-        featureId: "members",
-        requiredBalance: 1,
-        sendEvent: true,
+  const seats = yield* getMemberSeats(auth.organizationId).pipe(
+    Effect.tap((s) =>
+      Effect.logInfo("members.check").pipe(
+        Effect.annotateLogs({
+          "org.id": auth.organizationId,
+          "members.used": s.used,
+          "members.granted": s.granted,
+          "members.unlimited": s.unlimited,
+        }),
+      ),
+    ),
+    Effect.catchCause((cause) =>
+      Effect.gen(function* () {
+        yield* Effect.logError("members.seats lookup failed; failing closed").pipe(
+          Effect.annotateLogs({ "org.id": auth.organizationId, cause: String(cause) }),
+        );
+        return yield* new Forbidden();
       }),
-    )
-    .pipe(Effect.orElseSucceed(() => ({ allowed: true })));
+    ),
+  );
 
-  if (!check.allowed) {
+  if (!seats.unlimited && seats.used >= seats.granted) {
     return yield* new Forbidden();
   }
 });
@@ -78,7 +108,30 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
         const auth = yield* AuthContext;
         const workos = yield* WorkOSAuth;
 
+        // The list endpoint falls back to safe display defaults if the seats
+        // lookup errors — we never want a transient Autumn or WorkOS hiccup
+        // to blank the members page. The actual cap gate lives in
+        // `reserveMemberSlot`, which fails closed.
+        const seats = yield* getMemberSeats(auth.organizationId).pipe(
+          Effect.catchTag("AutumnError", (error) =>
+            Effect.logError("listMembers.seats: autumn lookup failed").pipe(
+              Effect.annotateLogs({ "org.id": auth.organizationId, error: String(error.cause) }),
+              Effect.as({ used: 0, granted: 0, unlimited: false }),
+            ),
+          ),
+        );
+
         const memberships = yield* workos.listOrgMembers(auth.organizationId);
+
+        yield* Effect.logInfo("listMembers.seats").pipe(
+          Effect.annotateLogs({
+            "org.id": auth.organizationId,
+            "members.count": memberships.data.length,
+            "seats.used": seats.used,
+            "seats.granted": seats.granted,
+            "seats.unlimited": seats.unlimited,
+          }),
+        );
 
         const members = yield* Effect.all(
           memberships.data.map((m) =>
@@ -100,7 +153,7 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
           { concurrency: 5 },
         );
 
-        return { members };
+        return { members, seats };
       }),
     )
     .handle("listRoles", () =>
@@ -123,17 +176,14 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
         yield* requireAdmin;
         const auth = yield* AuthContext;
         const workos = yield* WorkOSAuth;
-        const autumn = yield* AutumnService;
 
         yield* reserveMemberSlot;
 
-        const invitation = yield* workos
-          .sendInvitation({
-            email: payload.email,
-            organizationId: auth.organizationId,
-            roleSlug: payload.roleSlug,
-          })
-          .pipe(Effect.tapError(() => autumn.trackMemberChange(auth.organizationId, -1)));
+        const invitation = yield* workos.sendInvitation({
+          email: payload.email,
+          organizationId: auth.organizationId,
+          roleSlug: payload.roleSlug,
+        });
 
         return { id: invitation.id, email: invitation.email };
       }),
@@ -143,10 +193,7 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
         yield* requireAdmin;
         yield* assertMembershipInSessionOrg(params.membershipId);
         const workos = yield* WorkOSAuth;
-        const auth = yield* AuthContext;
-        const autumn = yield* AutumnService;
         yield* workos.deleteOrgMembership(params.membershipId);
-        yield* autumn.trackMemberChange(auth.organizationId, -1);
         return { success: true };
       }),
     )
