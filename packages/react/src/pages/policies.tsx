@@ -12,7 +12,7 @@ import {
   updatePolicyOptimistic,
 } from "../api/atoms";
 import { policyWriteKeys } from "../api/reactivity-keys";
-import { useScope } from "../hooks/use-scope";
+import { useActiveWriteScopeId } from "../hooks/use-scope";
 import { badgeVariants } from "../components/badge";
 import { cn } from "../lib/utils";
 import {
@@ -250,7 +250,7 @@ function PolicyRow(props: {
 // ---------------------------------------------------------------------------
 
 export function PoliciesPage() {
-  const scopeId = useScope();
+  const scopeId = useActiveWriteScopeId();
   const policies = useAtomValue(policiesOptimisticAtom(scopeId));
   const doCreate = useAtomSet(createPolicyOptimistic(scopeId), {
     mode: "promise",

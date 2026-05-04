@@ -5,7 +5,7 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { PlusIcon } from "lucide-react";
 import { SourceFavicon } from "./source-favicon";
 import { sourcesAtom } from "../api/atoms";
-import { useScope } from "../hooks/use-scope";
+import { useActiveWriteScopeId } from "../hooks/use-scope";
 import { useSourcePlugins } from "@executor-js/sdk/client";
 import {
   CommandDialog,
@@ -31,7 +31,7 @@ export function CommandPalette() {
   const sourcePlugins = useSourcePlugins();
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-  const scopeId = useScope();
+  const scopeId = useActiveWriteScopeId();
   const sourcesResult = useAtomValue(sourcesAtom(scopeId));
 
   // Toggle with ⌘K / Ctrl+K

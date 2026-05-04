@@ -5,7 +5,7 @@ import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import { useSecretProviderPlugins } from "@executor-js/sdk/client";
 import { SecretId } from "@executor-js/sdk";
-import { useScope } from "../hooks/use-scope";
+import { useActiveWriteScopeId } from "../hooks/use-scope";
 import {
   Dialog,
   DialogContent,
@@ -72,7 +72,7 @@ function AddSecretDialog(props: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const scopeId = useScope();
+  const scopeId = useActiveWriteScopeId();
   const doSet = useAtomSet(setSecret, { mode: "promise" });
 
   const reset = () => {
@@ -289,7 +289,7 @@ export function SecretsPage(props: {
     "Store a credential or API key. Values are kept in your system keychain when available, with a local encrypted file fallback.";
   const secretProviderPlugins = useSecretProviderPlugins();
   const [addOpen, setAddOpen] = useState(false);
-  const scopeId = useScope();
+  const scopeId = useActiveWriteScopeId();
   const secrets = useAtomValue(secretsAtom(scopeId));
   const doRemove = useAtomSet(removeSecret, { mode: "promise" });
 

@@ -2,7 +2,7 @@ import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
-import { useScope } from "@executor-js/react/api/scope-context";
+import { useActiveWriteScopeId } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
 import { Skeleton } from "@executor-js/react/components/skeleton";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
@@ -140,7 +140,7 @@ function NavItem(props: {
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const { orgHandle } = useOrgRoute();
   const workspace = useOptionalWorkspaceRoute();
-  const scopeId = useScope();
+  const scopeId = useActiveWriteScopeId();
   const sources = useSourcesWithPending(scopeId);
 
   return AsyncResult.match(sources, {

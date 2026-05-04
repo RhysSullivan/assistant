@@ -1,1 +1,7 @@
-export { useScope, useScopeInfo, useScopeStack, useUserScope } from "../api/scope-context";
+export {
+  useScope,
+  useActiveWriteScopeId,
+  useScopeInfo,
+  useScopeStack,
+  useUserScope,
+} from "../api/scope-context";
