@@ -35,7 +35,7 @@ export function SecretPicker(props: {
   readonly onSelect: (secretId: string) => void;
   readonly secrets: readonly SecretPickerSecret[];
   readonly placeholder?: string;
-  /** When provided, renders a "+ New secret" row at the bottom of the dropdown. */
+  /** When provided, renders a "+ New secret" row at the top of the dropdown. */
   readonly onCreateNew?: () => void;
 }) {
   const { value, onSelect, secrets, placeholder = "Search secrets…", onCreateNew } = props;
@@ -98,6 +98,25 @@ export function SecretPicker(props: {
           <Command shouldFilter={false}>
             <CommandList>
               <CommandEmpty>No secrets found</CommandEmpty>
+              {onCreateNew && (
+                <>
+                  <CommandGroup>
+                    <CommandItem
+                      value="__create_new__"
+                      onSelect={() => {
+                        onCreateNew();
+                        setOpen(false);
+                        setQuery("");
+                      }}
+                      className="text-muted-foreground data-[selected=true]:text-foreground"
+                    >
+                      <PlusIcon aria-hidden className="size-3.5" />
+                      <span>New secret</span>
+                    </CommandItem>
+                  </CommandGroup>
+                  {secrets.length > 0 && <CommandSeparator />}
+                </>
+              )}
               {groups.map(([label, items]) => {
                 const lowerQuery = query.toLowerCase();
                 const filtered = lowerQuery
@@ -126,25 +145,6 @@ export function SecretPicker(props: {
                   </CommandGroup>
                 );
               })}
-              {onCreateNew && (
-                <>
-                  {secrets.length > 0 && <CommandSeparator />}
-                  <CommandGroup>
-                    <CommandItem
-                      value="__create_new__"
-                      onSelect={() => {
-                        onCreateNew();
-                        setOpen(false);
-                        setQuery("");
-                      }}
-                      className="text-muted-foreground data-[selected=true]:text-foreground"
-                    >
-                      <PlusIcon aria-hidden className="size-3.5" />
-                      <span>New secret</span>
-                    </CommandItem>
-                  </CommandGroup>
-                </>
-              )}
             </CommandList>
           </Command>
         </PopoverContent>

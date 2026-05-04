@@ -1,13 +1,10 @@
-import { useId, useState, type CSSProperties } from "react";
-import { useAtomSet } from "@effect/atom-react";
+import { useId, useState } from "react";
 
-import { setSecret } from "../api/atoms";
-import { secretWriteKeys } from "../api/reactivity-keys";
-import { useScope } from "../api/scope-context";
-import { SecretId, type ScopeId } from "@executor-js/sdk";
+import { type ScopeId } from "@executor-js/sdk";
 import { Button } from "../components/button";
-import { Field, FieldError, FieldGroup, FieldLabel } from "../components/field";
+import { Field, FieldGroup, FieldLabel } from "../components/field";
 import { Input } from "../components/input";
+import { SecretForm } from "./secret-form";
 import { SecretPicker, type SecretPickerSecret } from "./secret-picker";
 
 export interface HeaderAuthPreset {
@@ -27,155 +24,40 @@ export const defaultHeaderAuthPresets: readonly HeaderAuthPreset[] = [
   { key: "custom", label: "Custom", name: "" },
 ];
 
-function SecretVisibilityIcon(props: { revealed: boolean }) {
-  return props.revealed ? (
-    <svg
-      viewBox="0 0 16 16"
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M2 2l12 12" />
-      <path d="M6.5 6.5a2 2 0 0 0 3 3" />
-      <path d="M3.5 5.5C2.3 6.7 1.5 8 1.5 8s2.5 4.5 6.5 4.5c1 0 1.9-.3 2.7-.7" />
-      <path d="M10.7 10.7c2-1.4 3.3-3.2 3.8-3.7 0 0-2.5-5-6.5-5-.7 0-1.4.1-2 .4" />
-    </svg>
-  ) : (
-    <svg
-      viewBox="0 0 16 16"
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z" />
-      <circle cx="8" cy="8" r="2" />
-    </svg>
-  );
-}
-
-function slugifyForSecretId(input: string): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
 export function InlineCreateSecret(props: {
-  suggestedId: string;
   suggestedName: string;
+  existingSecretIds: readonly string[];
   onCreated: (secretId: string) => void;
   onCancel: () => void;
+  fallbackId?: string;
   targetScope?: ScopeId;
   writeScope?: ScopeId;
 }) {
-  const [nameOverride, setNameOverride] = useState<string | null>(null);
-  const [idOverride, setIdOverride] = useState<string | null>(null);
-  const [secretValue, setSecretValue] = useState("");
-  const [secretRevealed, setSecretRevealed] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const defaultScope = useScope();
-  const scopeId = props.targetScope ?? props.writeScope ?? defaultScope;
-  const doSet = useAtomSet(setSecret, { mode: "promise" });
-  const secretIdInputId = useId();
-  const secretNameInputId = useId();
-  const secretValueInputId = useId();
-
-  const secretName = nameOverride ?? props.suggestedName;
-  const secretId = idOverride ?? (slugifyForSecretId(secretName) || "custom-header");
-
-  const handleSave = async () => {
-    if (!secretId.trim() || !secretValue.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await doSet({
-        params: { scopeId },
-        payload: {
-          id: SecretId.make(secretId.trim()),
-          name: secretName.trim() || secretId.trim(),
-          value: secretValue.trim(),
-        },
-        reactivityKeys: secretWriteKeys,
-      });
-      props.onCreated(secretId.trim());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save secret");
-      setSaving(false);
-    }
-  };
-
   return (
-    <div className="bg-primary/[0.03] px-4 py-3 space-y-3">
-      <p className="text-[11px] font-semibold text-primary tracking-wide uppercase">New secret</p>
-      <FieldGroup className="gap-3">
-        <div className="grid grid-cols-2 gap-3">
-          <Field>
-            <FieldLabel htmlFor={secretNameInputId}>Label</FieldLabel>
-            <Input
-              id={secretNameInputId}
-              value={secretName}
-              onChange={(e) => setNameOverride((e.target as HTMLInputElement).value)}
-              placeholder="API Token"
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={secretIdInputId}>ID</FieldLabel>
-            <Input
-              id={secretIdInputId}
-              value={secretId}
-              onChange={(e) => setIdOverride((e.target as HTMLInputElement).value)}
-              placeholder="my-api-token"
-              className="font-mono"
-            />
-          </Field>
-        </div>
-        <Field>
-          <FieldLabel htmlFor={secretValueInputId}>Value</FieldLabel>
-          <div className="relative">
-            <Input
-              id={secretValueInputId}
-              type="text"
-              value={secretValue}
-              onChange={(e) => setSecretValue((e.target as HTMLInputElement).value)}
-              placeholder="paste your token or key…"
-              className="pr-9 font-mono"
-              style={secretRevealed ? undefined : ({ WebkitTextSecurity: "disc" } as CSSProperties)}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="absolute right-1 top-1/2 size-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              onClick={() => setSecretRevealed((revealed) => !revealed)}
-              aria-label={secretRevealed ? "Hide secret value" : "Reveal secret value"}
-            >
-              <SecretVisibilityIcon revealed={secretRevealed} />
-            </Button>
+    <SecretForm.Provider
+      existingSecretIds={props.existingSecretIds}
+      suggestedName={props.suggestedName}
+      fallbackId={props.fallbackId ?? "custom-header"}
+      scopeId={props.targetScope ?? props.writeScope}
+      onCreated={props.onCreated}
+    >
+      <div className="bg-primary/[0.03] px-4 py-3 space-y-3">
+        <p className="text-[11px] font-semibold text-primary tracking-wide uppercase">New secret</p>
+        <FieldGroup className="gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <SecretForm.NameField label="Label" placeholder="API Token" />
+            <SecretForm.IdField placeholder="my-api-token" />
           </div>
-          {error && <FieldError>{error}</FieldError>}
-        </Field>
-      </FieldGroup>
-      <div className="flex justify-end gap-1.5 pt-0.5">
-        <Button variant="outline" size="xs" onClick={props.onCancel}>
-          Cancel
-        </Button>
-        <Button
-          size="xs"
-          onClick={handleSave}
-          disabled={!secretId.trim() || !secretValue.trim() || saving}
-        >
-          {saving ? "Saving…" : "Create and use"}
-        </Button>
+          <SecretForm.ValueField revealable placeholder="paste your token or key…" />
+        </FieldGroup>
+        <div className="flex justify-end gap-1.5 pt-0.5">
+          <Button variant="outline" size="xs" onClick={props.onCancel}>
+            Cancel
+          </Button>
+          <SecretForm.SubmitButton size="xs">Create and use</SecretForm.SubmitButton>
+        </div>
       </div>
-    </div>
+    </SecretForm.Provider>
   );
 }
 
@@ -288,13 +170,12 @@ export function SecretHeaderAuthRow(props: {
   const isCustom = presetKey === "custom" || presetKey === undefined;
   const headerLabel = name.trim() || "Custom Header";
   const suggestedName = [sourceName?.trim(), headerLabel].filter(Boolean).join(" ");
-  const suggestedId = slugifyForSecretId(suggestedName) || "custom-header";
 
   if (creating) {
     return (
       <InlineCreateSecret
-        suggestedId={suggestedId}
         suggestedName={suggestedName}
+        existingSecretIds={existingSecrets.map((secret) => secret.id)}
         onCreated={(id) => {
           onSelectSecret(id);
           setCreating(false);
@@ -406,13 +287,13 @@ export function CreatableSecretPicker(props: {
   const [creating, setCreating] = useState(false);
 
   const suggestedName = [sourceName?.trim(), secretLabel].filter(Boolean).join(" ");
-  const suggestedId = suggestedIdProp?.trim() || slugifyForSecretId(suggestedName) || "secret";
 
   if (creating) {
     return (
       <InlineCreateSecret
-        suggestedId={suggestedId}
         suggestedName={suggestedName}
+        existingSecretIds={secrets.map((secret) => secret.id)}
+        fallbackId={suggestedIdProp?.trim() || "secret"}
         onCreated={(id) => {
           onSelect(id);
           setCreating(false);
