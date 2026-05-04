@@ -10,6 +10,7 @@ import {
   type SourcePreset,
 } from "@executor-js/sdk/client";
 import { detectSource } from "../api/atoms";
+import { useAppHref } from "../api/href";
 import { useSourcesWithPending } from "../api/optimistic";
 import { useActiveWriteScopeId, useScopeStack } from "../hooks/use-scope";
 import { McpInstallCard } from "../components/mcp-install-card";
@@ -204,6 +205,7 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
   const scopeId = useActiveWriteScopeId();
   const doDetect = useAtomSet(detectSource, { mode: "promise" });
   const navigate = useNavigate();
+  const appHref = useAppHref();
 
   const [query, setQuery] = useState("");
   const [detecting, setDetecting] = useState(false);
@@ -243,13 +245,15 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
       const pluginKey = KIND_TO_PLUGIN_KEY[detected.kind];
       if (pluginKey) {
         closeAndReset();
-        // Path templates depend on the consuming app's route tree (local vs
-        // cloud's `/$org/...`). The shared package can't be typed against
-        // both — `as never` defers to runtime routing.
+        // Cloud mounts these routes under /:org (or /:org/:workspace);
+        // local has them flat. `useAppHref` derives the right prefix from
+        // the active URL.
         void navigate({
-          to: "/sources/add/$pluginKey" as never,
-          params: { pluginKey } as never,
-          search: { url: trimmed, namespace: detected.namespace } as never,
+          to: appHref(
+            "/sources/add/$pluginKey",
+            { pluginKey },
+            { url: trimmed, namespace: detected.namespace },
+          ) as never,
         });
       } else {
         setError(`Detected source type "${detected.kind}" but no plugin is available for it.`);
@@ -259,7 +263,7 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
       setError("Detection failed. Try adding a source manually.");
       setDetecting(false);
     }
-  }, [query, doDetect, navigate, scopeId, closeAndReset]);
+  }, [query, doDetect, navigate, scopeId, closeAndReset, appHref]);
 
   return (
     <Dialog
@@ -312,8 +316,7 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
               {sourcePlugins.map((p) => (
                 <Link
                   key={p.key}
-                  to={"/sources/add/$pluginKey" as never}
-                  params={{ pluginKey: p.key } as never}
+                  to={appHref("/sources/add/$pluginKey", { pluginKey: p.key }) as never}
                   onClick={closeAndReset}
                   className="rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
                 >
@@ -373,6 +376,7 @@ function PresetGrid(props: {
    *  search/URL input. Empty string disables filtering. */
   searchQuery?: string;
 }) {
+  const appHref = useAppHref();
   const allPresets = useMemo(() => {
     const entries: PresetEntry[] = [];
     for (const plugin of props.plugins) {
@@ -421,9 +425,7 @@ function PresetGrid(props: {
               return (
                 <CardStackEntry key={`${pluginKey}-${preset.id}`} asChild>
                   <Link
-                    to={"/sources/add/$pluginKey" as never}
-                    params={{ pluginKey } as never}
-                    search={search as never}
+                    to={appHref("/sources/add/$pluginKey", { pluginKey }, search) as never}
                     onClick={props.onPick}
                   >
                     <CardStackEntryMedia>
@@ -464,6 +466,7 @@ function PresetGrid(props: {
 
 function SourceGrid(props: { sources: readonly SourceRow[] }) {
   const sourcePlugins = useSourcePlugins();
+  const appHref = useAppHref();
   const pluginByKind = useMemo(() => {
     const out = new Map<string, SourcePlugin>();
     for (const p of sourcePlugins) out.set(p.key, p);
@@ -488,7 +491,7 @@ function SourceGrid(props: { sources: readonly SourceRow[] }) {
               searchText={`${s.name} ${s.id} ${s.kind}`}
               className={overridden ? "opacity-60" : undefined}
             >
-              <Link to={"/sources/$namespace" as never} params={{ namespace: s.id } as never}>
+              <Link to={appHref("/sources/$namespace", { namespace: s.id }) as never}>
                 <CardStackEntryMedia>
                   <SourceFavicon url={s.url} size={32} />
                 </CardStackEntryMedia>
