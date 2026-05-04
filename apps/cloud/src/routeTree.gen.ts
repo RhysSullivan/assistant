@@ -16,11 +16,19 @@ import { Route as OrgToolsRouteImport } from './routes/$org/tools'
 import { Route as OrgSecretsRouteImport } from './routes/$org/secrets'
 import { Route as OrgPoliciesRouteImport } from './routes/$org/policies'
 import { Route as OrgConnectionsRouteImport } from './routes/$org/connections'
+import { Route as OrgWorkspaceRouteImport } from './routes/$org/$workspace'
+import { Route as OrgWorkspaceIndexRouteImport } from './routes/$org/$workspace/index'
 import { Route as OrgSourcesNamespaceRouteImport } from './routes/$org/sources.$namespace'
 import { Route as OrgChar91Char93SettingsRouteImport } from './routes/$org/[-].settings'
 import { Route as OrgChar91Char93BillingRouteImport } from './routes/$org/[-].billing'
+import { Route as OrgWorkspaceToolsRouteImport } from './routes/$org/$workspace/tools'
+import { Route as OrgWorkspaceSecretsRouteImport } from './routes/$org/$workspace/secrets'
+import { Route as OrgWorkspacePoliciesRouteImport } from './routes/$org/$workspace/policies'
+import { Route as OrgWorkspaceConnectionsRouteImport } from './routes/$org/$workspace/connections'
 import { Route as OrgSourcesAddPluginKeyRouteImport } from './routes/$org/sources.add.$pluginKey'
 import { Route as OrgChar91Char93BillingPlansRouteImport } from './routes/$org/[-].billing_.plans'
+import { Route as OrgWorkspaceSourcesNamespaceRouteImport } from './routes/$org/$workspace/sources.$namespace'
+import { Route as OrgWorkspaceSourcesAddPluginKeyRouteImport } from './routes/$org/$workspace/sources.add.$pluginKey'
 
 const OrgRoute = OrgRouteImport.update({
   id: '/$org',
@@ -57,6 +65,16 @@ const OrgConnectionsRoute = OrgConnectionsRouteImport.update({
   path: '/connections',
   getParentRoute: () => OrgRoute,
 } as any)
+const OrgWorkspaceRoute = OrgWorkspaceRouteImport.update({
+  id: '/$workspace',
+  path: '/$workspace',
+  getParentRoute: () => OrgRoute,
+} as any)
+const OrgWorkspaceIndexRoute = OrgWorkspaceIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => OrgWorkspaceRoute,
+} as any)
 const OrgSourcesNamespaceRoute = OrgSourcesNamespaceRouteImport.update({
   id: '/sources/$namespace',
   path: '/sources/$namespace',
@@ -72,6 +90,26 @@ const OrgChar91Char93BillingRoute = OrgChar91Char93BillingRouteImport.update({
   path: '/-/billing',
   getParentRoute: () => OrgRoute,
 } as any)
+const OrgWorkspaceToolsRoute = OrgWorkspaceToolsRouteImport.update({
+  id: '/tools',
+  path: '/tools',
+  getParentRoute: () => OrgWorkspaceRoute,
+} as any)
+const OrgWorkspaceSecretsRoute = OrgWorkspaceSecretsRouteImport.update({
+  id: '/secrets',
+  path: '/secrets',
+  getParentRoute: () => OrgWorkspaceRoute,
+} as any)
+const OrgWorkspacePoliciesRoute = OrgWorkspacePoliciesRouteImport.update({
+  id: '/policies',
+  path: '/policies',
+  getParentRoute: () => OrgWorkspaceRoute,
+} as any)
+const OrgWorkspaceConnectionsRoute = OrgWorkspaceConnectionsRouteImport.update({
+  id: '/connections',
+  path: '/connections',
+  getParentRoute: () => OrgWorkspaceRoute,
+} as any)
 const OrgSourcesAddPluginKeyRoute = OrgSourcesAddPluginKeyRouteImport.update({
   id: '/sources/add/$pluginKey',
   path: '/sources/add/$pluginKey',
@@ -83,20 +121,40 @@ const OrgChar91Char93BillingPlansRoute =
     path: '/-/billing/plans',
     getParentRoute: () => OrgRoute,
   } as any)
+const OrgWorkspaceSourcesNamespaceRoute =
+  OrgWorkspaceSourcesNamespaceRouteImport.update({
+    id: '/sources/$namespace',
+    path: '/sources/$namespace',
+    getParentRoute: () => OrgWorkspaceRoute,
+  } as any)
+const OrgWorkspaceSourcesAddPluginKeyRoute =
+  OrgWorkspaceSourcesAddPluginKeyRouteImport.update({
+    id: '/sources/add/$pluginKey',
+    path: '/sources/add/$pluginKey',
+    getParentRoute: () => OrgWorkspaceRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$org': typeof OrgRouteWithChildren
+  '/$org/$workspace': typeof OrgWorkspaceRouteWithChildren
   '/$org/connections': typeof OrgConnectionsRoute
   '/$org/policies': typeof OrgPoliciesRoute
   '/$org/secrets': typeof OrgSecretsRoute
   '/$org/tools': typeof OrgToolsRoute
   '/$org/': typeof OrgIndexRoute
+  '/$org/$workspace/connections': typeof OrgWorkspaceConnectionsRoute
+  '/$org/$workspace/policies': typeof OrgWorkspacePoliciesRoute
+  '/$org/$workspace/secrets': typeof OrgWorkspaceSecretsRoute
+  '/$org/$workspace/tools': typeof OrgWorkspaceToolsRoute
   '/$org/-/billing': typeof OrgChar91Char93BillingRoute
   '/$org/-/settings': typeof OrgChar91Char93SettingsRoute
   '/$org/sources/$namespace': typeof OrgSourcesNamespaceRoute
+  '/$org/$workspace/': typeof OrgWorkspaceIndexRoute
+  '/$org/$workspace/sources/$namespace': typeof OrgWorkspaceSourcesNamespaceRoute
   '/$org/-/billing/plans': typeof OrgChar91Char93BillingPlansRoute
   '/$org/sources/add/$pluginKey': typeof OrgSourcesAddPluginKeyRoute
+  '/$org/$workspace/sources/add/$pluginKey': typeof OrgWorkspaceSourcesAddPluginKeyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -105,42 +163,65 @@ export interface FileRoutesByTo {
   '/$org/secrets': typeof OrgSecretsRoute
   '/$org/tools': typeof OrgToolsRoute
   '/$org': typeof OrgIndexRoute
+  '/$org/$workspace/connections': typeof OrgWorkspaceConnectionsRoute
+  '/$org/$workspace/policies': typeof OrgWorkspacePoliciesRoute
+  '/$org/$workspace/secrets': typeof OrgWorkspaceSecretsRoute
+  '/$org/$workspace/tools': typeof OrgWorkspaceToolsRoute
   '/$org/-/billing': typeof OrgChar91Char93BillingRoute
   '/$org/-/settings': typeof OrgChar91Char93SettingsRoute
   '/$org/sources/$namespace': typeof OrgSourcesNamespaceRoute
+  '/$org/$workspace': typeof OrgWorkspaceIndexRoute
+  '/$org/$workspace/sources/$namespace': typeof OrgWorkspaceSourcesNamespaceRoute
   '/$org/-/billing/plans': typeof OrgChar91Char93BillingPlansRoute
   '/$org/sources/add/$pluginKey': typeof OrgSourcesAddPluginKeyRoute
+  '/$org/$workspace/sources/add/$pluginKey': typeof OrgWorkspaceSourcesAddPluginKeyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$org': typeof OrgRouteWithChildren
+  '/$org/$workspace': typeof OrgWorkspaceRouteWithChildren
   '/$org/connections': typeof OrgConnectionsRoute
   '/$org/policies': typeof OrgPoliciesRoute
   '/$org/secrets': typeof OrgSecretsRoute
   '/$org/tools': typeof OrgToolsRoute
   '/$org/': typeof OrgIndexRoute
+  '/$org/$workspace/connections': typeof OrgWorkspaceConnectionsRoute
+  '/$org/$workspace/policies': typeof OrgWorkspacePoliciesRoute
+  '/$org/$workspace/secrets': typeof OrgWorkspaceSecretsRoute
+  '/$org/$workspace/tools': typeof OrgWorkspaceToolsRoute
   '/$org/-/billing': typeof OrgChar91Char93BillingRoute
   '/$org/-/settings': typeof OrgChar91Char93SettingsRoute
   '/$org/sources/$namespace': typeof OrgSourcesNamespaceRoute
+  '/$org/$workspace/': typeof OrgWorkspaceIndexRoute
+  '/$org/$workspace/sources/$namespace': typeof OrgWorkspaceSourcesNamespaceRoute
   '/$org/-/billing_/plans': typeof OrgChar91Char93BillingPlansRoute
   '/$org/sources/add/$pluginKey': typeof OrgSourcesAddPluginKeyRoute
+  '/$org/$workspace/sources/add/$pluginKey': typeof OrgWorkspaceSourcesAddPluginKeyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/$org'
+    | '/$org/$workspace'
     | '/$org/connections'
     | '/$org/policies'
     | '/$org/secrets'
     | '/$org/tools'
     | '/$org/'
+    | '/$org/$workspace/connections'
+    | '/$org/$workspace/policies'
+    | '/$org/$workspace/secrets'
+    | '/$org/$workspace/tools'
     | '/$org/-/billing'
     | '/$org/-/settings'
     | '/$org/sources/$namespace'
+    | '/$org/$workspace/'
+    | '/$org/$workspace/sources/$namespace'
     | '/$org/-/billing/plans'
     | '/$org/sources/add/$pluginKey'
+    | '/$org/$workspace/sources/add/$pluginKey'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -149,25 +230,40 @@ export interface FileRouteTypes {
     | '/$org/secrets'
     | '/$org/tools'
     | '/$org'
+    | '/$org/$workspace/connections'
+    | '/$org/$workspace/policies'
+    | '/$org/$workspace/secrets'
+    | '/$org/$workspace/tools'
     | '/$org/-/billing'
     | '/$org/-/settings'
     | '/$org/sources/$namespace'
+    | '/$org/$workspace'
+    | '/$org/$workspace/sources/$namespace'
     | '/$org/-/billing/plans'
     | '/$org/sources/add/$pluginKey'
+    | '/$org/$workspace/sources/add/$pluginKey'
   id:
     | '__root__'
     | '/'
     | '/$org'
+    | '/$org/$workspace'
     | '/$org/connections'
     | '/$org/policies'
     | '/$org/secrets'
     | '/$org/tools'
     | '/$org/'
+    | '/$org/$workspace/connections'
+    | '/$org/$workspace/policies'
+    | '/$org/$workspace/secrets'
+    | '/$org/$workspace/tools'
     | '/$org/-/billing'
     | '/$org/-/settings'
     | '/$org/sources/$namespace'
+    | '/$org/$workspace/'
+    | '/$org/$workspace/sources/$namespace'
     | '/$org/-/billing_/plans'
     | '/$org/sources/add/$pluginKey'
+    | '/$org/$workspace/sources/add/$pluginKey'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -226,6 +322,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgConnectionsRouteImport
       parentRoute: typeof OrgRoute
     }
+    '/$org/$workspace': {
+      id: '/$org/$workspace'
+      path: '/$workspace'
+      fullPath: '/$org/$workspace'
+      preLoaderRoute: typeof OrgWorkspaceRouteImport
+      parentRoute: typeof OrgRoute
+    }
+    '/$org/$workspace/': {
+      id: '/$org/$workspace/'
+      path: '/'
+      fullPath: '/$org/$workspace/'
+      preLoaderRoute: typeof OrgWorkspaceIndexRouteImport
+      parentRoute: typeof OrgWorkspaceRoute
+    }
     '/$org/sources/$namespace': {
       id: '/$org/sources/$namespace'
       path: '/sources/$namespace'
@@ -247,6 +357,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgChar91Char93BillingRouteImport
       parentRoute: typeof OrgRoute
     }
+    '/$org/$workspace/tools': {
+      id: '/$org/$workspace/tools'
+      path: '/tools'
+      fullPath: '/$org/$workspace/tools'
+      preLoaderRoute: typeof OrgWorkspaceToolsRouteImport
+      parentRoute: typeof OrgWorkspaceRoute
+    }
+    '/$org/$workspace/secrets': {
+      id: '/$org/$workspace/secrets'
+      path: '/secrets'
+      fullPath: '/$org/$workspace/secrets'
+      preLoaderRoute: typeof OrgWorkspaceSecretsRouteImport
+      parentRoute: typeof OrgWorkspaceRoute
+    }
+    '/$org/$workspace/policies': {
+      id: '/$org/$workspace/policies'
+      path: '/policies'
+      fullPath: '/$org/$workspace/policies'
+      preLoaderRoute: typeof OrgWorkspacePoliciesRouteImport
+      parentRoute: typeof OrgWorkspaceRoute
+    }
+    '/$org/$workspace/connections': {
+      id: '/$org/$workspace/connections'
+      path: '/connections'
+      fullPath: '/$org/$workspace/connections'
+      preLoaderRoute: typeof OrgWorkspaceConnectionsRouteImport
+      parentRoute: typeof OrgWorkspaceRoute
+    }
     '/$org/sources/add/$pluginKey': {
       id: '/$org/sources/add/$pluginKey'
       path: '/sources/add/$pluginKey'
@@ -261,10 +399,49 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgChar91Char93BillingPlansRouteImport
       parentRoute: typeof OrgRoute
     }
+    '/$org/$workspace/sources/$namespace': {
+      id: '/$org/$workspace/sources/$namespace'
+      path: '/sources/$namespace'
+      fullPath: '/$org/$workspace/sources/$namespace'
+      preLoaderRoute: typeof OrgWorkspaceSourcesNamespaceRouteImport
+      parentRoute: typeof OrgWorkspaceRoute
+    }
+    '/$org/$workspace/sources/add/$pluginKey': {
+      id: '/$org/$workspace/sources/add/$pluginKey'
+      path: '/sources/add/$pluginKey'
+      fullPath: '/$org/$workspace/sources/add/$pluginKey'
+      preLoaderRoute: typeof OrgWorkspaceSourcesAddPluginKeyRouteImport
+      parentRoute: typeof OrgWorkspaceRoute
+    }
   }
 }
 
+interface OrgWorkspaceRouteChildren {
+  OrgWorkspaceConnectionsRoute: typeof OrgWorkspaceConnectionsRoute
+  OrgWorkspacePoliciesRoute: typeof OrgWorkspacePoliciesRoute
+  OrgWorkspaceSecretsRoute: typeof OrgWorkspaceSecretsRoute
+  OrgWorkspaceToolsRoute: typeof OrgWorkspaceToolsRoute
+  OrgWorkspaceIndexRoute: typeof OrgWorkspaceIndexRoute
+  OrgWorkspaceSourcesNamespaceRoute: typeof OrgWorkspaceSourcesNamespaceRoute
+  OrgWorkspaceSourcesAddPluginKeyRoute: typeof OrgWorkspaceSourcesAddPluginKeyRoute
+}
+
+const OrgWorkspaceRouteChildren: OrgWorkspaceRouteChildren = {
+  OrgWorkspaceConnectionsRoute: OrgWorkspaceConnectionsRoute,
+  OrgWorkspacePoliciesRoute: OrgWorkspacePoliciesRoute,
+  OrgWorkspaceSecretsRoute: OrgWorkspaceSecretsRoute,
+  OrgWorkspaceToolsRoute: OrgWorkspaceToolsRoute,
+  OrgWorkspaceIndexRoute: OrgWorkspaceIndexRoute,
+  OrgWorkspaceSourcesNamespaceRoute: OrgWorkspaceSourcesNamespaceRoute,
+  OrgWorkspaceSourcesAddPluginKeyRoute: OrgWorkspaceSourcesAddPluginKeyRoute,
+}
+
+const OrgWorkspaceRouteWithChildren = OrgWorkspaceRoute._addFileChildren(
+  OrgWorkspaceRouteChildren,
+)
+
 interface OrgRouteChildren {
+  OrgWorkspaceRoute: typeof OrgWorkspaceRouteWithChildren
   OrgConnectionsRoute: typeof OrgConnectionsRoute
   OrgPoliciesRoute: typeof OrgPoliciesRoute
   OrgSecretsRoute: typeof OrgSecretsRoute
@@ -278,6 +455,7 @@ interface OrgRouteChildren {
 }
 
 const OrgRouteChildren: OrgRouteChildren = {
+  OrgWorkspaceRoute: OrgWorkspaceRouteWithChildren,
   OrgConnectionsRoute: OrgConnectionsRoute,
   OrgPoliciesRoute: OrgPoliciesRoute,
   OrgSecretsRoute: OrgSecretsRoute,

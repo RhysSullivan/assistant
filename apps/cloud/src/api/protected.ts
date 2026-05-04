@@ -24,7 +24,10 @@ import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
 import { makeExecutionStack } from "../services/execution-stack";
-import { resolveOrgContext } from "../services/url-context";
+import {
+  resolveOrgContext,
+  resolveWorkspaceContext,
+} from "../services/url-context";
 import { HttpResponseError } from "./error-response";
 import { RequestScopedServicesLive } from "./layers";
 import {
@@ -33,16 +36,6 @@ import {
   RouterConfig,
 } from "./protected-layers";
 import { requestScopedMiddleware } from "./request-scoped";
-
-// Pull the URL `:org` segment from a request path. The protected API mounts
-// under `/api/:org/...` — anything else is a programming error and surfaces as
-// a typed `no_organization` response so the framework's error pipeline can
-// render it.
-const orgHandleFromPath = (pathname: string): string | null => {
-  const parts = pathname.split("/").filter((part) => part.length > 0);
-  if (parts.length < 2 || parts[0] !== "api") return null;
-  return parts[1] ?? null;
-};
 
 // Pre-compute the per-plugin `Effect.provideService(extensionService,
 // executor[id])` chain. The plugin spec carries the Service tag so
@@ -53,24 +46,19 @@ const provideExecutorExtensions = providePluginExtensions(cloudPlugins);
 //   1. authenticates the WorkOS sealed session,
 //   2. verifies live org membership (closes the JWT-cache gap — see
 //      `auth/authorize-organization.ts`),
-//   3. resolves the org name,
+//   3. resolves the org name (and optionally workspace from the URL),
 //   4. builds the per-request executor + engine,
 //   5. provides `AuthContext` + the execution-stack services to the handler.
 //
-// Replaces both the old outer `Effect.gen` in this file (which did its own
-// WorkOS lookup) and the per-route `OrgAuth` HttpApiMiddleware (which did
-// a second one).
-//
 // Errors are NOT caught here: failures propagate as typed errors and are
 // rendered to a JSON response by the framework's `Respondable` pipeline
-// (see `HttpResponseError` in `./error-response.ts`). Letting `unhandled`
-// pass through is what satisfies `HttpRouter.middleware`'s brand check
-// without any type casts.
+// (see `HttpResponseError` in `./error-response.ts`).
 //
-// `DbService` and `UserStoreService` are pulled from per-request context
-// — `RequestScopedServicesMiddleware` (combined below) provides them
-// fresh per request so the postgres.js socket lives in the request
-// fiber's scope, not the worker's boot scope.
+// Workspace requests (`/api/:org/:workspace/...`) follow the same auth
+// path — workspaces don't have separate ACLs in v1, so org membership is
+// the only check. The middleware reads `:org` and `:workspace` off
+// `RouteContext.params` and picks the correct executor factory
+// (`createWorkspaceExecutor` vs `createGlobalExecutor`).
 const ExecutionStackMiddleware = HttpRouter.middleware<{
   // The plugin extension Services this middleware satisfies are derived
   // from `typeof cloudPlugins` — no per-plugin `*ExtensionService`
@@ -86,6 +74,9 @@ const ExecutionStackMiddleware = HttpRouter.middleware<{
     const longLived = yield* Effect.context<WorkOSAuth | AutumnService>();
     return (httpEffect) =>
       Effect.gen(function* () {
+        const params = yield* HttpRouter.params;
+        const handle = params["org"];
+        const workspaceSlug = params["workspace"] ?? null;
         const request = yield* HttpServerRequest.HttpServerRequest;
         const webRequest = yield* HttpServerRequest.toWeb(request);
         const workos = yield* WorkOSAuth;
@@ -97,17 +88,57 @@ const ExecutionStackMiddleware = HttpRouter.middleware<{
             message: "Unauthorized",
           });
         }
-        // The URL is the source of truth for active org. Pull the handle
-        // off the request path, resolve it to an org row, and verify
-        // membership against WorkOS — independent of `session.organizationId`.
-        const url = new URL(webRequest.url);
-        const handle = orgHandleFromPath(url.pathname);
         if (!handle) {
           return yield* new HttpResponseError({
             status: 404,
             code: "no_organization",
             message: "Missing organization in URL",
           });
+        }
+        if (workspaceSlug) {
+          const resolved = yield* resolveWorkspaceContext(handle, workspaceSlug).pipe(
+            Effect.catchTag("OrganizationHandleNotFound", () =>
+              Effect.succeed(null),
+            ),
+            Effect.catchTag("WorkspaceSlugNotFound", () =>
+              Effect.succeed(null),
+            ),
+          );
+          if (!resolved) {
+            return yield* new HttpResponseError({
+              status: 404,
+              code: "no_organization",
+              message: `Context "${handle}/${workspaceSlug}" not found`,
+            });
+          }
+          const org = yield* authorizeOrganization(session.userId, resolved.organization.id);
+          if (!org) {
+            return yield* new HttpResponseError({
+              status: 403,
+              code: "no_organization",
+              message: "Not a member of this organization",
+            });
+          }
+          const auth = AuthContext.of({
+            accountId: session.userId,
+            organizationId: org.id,
+            email: session.email,
+            name: `${session.firstName ?? ""} ${session.lastName ?? ""}`.trim() || null,
+            avatarUrl: session.avatarUrl ?? null,
+          });
+          const { executor, engine } = yield* makeExecutionStack({
+            userId: auth.accountId,
+            organizationId: org.id,
+            organizationName: org.name,
+            workspaceId: resolved.workspace.id,
+            workspaceName: resolved.workspace.name,
+          });
+          return yield* httpEffect.pipe(
+            Effect.provideService(AuthContext, auth),
+            Effect.provideService(ExecutorService, executor),
+            Effect.provideService(ExecutionEngineService, engine),
+            provideExecutorExtensions(executor),
+          );
         }
         const resolved = yield* resolveOrgContext(handle).pipe(
           Effect.catchTag("OrganizationHandleNotFound", () => Effect.succeed(null)),
@@ -149,14 +180,23 @@ const ExecutionStackMiddleware = HttpRouter.middleware<{
   }),
 );
 
-// Layer that swaps the boot router with a `:org`-prefixed view, so every
-// route registered by `ProtectedCloudApiLive` mounts under `/api/:org/*`.
-// `HttpRouter.prefixed` returns a wrapper that delegates to the underlying
-// router state — the outer router-config layer still owns the actual
-// FindMyWay instance, so non-protected routes (auth, autumn, swagger) keep
-// their unprefixed paths.
-const PrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
-  Effect.map(HttpRouter.HttpRouter.asEffect(), (router) => router.prefixed("/api/:org")),
+// Layers that swap the boot router with prefixed views. Two prefixes serve
+// the SAME endpoints — the request URL determines which scope stack the
+// middleware builds. `HttpRouter.prefixed` returns a wrapper that delegates
+// to the underlying router state, so non-protected routes (auth, autumn,
+// swagger) keep their unprefixed paths.
+//
+// `start.ts` strips the leading `/api` before handing off to the API handler,
+// so prefixes inside this router omit it. Public URLs are
+// `/api/:org/...` and `/api/:org/:workspace/...` end-to-end.
+const OrgPrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
+  Effect.map(HttpRouter.HttpRouter.asEffect(), (router) => router.prefixed("/:org")),
+);
+
+const WorkspacePrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
+  Effect.map(HttpRouter.HttpRouter.asEffect(), (router) =>
+    router.prefixed("/:org/:workspace"),
+  ),
 );
 
 // `rsLive` is the per-request DB layer. Combining it into the auth
@@ -172,9 +212,15 @@ export const makeProtectedApiLive = (
   const protectedMiddleware = ExecutionStackMiddleware.combine(
     requestScopedMiddleware(rsLive),
   ).layer;
-  return ProtectedCloudApiLive.pipe(
+  const orgMount = ProtectedCloudApiLive.pipe(
     Layer.provide(protectedMiddleware),
-    Layer.provide(PrefixedRouterLayer),
+    Layer.provide(OrgPrefixedRouterLayer),
+  );
+  const workspaceMount = ProtectedCloudApiLive.pipe(
+    Layer.provide(protectedMiddleware),
+    Layer.provide(WorkspacePrefixedRouterLayer),
+  );
+  return Layer.mergeAll(orgMount, workspaceMount).pipe(
     Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
     Layer.provideMerge(RouterConfig),
   );

@@ -29,6 +29,7 @@ export const ReactivityKey = {
   orgDomains: "org:domains",
   orgInfo: "org:info",
   auth: "auth",
+  workspaces: "workspaces",
 } as const;
 
 /** Mutations that add/remove/refresh a source also affect tool listings. */
@@ -72,5 +73,11 @@ export const authWriteKeys = [
   ReactivityKey.orgInfo,
   ReactivityKey.orgMembers,
   ReactivityKey.orgDomains,
+  ReactivityKey.scope,
+] as const;
+
+/** Cloud-only: workspace mutations — invalidate the workspaces list and scope. */
+export const workspaceWriteKeys = [
+  ReactivityKey.workspaces,
   ReactivityKey.scope,
 ] as const;
