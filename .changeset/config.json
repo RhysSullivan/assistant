@@ -32,7 +32,6 @@
     "@executor-js/runtime-deno-subprocess",
     "@executor-js/marketing",
     "@executor-js/runtime-dynamic-worker",
-    "@executor-js/runtime-secure-exec",
     "@executor-js/storage-postgres",
     "@executor-js/plugin-workos-vault",
     "@executor-js/example-promise-sdk"
