@@ -122,15 +122,6 @@ describe("release bootstrap smoke", () => {
       await cp(platformDir, installedPlatformDir, { recursive: true });
 
       try {
-        // Run the postinstall manually so we exercise the fast-path symlink
-        // creation code as well.
-        const postinstall = await runCommand(
-          process.execPath,
-          ["./postinstall.cjs"],
-          installedWrapperDir,
-        );
-        expect(postinstall.exitCode, postinstall.stderr || postinstall.stdout).toBe(0);
-
         const firstRun = await runCommand(
           process.execPath,
           [join(installedWrapperDir, "bin", "executor"), "--help"],

@@ -1,6 +1,7 @@
-// Ensure binaries next to the executor (e.g. secure-exec-v8) are on $PATH
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
+// Make sibling binaries (if any are added later) discoverable on $PATH so
+// child processes spawned without an absolute path still find them.
 const execDir = dirname(process.execPath);
 if (process.env.PATH && !process.env.PATH.includes(execDir)) {
   process.env.PATH = `${execDir}:${process.env.PATH}`;

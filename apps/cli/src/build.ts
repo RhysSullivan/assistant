@@ -106,33 +106,6 @@ const binaryName = (t: Target) => (t.os === "win32" ? "executor.exe" : "executor
 const isCurrentPlatform = (t: Target) =>
   t.os === process.platform && t.arch === process.arch && !t.abi;
 
-/** Resolve the platform-specific secure-exec-v8 binary for a given target. */
-const resolveSecureExecV8 = (t: Target): string | null => {
-  const platformMap: Record<string, string> = {
-    "darwin-arm64": "@secure-exec/v8-darwin-arm64",
-    "darwin-x64": "@secure-exec/v8-darwin-x64",
-    "linux-arm64": "@secure-exec/v8-linux-arm64-gnu",
-    "linux-x64": "@secure-exec/v8-linux-x64-gnu",
-  };
-  const key = `${t.os}-${t.arch}`;
-  const pkg = platformMap[key];
-  if (!pkg) return null;
-  try {
-    // Resolve from @secure-exec/v8 which has these as optional deps
-    const req = createRequire(join(repoRoot, "node_modules", "secure-exec", "package.json"));
-    const pkgJson = req.resolve(`${pkg}/package.json`);
-    return join(dirname(pkgJson), "secure-exec-v8");
-  } catch {
-    // Try bun's flat node_modules layout
-    const bunPath = join(
-      repoRoot,
-      `node_modules/.bun/${pkg.replace("/", "+")}@0.2.1/node_modules/${pkg}/secure-exec-v8`,
-    );
-    if (existsSync(bunPath)) return bunPath;
-    return null;
-  }
-};
-
 /**
  * Resolve the platform-specific @napi-rs/keyring native binding for a target.
  *
@@ -261,102 +234,6 @@ const createEmbeddedMigrationsSource = async () => {
 };
 
 // ---------------------------------------------------------------------------
-// Bun.build plugin for @secure-exec bundling issues
-// ---------------------------------------------------------------------------
-
-/**
- * Plugin that fixes two issues with @secure-exec in compiled binaries:
- *
- * 1. node-stdlib-browser / web-streams-polyfill eagerly call require.resolve()
- *    at import time, which fails in bunfs. We stub these out since our code
- *    never uses the polyfill functions.
- *
- * 2. bridge-loader.js reads bridge.js from disk via fs.readFileSync using
- *    __dirname. In a compiled binary __dirname points into bunfs where the
- *    file doesn't exist. We replace bridge-loader with a version that embeds
- *    bridge.js content directly.
- */
-const secureExecBundlePlugin = async (): Promise<import("bun").BunPlugin> => {
-  // Read files at build time so we can inline them into the compiled binary.
-  // bridge.js is loaded via fs.readFileSync at runtime, which fails in bunfs.
-  // bridgeAttach comes from @secure-exec/core's generated isolate-runtime.
-  const secureExecNodejs = join(
-    repoRoot,
-    "node_modules/.bun/@secure-exec+nodejs@0.2.1/node_modules/@secure-exec/nodejs",
-  );
-  const secureExecCore = join(
-    repoRoot,
-    "node_modules/.bun/@secure-exec+core@0.2.1/node_modules/@secure-exec/core",
-  );
-  const bridgeCode = await Bun.file(join(secureExecNodejs, "dist/bridge.js")).text();
-  const isolateRuntime = await import(join(secureExecCore, "dist/generated/isolate-runtime.js"));
-  const bridgeAttachCode = isolateRuntime.ISOLATE_RUNTIME_SOURCES.bridgeAttach;
-  const polyfillCodeMap = (await import(join(secureExecCore, "dist/generated/polyfills.js")))
-    .POLYFILL_CODE_MAP as Record<string, string>;
-
-  return {
-    name: "secure-exec-bundle-fixes",
-    setup(build) {
-      // Stub polyfill modules that fail at import time in compiled binaries
-      const stubTargets = /node-stdlib-browser|web-streams-polyfill/;
-      build.onResolve({ filter: stubTargets }, (args) => ({
-        path: args.path,
-        namespace: "stub",
-      }));
-      // Replace @secure-exec/nodejs polyfills (which use node-stdlib-browser + esbuild
-      // at runtime) with a shim that serves from pre-bundled POLYFILL_CODE_MAP.
-      build.onResolve({ filter: /polyfills/ }, (args) => {
-        if (
-          args.importer.includes("@secure-exec/nodejs") ||
-          args.importer.includes("@secure-exec+nodejs")
-        ) {
-          return { path: args.path, namespace: "polyfills-shim" };
-        }
-      });
-      build.onLoad({ filter: /.*/, namespace: "polyfills-shim" }, () => ({
-        contents: `
-const POLYFILL_CODE_MAP = ${JSON.stringify(polyfillCodeMap)};
-const polyfillCache = new Map();
-export default {};
-export async function bundlePolyfill(moduleName) {
-  const cached = polyfillCache.get(moduleName);
-  if (cached) return cached;
-  const code = POLYFILL_CODE_MAP[moduleName];
-  if (!code) throw new Error("No polyfill available for module: " + moduleName);
-  polyfillCache.set(moduleName, code);
-  return code;
-}
-export function getAvailableStdlib() { return Object.keys(POLYFILL_CODE_MAP); }
-export function hasPolyfill(name) { return name.replace(/^node:/, "") in POLYFILL_CODE_MAP; }
-export async function prebundleAllPolyfills() { return { ...POLYFILL_CODE_MAP }; }
-        `,
-        loader: "js",
-      }));
-      build.onLoad({ filter: /.*/, namespace: "stub" }, () => ({
-        contents: "export default {};",
-        loader: "js",
-      }));
-
-      // Replace bridge-loader with pre-read content
-      build.onResolve({ filter: /bridge-loader/ }, (args) => {
-        if (args.importer.includes("secure-exec")) {
-          return { path: args.path, namespace: "bridge" };
-        }
-      });
-      build.onLoad({ filter: /.*/, namespace: "bridge" }, () => ({
-        contents: `
-const bridgeCode = ${JSON.stringify(bridgeCode)};
-const bridgeAttachCode = ${JSON.stringify(bridgeAttachCode)};
-export function getRawBridgeCode() { return bridgeCode; }
-export function getBridgeAttachCode() { return bridgeAttachCode; }
-        `,
-        loader: "js",
-      }));
-    },
-  };
-};
-
-// ---------------------------------------------------------------------------
 // Build platform binaries
 // ---------------------------------------------------------------------------
 
@@ -372,10 +249,9 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
   await rm(distDir, { recursive: true, force: true });
 
   // Cross-platform builds need every target's optional native packages
-  // (e.g. @napi-rs/keyring-darwin-arm64, @secure-exec/v8-win32-x64) so we
-  // can copy the right .node / binary next to each target's executor.
-  // `bun install --frozen-lockfile --cpu=* --os=*` extracts them all
-  // without modifying the lockfile.
+  // (e.g. @napi-rs/keyring-darwin-arm64) so we can copy the right .node next
+  // to each target's executor. `bun install --frozen-lockfile --cpu=* --os=*`
+  // extracts them all without modifying the lockfile.
   const needsCrossPlatform = targets.some((t) => !isCurrentPlatform(t));
   if (needsCrossPlatform) {
     console.log("Installing optional native deps for all platforms...");
@@ -414,19 +290,10 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
           target: bunTarget(target),
           outfile: join(binDir, binaryName(target)),
         },
-        plugins: [await secureExecBundlePlugin()],
       });
 
       // Copy QuickJS WASM next to binary — loaded at runtime by the server
       await cp(quickJsWasmPath, join(binDir, "emscripten-module.wasm"));
-
-      // Copy secure-exec-v8 binary next to executor — needed for code execution
-      const secureExecBin = resolveSecureExecV8(target);
-      if (secureExecBin && existsSync(secureExecBin)) {
-        const destName = target.os === "win32" ? "secure-exec-v8.exe" : "secure-exec-v8";
-        await cp(secureExecBin, join(binDir, destName));
-        await chmod(join(binDir, destName), 0o755);
-      }
 
       // Copy @napi-rs/keyring native binding next to executor — bun --compile
       // doesn't bundle .node files, so the loader needs to find it on disk
@@ -488,18 +355,13 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
 
   await mkdir(binDir, { recursive: true });
 
-  // Node.js launcher — walks node_modules to locate the matching platform
-  // package's binary. No download path: the binary ships as an
-  // optionalDependency so npm/bun's os/cpu filtering picks the right one.
+  // Node.js launcher — resolves the platform binary via require.resolve
+  // against optionalDependencies and execs it. No postinstall: the binary
+  // ships as an os/cpu-filtered optional dep, the launcher resolves it at
+  // runtime. This works whether or not the package manager runs postinstalls
+  // (bun blocks them by default).
   await writeFile(join(binDir, "executor"), NODE_SHIM);
   await chmod(join(binDir, "executor"), 0o755);
-
-  // Postinstall is a fast-path optimization: it resolves the platform
-  // package once and hardlinks the binary to bin/.executor so subsequent
-  // launches skip the node_modules walk. Always exits 0 — the launcher
-  // does the same walk at runtime if this fails or is blocked (e.g. bun's
-  // postinstall sandbox).
-  await writeFile(join(wrapperDir, "postinstall.cjs"), POSTINSTALL_SCRIPT);
 
   await writeFile(
     join(wrapperDir, "package.json"),
@@ -514,9 +376,6 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
         repository: meta.repository,
         license: meta.license,
         bin: { executor: "bin/executor" },
-        scripts: {
-          postinstall: "node ./postinstall.cjs",
-        },
         // Per-platform compiled binaries. npm/bun install only the entry
         // matching the current os/cpu; everything else is a no-op.
         optionalDependencies: binaries,
@@ -732,13 +591,16 @@ const createReleaseAssets = async () => {
 };
 
 // ---------------------------------------------------------------------------
-// Node.js launcher — locates the platform binary shipped as an
+// Node.js launcher — resolves the platform binary shipped as an
 // optionalDependency and execs it. Resolution order:
 //   1. EXECUTOR_BIN_PATH override
-//   2. bin/.executor cache (postinstall fast-path)
-//   3. Walk parent node_modules for executor-<platform>-<arch> packages
-//   4. bin/runtime/<binary> (preview wrapper compat — postinstall extracts
-//      the binary here when installed via pkg.pr.new previews from R2)
+//   2. require.resolve("executor-<platform>-<arch>/package.json")
+//   3. bin/runtime/<binary> (preview wrapper compat — pkg.pr.new previews
+//      download the binary here at install time instead of via
+//      optionalDependencies)
+//
+// Signals (SIGINT/SIGTERM/SIGHUP) are forwarded to the child so long-running
+// commands like `executor web` shut down cleanly under Ctrl-C.
 // ---------------------------------------------------------------------------
 
 const NODE_SHIM = `#!/usr/bin/env node
@@ -747,26 +609,26 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-function run(target) {
-  const result = childProcess.spawnSync(target, process.argv.slice(2), { stdio: "inherit" });
-  if (result.error) {
-    console.error(result.error.message);
-    process.exit(1);
-  }
-  process.exit(typeof result.status === "number" ? result.status : 0);
+function spawnAndExit(target) {
+  const child = childProcess.spawn(target, process.argv.slice(2), { stdio: "inherit" });
+  child.on("error", (err) => { console.error(err.message); process.exit(1); });
+  const forward = (signal) => { if (!child.killed) { try { child.kill(signal); } catch {} } };
+  ["SIGINT", "SIGTERM", "SIGHUP"].forEach((sig) => process.on(sig, () => forward(sig)));
+  child.on("exit", (code, signal) => {
+    if (signal) process.kill(process.pid, signal);
+    else process.exit(typeof code === "number" ? code : 0);
+  });
 }
 
-if (process.env.EXECUTOR_BIN_PATH) run(process.env.EXECUTOR_BIN_PATH);
+if (process.env.EXECUTOR_BIN_PATH) {
+  spawnAndExit(process.env.EXECUTOR_BIN_PATH);
+  return;
+}
 
-const scriptDir = path.dirname(fs.realpathSync(__filename));
 const isWin = process.platform === "win32";
 const binary = isWin ? "executor.exe" : "executor";
 
-const cached = path.join(scriptDir, isWin ? ".executor.exe" : ".executor");
-if (fs.existsSync(cached)) run(cached);
-
-// Package names use "windows" (not "win32") to match the human-friendly
-// platform key the build script emits (executor-windows-x64, etc.).
+// Package names use "windows" (not "win32") to match what the build script emits.
 const platformMap = { darwin: "darwin", linux: "linux", win32: "windows" };
 const archMap = { x64: "x64", arm64: "arm64" };
 const platform = platformMap[os.platform()] || os.platform();
@@ -782,9 +644,8 @@ const isMusl = (() => {
   return false;
 })();
 
-// Candidate package names in preference order. On linux x64 a system might
-// match either glibc or musl; we try musl first if detected, glibc first
-// otherwise, and fall back to the other to be forgiving.
+// Candidate package names in preference order. On linux a system might match
+// glibc or musl; try musl first if detected, glibc first otherwise.
 const candidates = (() => {
   const base = "executor-" + platform + "-" + arch;
   if (platform === "linux") {
@@ -793,113 +654,51 @@ const candidates = (() => {
   return [base];
 })();
 
-function findInNodeModules(startDir) {
-  let current = startDir;
-  for (;;) {
-    const modules = path.join(current, "node_modules");
-    if (fs.existsSync(modules)) {
-      for (const name of candidates) {
-        const candidate = path.join(modules, name, "bin", binary);
-        if (fs.existsSync(candidate)) return candidate;
-      }
-    }
-    const parent = path.dirname(current);
-    if (parent === current) return null;
-    current = parent;
+function detectPackageManager() {
+  const ua = process.env.npm_config_user_agent || "";
+  if (/\\bbun\\//.test(ua)) return "bun";
+  const execPath = process.env.npm_execpath || "";
+  if (execPath.includes("bun")) return "bun";
+  if (__dirname.includes(".bun/install/global") || __dirname.includes(".bun\\\\install\\\\global")) {
+    return "bun";
   }
+  return ua ? "npm" : null;
 }
 
-const resolved = findInNodeModules(scriptDir);
-if (resolved) run(resolved);
+for (const name of candidates) {
+  try {
+    const pkgJson = require.resolve(name + "/package.json");
+    const candidate = path.join(path.dirname(pkgJson), "bin", binary);
+    if (fs.existsSync(candidate)) {
+      spawnAndExit(candidate);
+      return;
+    }
+  } catch {
+    // package not installed for this platform; try next candidate
+  }
+}
 
 // Preview wrapper compat: pkg.pr.new previews download the platform binary
-// to bin/runtime/ at install time rather than via optionalDependencies.
+// to bin/runtime/ rather than via optionalDependencies.
+const scriptDir = path.dirname(fs.realpathSync(__filename));
 const previewBinary = path.join(scriptDir, "runtime", binary);
-if (fs.existsSync(previewBinary)) run(previewBinary);
+if (fs.existsSync(previewBinary)) {
+  spawnAndExit(previewBinary);
+  return;
+}
 
+const pm = detectPackageManager();
+const reinstall = pm === "bun"
+  ? "bun install -g executor"
+  : pm === "npm"
+    ? "npm install -g executor"
+    : "reinstall executor";
 console.error(
   "executor: could not locate a platform binary for " + os.platform() + "-" + os.arch() + ".\\n" +
-    "Tried: " + candidates.map((n) => '"' + n + '"').join(", ") + "\\n" +
-    "Reinstall the package, or install via the standalone script at https://github.com/RhysSullivan/executor#install"
+    "Tried optionalDependencies: " + candidates.map((n) => '"' + n + '"').join(", ") + "\\n" +
+    "To fix: " + reinstall
 );
 process.exit(1);
-`;
-
-// ---------------------------------------------------------------------------
-// Postinstall — fast-path cache. Resolves the platform optionalDependency
-// and hardlinks (or copies) the binary to bin/.executor so the launcher
-// can skip the node_modules walk on subsequent invocations.
-//
-// Always exits 0. Failures here are non-fatal; the launcher walks
-// node_modules itself at runtime, which also covers the bun-blocks-
-// postinstalls case.
-// ---------------------------------------------------------------------------
-
-const POSTINSTALL_SCRIPT = `#!/usr/bin/env node
-const childProcess = require("child_process");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
-const Module = require("module");
-
-const packageDir = path.dirname(fs.realpathSync(__filename));
-const binDir = path.join(packageDir, "bin");
-
-const platformMap = { darwin: "darwin", linux: "linux", win32: "windows" };
-const archMap = { x64: "x64", arm64: "arm64" };
-const platform = platformMap[os.platform()] || os.platform();
-const arch = archMap[os.arch()] || os.arch();
-const binary = os.platform() === "win32" ? "executor.exe" : "executor";
-
-const isMusl = (() => {
-  if (platform !== "linux") return false;
-  try { if (fs.existsSync("/etc/alpine-release")) return true; } catch {}
-  try {
-    const r = childProcess.spawnSync("ldd", ["--version"], { encoding: "utf8" });
-    if (((r.stdout || "") + (r.stderr || "")).toLowerCase().includes("musl")) return true;
-  } catch {}
-  return false;
-})();
-
-const candidates = (() => {
-  const base = "executor-" + platform + "-" + arch;
-  if (platform === "linux") {
-    return isMusl ? [base + "-musl", base] : [base, base + "-musl"];
-  }
-  return [base];
-})();
-
-function resolveBinary() {
-  const requireFromHere = Module.createRequire(path.join(packageDir, "package.json"));
-  for (const name of candidates) {
-    try {
-      const pkgJson = requireFromHere.resolve(name + "/package.json");
-      const candidate = path.join(path.dirname(pkgJson), "bin", binary);
-      if (fs.existsSync(candidate)) return candidate;
-    } catch {}
-  }
-  return null;
-}
-
-function main() {
-  const source = resolveBinary();
-  if (!source) return;
-
-  fs.mkdirSync(binDir, { recursive: true });
-  const target = path.join(binDir, platform === "win32" ? ".executor.exe" : ".executor");
-  try { fs.unlinkSync(target); } catch {}
-  try {
-    fs.linkSync(source, target);
-  } catch {
-    fs.copyFileSync(source, target);
-  }
-  if (platform !== "win32") {
-    try { fs.chmodSync(target, 0o755); } catch {}
-  }
-}
-
-try { main(); } catch {}
-process.exit(0);
 `;
 
 // ---------------------------------------------------------------------------

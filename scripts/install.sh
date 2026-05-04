@@ -198,8 +198,8 @@ download_and_install() {
     fi
 
     # The archive is flat — the binary plus sidecars (emscripten-module.wasm,
-    # secure-exec-v8, keyring.node) are at the root. Copy them all into
-    # INSTALL_DIR so the binary's relative-path lookups still resolve.
+    # keyring.node) sit at the root. Copy them all into INSTALL_DIR so the
+    # binary's relative-path lookups still resolve.
     rm -f "${tmp_dir}/${filename}"
     cp -R "${tmp_dir}/." "${INSTALL_DIR}/"
 
