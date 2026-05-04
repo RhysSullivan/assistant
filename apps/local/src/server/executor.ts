@@ -144,7 +144,26 @@ const createLocalExecutorLayer = () => {
         (yield* Effect.promise(() =>
           loadPluginsFromJsonc({ path: configPath, deps: { configFile } }),
         )) ?? [];
-      const plugins: LocalPlugins = [...staticPlugins, ...dynamicPlugins];
+      // Static config wins on conflict — mirrors @executor-js/vite-plugin's
+      // ordering. Without this, a package listed in both surfaces would
+      // boot twice (double routes, double in-memory storage).
+      const staticPackageNames = new Set(
+        staticPlugins
+          .map((p) => p.packageName)
+          .filter((n): n is string => !!n),
+      );
+      const dedupedDynamic = dynamicPlugins.filter((p) => {
+        if (p.packageName && staticPackageNames.has(p.packageName)) {
+          console.warn(
+            `[executor] plugin "${p.packageName}" appears in both ` +
+              `executor.config.ts and executor.jsonc#plugins. The static ` +
+              `entry wins; the jsonc entry is ignored.`,
+          );
+          return false;
+        }
+        return true;
+      });
+      const plugins: LocalPlugins = [...staticPlugins, ...dedupedDynamic];
       const schema = collectSchemas(plugins);
       const adapter = makeSqliteAdapter({ db, schema });
       const blobs = makeSqliteBlobStore({ db });
