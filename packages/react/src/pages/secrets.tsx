@@ -7,6 +7,10 @@ import { useSecretProviderPlugins } from "@executor-js/sdk/client";
 import { SecretId } from "@executor-js/sdk";
 import { useActiveWriteScopeId } from "../hooks/use-scope";
 import {
+  CredentialTargetSelector,
+  useCredentialTargetState,
+} from "../plugins/credential-target-selector";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -72,7 +76,11 @@ function AddSecretDialog(props: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const scopeId = useActiveWriteScopeId();
+  // The credential-target selector defaults to the URL context's active
+  // write scope (workspace in workspace context, org in global). Users
+  // can flip to "Only me here" / "Only me org-wide" without leaving the
+  // dialog.
+  const target = useCredentialTargetState();
   const doSet = useAtomSet(setSecret, { mode: "promise" });
 
   const reset = () => {
@@ -90,7 +98,7 @@ function AddSecretDialog(props: {
     setError(null);
     try {
       await doSet({
-        params: { scopeId },
+        params: { scopeId: target.value },
         payload: {
           id: SecretId.make(id.trim()),
           name: name.trim(),
@@ -173,6 +181,13 @@ function AddSecretDialog(props: {
               className="font-mono text-xs h-9"
             />
           </div>
+
+          <CredentialTargetSelector
+            value={target.value}
+            onChange={target.setValue}
+            disabled={saving}
+            label="Save to"
+          />
 
           <div className="grid gap-3">
             {props.storageOptions.length > 1 && (
