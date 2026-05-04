@@ -1,7 +1,9 @@
 import { Effect, Option } from "effect";
 
 import {
+  ScopeId,
   SourceDetectionResult,
+  Usage,
   definePlugin,
   resolveSecretBackedMap,
   type PluginCtx,
@@ -433,6 +435,71 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
       const typedCtx = ctx as PluginCtx<GoogleDiscoveryStore>;
       yield* typedCtx.storage.removeBindingsBySource(sourceId, scope);
       yield* typedCtx.storage.removeSource(sourceId, scope);
+    }),
+
+  // Aggregate usages across the auth columns and the credential child
+  // tables. Each is one indexed SELECT in the store; the merge plus a
+  // single source-name JOIN happens here.
+  usagesForSecret: ({ ctx, args }) =>
+    Effect.gen(function* () {
+      const typedCtx = ctx as PluginCtx<GoogleDiscoveryStore>;
+      const sources = yield* typedCtx.storage.findSourcesBySecret(
+        args.secretId,
+      );
+      const childRows = yield* typedCtx.storage.findCredentialRowsBySecret(
+        args.secretId,
+      );
+      const sourceKeys = new Set<string>();
+      for (const s of sources) sourceKeys.add(`${s.scope_id}:${s.namespace}`);
+      for (const r of childRows)
+        sourceKeys.add(`${r.scope_id}:${r.source_id}`);
+      const names = yield* typedCtx.storage.lookupSourceNames([...sourceKeys]);
+
+      const out: Usage[] = [];
+      for (const s of sources) {
+        out.push(
+          new Usage({
+            pluginId: "google-discovery",
+            scopeId: ScopeId.make(s.scope_id),
+            ownerKind: "google-discovery-source",
+            ownerId: s.namespace,
+            ownerName: names.get(`${s.scope_id}:${s.namespace}`) ?? s.name,
+            slot: s.slot,
+          }),
+        );
+      }
+      for (const r of childRows) {
+        out.push(
+          new Usage({
+            pluginId: "google-discovery",
+            scopeId: ScopeId.make(r.scope_id),
+            ownerKind: `google-discovery-source-${r.kind.replace(/_/g, "-")}`,
+            ownerId: r.source_id,
+            ownerName: names.get(`${r.scope_id}:${r.source_id}`) ?? null,
+            slot: `${r.kind}:${r.name}`,
+          }),
+        );
+      }
+      return out;
+    }),
+
+  usagesForConnection: ({ ctx, args }) =>
+    Effect.gen(function* () {
+      const typedCtx = ctx as PluginCtx<GoogleDiscoveryStore>;
+      const sources = yield* typedCtx.storage.findSourcesByConnection(
+        args.connectionId,
+      );
+      return sources.map(
+        (s) =>
+          new Usage({
+            pluginId: "google-discovery",
+            scopeId: ScopeId.make(s.scope_id),
+            ownerKind: "google-discovery-source",
+            ownerId: s.namespace,
+            ownerName: s.name,
+            slot: s.slot,
+          }),
+      );
     }),
 
   detect: ({ url }) =>

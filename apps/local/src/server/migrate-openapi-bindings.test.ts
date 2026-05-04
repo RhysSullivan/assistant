@@ -74,10 +74,29 @@ const PRE_0008_SQL = `
     created_at INTEGER NOT NULL,
     PRIMARY KEY (scope_id, id)
   );
+
+  CREATE TABLE google_discovery_source (
+    id TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    config TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (scope_id, id)
+  );
+
+  CREATE TABLE google_discovery_binding (
+    id TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    binding TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (scope_id, id)
+  );
 `;
 
 // Stamp 0007's folderMillis from the journal so drizzle's runner skips
-// 0000..0007 and only executes 0008 against this hand-seeded DB.
+// 0000..0007 and only executes 0008+ against this hand-seeded DB.
 const STAMP_BEFORE = 1778100000000; // 0007_normalize_graphql.when
 
 const stampPriorMigrationsApplied = (db: Database) => {

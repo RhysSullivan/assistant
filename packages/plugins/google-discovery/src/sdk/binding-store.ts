@@ -21,7 +21,13 @@ import {
   type StorageFailure,
 } from "@executor-js/sdk/core";
 
-import { GoogleDiscoveryMethodBinding, GoogleDiscoveryStoredSourceData } from "./types";
+import {
+  GoogleDiscoveryMethodBinding,
+  GoogleDiscoveryStoredSourceData,
+  type GoogleDiscoveryAuth,
+  type GoogleDiscoveryCredentialValue,
+  type GoogleDiscoveryFetchCredentials,
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // OAuth session TTL
@@ -39,9 +45,56 @@ export const googleDiscoverySchema = defineSchema({
       id: { type: "string", required: true },
       scope_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
+      // Plugin-private structural config minus auth/credentials —
+      // discoveryUrl, service, version, rootUrl, servicePath. These
+      // never carry refs.
       config: { type: "json", required: true },
+      // Flattened GoogleDiscoveryAuth.
+      auth_kind: {
+        type: ["none", "oauth2"],
+        required: true,
+        defaultValue: "none",
+      },
+      auth_connection_id: { type: "string", required: false, index: true },
+      auth_client_id_secret_id: {
+        type: "string",
+        required: false,
+        index: true,
+      },
+      auth_client_secret_secret_id: {
+        type: "string",
+        required: false,
+        index: true,
+      },
+      // Stored as a string[] (JSON-backed but not a ref-bearing column).
+      // Empty array when auth_kind is "none".
+      auth_scopes: { type: "string[]", required: false },
       created_at: { type: "date", required: true },
       updated_at: { type: "date", required: true },
+    },
+  },
+  google_discovery_source_credential_header: {
+    fields: {
+      id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
+      source_id: { type: "string", required: true, index: true },
+      name: { type: "string", required: true },
+      kind: { type: ["text", "secret"], required: true },
+      text_value: { type: "string", required: false },
+      secret_id: { type: "string", required: false, index: true },
+      secret_prefix: { type: "string", required: false },
+    },
+  },
+  google_discovery_source_credential_query_param: {
+    fields: {
+      id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
+      source_id: { type: "string", required: true, index: true },
+      name: { type: "string", required: true },
+      kind: { type: ["text", "secret"], required: true },
+      text_value: { type: "string", required: false },
+      secret_id: { type: "string", required: false, index: true },
+      secret_prefix: { type: "string", required: false },
     },
   },
   google_discovery_binding: {
@@ -91,6 +144,112 @@ const decodeJson = (value: unknown): unknown => {
   } catch {
     return value;
   }
+};
+
+// --- auth column packing/unpacking ------------------------------------------
+
+interface AuthColumns {
+  readonly auth_kind: "none" | "oauth2";
+  readonly auth_connection_id?: string;
+  readonly auth_client_id_secret_id?: string;
+  readonly auth_client_secret_secret_id?: string;
+  // Mutable rather than readonly so the typed adapter's RowInput shape
+  // (which expects `string[]`, not `readonly string[]`) is satisfied.
+  readonly auth_scopes?: string[];
+}
+
+const authToColumns = (auth: GoogleDiscoveryAuth): AuthColumns => {
+  if (auth.kind === "oauth2") {
+    return {
+      auth_kind: "oauth2",
+      auth_connection_id: auth.connectionId,
+      auth_client_id_secret_id: auth.clientIdSecretId,
+      auth_client_secret_secret_id: auth.clientSecretSecretId ?? undefined,
+      auth_scopes: [...auth.scopes],
+    };
+  }
+  return { auth_kind: "none" };
+};
+
+const columnsToAuth = (row: Record<string, unknown>): GoogleDiscoveryAuth => {
+  if (
+    row.auth_kind === "oauth2" &&
+    typeof row.auth_connection_id === "string" &&
+    typeof row.auth_client_id_secret_id === "string"
+  ) {
+    const csec = row.auth_client_secret_secret_id as string | null | undefined;
+    const scopes = (row.auth_scopes as readonly string[] | null | undefined) ?? [];
+    return {
+      kind: "oauth2",
+      connectionId: row.auth_connection_id,
+      clientIdSecretId: row.auth_client_id_secret_id,
+      clientSecretSecretId: csec ?? null,
+      scopes: [...scopes],
+    };
+  }
+  return { kind: "none" };
+};
+
+// --- SecretBackedValue maps <-> child rows ----------------------------------
+
+interface CredentialRow {
+  readonly id: string;
+  readonly scope_id: string;
+  readonly source_id: string;
+  readonly name: string;
+  readonly kind: "text" | "secret";
+  readonly text_value?: string;
+  readonly secret_id?: string;
+  readonly secret_prefix?: string;
+  readonly [k: string]: unknown;
+}
+
+const valueMapToRows = (
+  sourceId: string,
+  scope: string,
+  values: Record<string, GoogleDiscoveryCredentialValue> | undefined,
+): readonly CredentialRow[] => {
+  if (!values) return [];
+  return Object.entries(values).map(([name, value]) => {
+    const id = JSON.stringify([sourceId, name]);
+    if (typeof value === "string") {
+      return {
+        id,
+        scope_id: scope,
+        source_id: sourceId,
+        name,
+        kind: "text",
+        text_value: value,
+      };
+    }
+    return {
+      id,
+      scope_id: scope,
+      source_id: sourceId,
+      name,
+      kind: "secret",
+      secret_id: value.secretId,
+      secret_prefix: value.prefix,
+    };
+  });
+};
+
+const rowsToValueMap = (
+  rows: readonly Record<string, unknown>[],
+): Record<string, GoogleDiscoveryCredentialValue> => {
+  const out: Record<string, GoogleDiscoveryCredentialValue> = {};
+  for (const row of rows) {
+    const name = row.name as string;
+    if (row.kind === "secret" && typeof row.secret_id === "string") {
+      const prefix = row.secret_prefix as string | undefined | null;
+      out[name] = prefix
+        ? { secretId: row.secret_id, prefix }
+        : { secretId: row.secret_id };
+    } else if (row.kind === "text" && typeof row.text_value === "string") {
+      out[name] = row.text_value;
+    }
+  }
+  return out;
 };
 
 // ---------------------------------------------------------------------------
@@ -154,6 +313,52 @@ export interface GoogleDiscoveryStore {
     sourceId: string,
     scope: string,
   ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null, StorageFailure>;
+
+  // ---------------------------------------------------------------------
+  // Usage lookups — back `usagesForSecret` / `usagesForConnection`.
+  // ---------------------------------------------------------------------
+
+  /** Source rows whose oauth2 auth columns reference the given secret id.
+   *  `slot` distinguishes client_id vs client_secret. */
+  readonly findSourcesBySecret: (
+    secretId: string,
+  ) => Effect.Effect<
+    readonly {
+      readonly namespace: string;
+      readonly scope_id: string;
+      readonly name: string;
+      readonly slot: string;
+    }[],
+    StorageFailure
+  >;
+
+  /** Source rows whose oauth2 auth points at the given connection id. */
+  readonly findSourcesByConnection: (
+    connectionId: string,
+  ) => Effect.Effect<
+    readonly {
+      readonly namespace: string;
+      readonly scope_id: string;
+      readonly name: string;
+      readonly slot: string;
+    }[],
+    StorageFailure
+  >;
+
+  /** Credential header / query_param child rows referencing the secret. */
+  readonly findCredentialRowsBySecret: (secretId: string) => Effect.Effect<
+    readonly {
+      readonly kind: "credential_header" | "credential_query_param";
+      readonly source_id: string;
+      readonly scope_id: string;
+      readonly name: string;
+    }[],
+    StorageFailure
+  >;
+
+  readonly lookupSourceNames: (
+    keys: readonly string[],
+  ) => Effect.Effect<ReadonlyMap<string, string>, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +450,8 @@ export const makeGoogleDiscoveryStore = (
     putSource: (source) =>
       Effect.gen(function* () {
         const now = new Date();
+        // Wipe the source row + every child row before recreating —
+        // matches putSource's "fully replace" semantic.
         yield* db.delete({
           model: "google_discovery_source",
           where: [
@@ -252,18 +459,29 @@ export const makeGoogleDiscoveryStore = (
             { field: "scope_id", value: source.scope },
           ],
         });
+        yield* deleteSourceChildren(source.namespace, source.scope);
+
+        const encoded = stripExtractedFields(
+          encodeStoredSourceData(source.config) as Record<string, unknown>,
+        );
         yield* db.create({
           model: "google_discovery_source",
           data: {
             id: source.namespace,
             scope_id: source.scope,
             name: source.name,
-            config: toJsonRecord(encodeStoredSourceData(source.config)),
+            config: toJsonRecord(encoded),
             created_at: now,
             updated_at: now,
+            ...authToColumns(source.config.auth),
           },
           forceAllowId: true,
         });
+        yield* writeCredentialRows(
+          source.namespace,
+          source.scope,
+          source.config.credentials,
+        );
       }),
 
     updateSourceMeta: (sourceId, scope, update) =>
@@ -276,12 +494,7 @@ export const makeGoogleDiscoveryStore = (
           ],
         });
         if (!row) return;
-        const config = decodeStoredSourceData(decodeJson(row.config));
-        const nextConfig = new GoogleDiscoveryStoredSourceData({
-          ...config,
-          name: update.name ?? config.name,
-          auth: update.auth ?? config.auth,
-        });
+        const auth = update.auth ?? columnsToAuth(row);
         yield* db.update({
           model: "google_discovery_source",
           where: [
@@ -290,22 +503,23 @@ export const makeGoogleDiscoveryStore = (
           ],
           update: {
             name: update.name ?? (row.name as string),
-            config: toJsonRecord(encodeStoredSourceData(nextConfig)),
             updated_at: new Date(),
+            ...authToColumns(auth),
           },
         });
       }),
 
     removeSource: (sourceId, scope) =>
-      db
-        .delete({
+      Effect.gen(function* () {
+        yield* deleteSourceChildren(sourceId, scope);
+        yield* db.delete({
           model: "google_discovery_source",
           where: [
             { field: "id", value: sourceId },
             { field: "scope_id", value: scope },
           ],
-        })
-        .pipe(Effect.asVoid),
+        });
+      }),
 
     getSource: (sourceId, scope) =>
       Effect.gen(function* () {
@@ -321,7 +535,7 @@ export const makeGoogleDiscoveryStore = (
           namespace: row.id as string,
           scope: row.scope_id as string,
           name: row.name as string,
-          config: decodeStoredSourceData(decodeJson(row.config)),
+          config: yield* hydrateStoredSourceData(row, sourceId, scope),
         };
       }),
 
@@ -335,7 +549,219 @@ export const makeGoogleDiscoveryStore = (
           ],
         });
         if (!row) return null;
-        return decodeStoredSourceData(decodeJson(row.config));
+        return yield* hydrateStoredSourceData(row, sourceId, scope);
+      }),
+
+    findSourcesBySecret: (secretId) =>
+      Effect.gen(function* () {
+        const [byClientId, byClientSecret] = yield* Effect.all(
+          [
+            db.findMany({
+              model: "google_discovery_source",
+              where: [
+                { field: "auth_client_id_secret_id", value: secretId },
+              ],
+            }),
+            db.findMany({
+              model: "google_discovery_source",
+              where: [
+                { field: "auth_client_secret_secret_id", value: secretId },
+              ],
+            }),
+          ],
+          { concurrency: "unbounded" },
+        );
+        const out: {
+          readonly namespace: string;
+          readonly scope_id: string;
+          readonly name: string;
+          readonly slot: string;
+        }[] = [];
+        for (const r of byClientId) {
+          out.push({
+            namespace: r.id as string,
+            scope_id: r.scope_id as string,
+            name: r.name as string,
+            slot: "auth.oauth2.client_id",
+          });
+        }
+        for (const r of byClientSecret) {
+          out.push({
+            namespace: r.id as string,
+            scope_id: r.scope_id as string,
+            name: r.name as string,
+            slot: "auth.oauth2.client_secret",
+          });
+        }
+        return out;
+      }),
+
+    findSourcesByConnection: (connectionId) =>
+      db
+        .findMany({
+          model: "google_discovery_source",
+          where: [{ field: "auth_connection_id", value: connectionId }],
+        })
+        .pipe(
+          Effect.map((rows) =>
+            rows.map((r) => ({
+              namespace: r.id as string,
+              scope_id: r.scope_id as string,
+              name: r.name as string,
+              slot: "auth.oauth2.connection",
+            })),
+          ),
+        ),
+
+    findCredentialRowsBySecret: (secretId) =>
+      Effect.gen(function* () {
+        const [headers, params] = yield* Effect.all(
+          [
+            db.findMany({
+              model: "google_discovery_source_credential_header",
+              where: [{ field: "secret_id", value: secretId }],
+            }),
+            db.findMany({
+              model: "google_discovery_source_credential_query_param",
+              where: [{ field: "secret_id", value: secretId }],
+            }),
+          ],
+          { concurrency: "unbounded" },
+        );
+        return [
+          ...headers.map((r) => ({
+            kind: "credential_header" as const,
+            source_id: r.source_id as string,
+            scope_id: r.scope_id as string,
+            name: r.name as string,
+          })),
+          ...params.map((r) => ({
+            kind: "credential_query_param" as const,
+            source_id: r.source_id as string,
+            scope_id: r.scope_id as string,
+            name: r.name as string,
+          })),
+        ];
+      }),
+
+    lookupSourceNames: (keys) =>
+      Effect.gen(function* () {
+        if (keys.length === 0) return new Map<string, string>();
+        const rows = yield* db.findMany({ model: "google_discovery_source" });
+        const requested = new Set(keys);
+        const out = new Map<string, string>();
+        for (const r of rows) {
+          const key = `${r.scope_id as string}:${r.id as string}`;
+          if (requested.has(key)) out.set(key, r.name as string);
+        }
+        return out;
       }),
   };
+
+  // ---------------------------------------------------------------------
+  // Closure helpers (depend on `db`).
+  // ---------------------------------------------------------------------
+
+  function deleteSourceChildren(sourceId: string, scope: string) {
+    // Drop only credential child rows. Bindings live independently and
+    // are managed via putBinding / removeBindingsBySource — wiping them
+    // here would break putSource (which legitimately keeps existing
+    // bindings) and the test for "registers and invokes ... tools".
+    return Effect.gen(function* () {
+      for (const model of [
+        "google_discovery_source_credential_header",
+        "google_discovery_source_credential_query_param",
+      ] as const) {
+        yield* db.deleteMany({
+          model,
+          where: [
+            { field: "source_id", value: sourceId },
+            { field: "scope_id", value: scope },
+          ],
+        });
+      }
+    });
+  }
+
+  function writeCredentialRows(
+    sourceId: string,
+    scope: string,
+    credentials: GoogleDiscoveryFetchCredentials | undefined,
+  ) {
+    return Effect.gen(function* () {
+      if (!credentials) return;
+      const headerRows = valueMapToRows(sourceId, scope, credentials.headers);
+      if (headerRows.length > 0) {
+        yield* db.createMany({
+          model: "google_discovery_source_credential_header",
+          data: headerRows,
+          forceAllowId: true,
+        });
+      }
+      const paramRows = valueMapToRows(
+        sourceId,
+        scope,
+        credentials.queryParams,
+      );
+      if (paramRows.length > 0) {
+        yield* db.createMany({
+          model: "google_discovery_source_credential_query_param",
+          data: paramRows,
+          forceAllowId: true,
+        });
+      }
+    });
+  }
+
+  function hydrateStoredSourceData(
+    row: Record<string, unknown>,
+    sourceId: string,
+    scope: string,
+  ): Effect.Effect<GoogleDiscoveryStoredSourceData, StorageFailure> {
+    return Effect.gen(function* () {
+      const partial = decodeJson(row.config) as Record<string, unknown>;
+      const headerRows = yield* db.findMany({
+        model: "google_discovery_source_credential_header",
+        where: [
+          { field: "source_id", value: sourceId },
+          { field: "scope_id", value: scope },
+        ],
+      });
+      const paramRows = yield* db.findMany({
+        model: "google_discovery_source_credential_query_param",
+        where: [
+          { field: "source_id", value: sourceId },
+          { field: "scope_id", value: scope },
+        ],
+      });
+      const headers = rowsToValueMap(headerRows);
+      const queryParams = rowsToValueMap(paramRows);
+      const credentials =
+        Object.keys(headers).length === 0 &&
+        Object.keys(queryParams).length === 0
+          ? undefined
+          : {
+              ...(Object.keys(headers).length > 0 ? { headers } : {}),
+              ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+            };
+      const reassembled = {
+        ...partial,
+        auth: columnsToAuth(row),
+        ...(credentials ? { credentials } : {}),
+      };
+      return decodeStoredSourceData(reassembled);
+    });
+  }
+};
+
+// Strip auth/credentials from the encoded source-data shape. Those
+// moved to columns and child tables; the remaining structural fields
+// live in the `config` JSON.
+const stripExtractedFields = (
+  encoded: Record<string, unknown>,
+): Record<string, unknown> => {
+  const { auth, credentials, ...rest } = encoded;
+  void auth;
+  void credentials;
+  return rest;
 };

@@ -37,6 +37,25 @@ const PRE_0009_SQL = `
     created_at INTEGER NOT NULL,
     PRIMARY KEY (scope_id, id)
   );
+
+  CREATE TABLE google_discovery_source (
+    id TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    config TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (scope_id, id)
+  );
+
+  CREATE TABLE google_discovery_binding (
+    id TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    binding TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (scope_id, id)
+  );
 `;
 
 const STAMP_BEFORE = 1778100000001; // 0008_normalize_openapi.when

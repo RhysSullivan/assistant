@@ -71,6 +71,13 @@
       "when": 1778100000002,
       "tag": "0009_normalize_mcp",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1778100000003,
+      "tag": "0010_normalize_google_discovery",
+      "breakpoints": true
     }
   ]
 }

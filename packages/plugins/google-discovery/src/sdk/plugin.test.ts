@@ -625,4 +625,82 @@ describe("Google Discovery plugin", () => {
       }
     }),
   );
+
+  // -------------------------------------------------------------------------
+  // Usage tracking — refs land on auth_* columns and the credential
+  // child tables. `usagesForSecret` / `usagesForConnection` should
+  // surface them all.
+  // -------------------------------------------------------------------------
+
+  it.effect("usagesForSecret returns refs across auth + credential rows", () =>
+    Effect.gen(function* () {
+      const handle = yield* Effect.promise(() => startServer());
+      try {
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              makeMemorySecretsPlugin()(),
+              googleDiscoveryPlugin(),
+            ] as const,
+          }),
+        );
+        try {
+          const connectionId = ConnectionId.make(
+            "google-discovery-oauth2-usages",
+          );
+          yield* executor.connections.create(
+            new CreateConnectionInput({
+              id: connectionId,
+              scope: ScopeId.make("test-scope"),
+              provider: "oauth2",
+              identityLabel: "Drive Usages",
+              accessToken: new TokenMaterial({
+                secretId: SecretId.make(`${connectionId}.access_token`),
+                name: "Drive Access Token",
+                value: "secret-token",
+              }),
+              refreshToken: null,
+              expiresAt: null,
+              oauthScope: null,
+              providerState: null,
+            }),
+          );
+
+          yield* executor.googleDiscovery.addSource({
+            name: "Drive (Usages)",
+            scope: "test-scope",
+            discoveryUrl: handle.discoveryUrl,
+            namespace: "drive_u",
+            auth: {
+              kind: "oauth2",
+              connectionId,
+              clientIdSecretId: "shared-secret",
+              clientSecretSecretId: null,
+              scopes: [],
+            },
+          });
+
+          // The auth.client_id_secret_id alone holds `shared-secret`.
+          const usages = yield* executor.secrets.usages(
+            SecretId.make("shared-secret"),
+          );
+          expect(usages.length).toBe(1);
+          expect(usages[0]).toMatchObject({
+            pluginId: "google-discovery",
+            ownerKind: "google-discovery-source",
+            ownerId: "drive_u",
+            slot: "auth.oauth2.client_id",
+          });
+
+          const connUsages = yield* executor.connections.usages(connectionId);
+          expect(connUsages.length).toBe(1);
+          expect(connUsages[0].slot).toBe("auth.oauth2.connection");
+        } finally {
+          yield* executor.close();
+        }
+      } finally {
+        yield* Effect.promise(() => handle.close());
+      }
+    }),
+  );
 });
