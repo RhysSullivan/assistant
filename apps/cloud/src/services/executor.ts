@@ -2,18 +2,18 @@
 // Cloud executor — stateless, per-request, new SDK shape
 // ---------------------------------------------------------------------------
 //
-// Each invocation of `createScopedExecutor` runs inside a request-scoped
-// Effect and yields a fresh executor bound to the current DbService's
-// per-request postgres.js client. Cloudflare Workers + Hyperdrive demand
-// fresh connections per request, so "build once" means "once per request"
-// here.
+// Each invocation of `createGlobalExecutor` / `createWorkspaceExecutor` runs
+// inside a request-scoped Effect and yields a fresh executor bound to the
+// current DbService's per-request postgres.js client. Cloudflare Workers +
+// Hyperdrive demand fresh connections per request, so "build once" means
+// "once per request" here.
 
 import { Effect } from "effect";
 
 import {
-  Scope,
   collectSchemas,
   createExecutor,
+  type Scope,
 } from "@executor-js/sdk";
 import {
   makePostgresAdapter,
@@ -23,7 +23,12 @@ import {
 import { env } from "cloudflare:workers";
 import executorConfig from "../../executor.config";
 import { DbService } from "./db";
-import { orgScopeId, userOrgScopeId } from "./ids";
+import {
+  buildGlobalScopeStack,
+  buildWorkspaceScopeStack,
+  type GlobalContext,
+  type WorkspaceContext,
+} from "./scope-stack";
 
 // ---------------------------------------------------------------------------
 // Plugin list lives in `executor.config.ts` — that file is the single
@@ -43,53 +48,35 @@ const orgPlugins = (): CloudPlugins =>
   });
 
 // ---------------------------------------------------------------------------
-// Create a fresh executor for a (user, org) pair (stateless, per-request).
+// Create a fresh executor for a request context (stateless, per-request).
 //
-// Scope stack is `[userOrgScope, orgScope]` — innermost first. Scope ids are
-// deterministic and prefixed (`org_<orgId>`, `user_org_<userId>_<orgId>`) so
-// the same WorkOS user in a different org gets a distinct scope row, and
-// future workspace scopes can slot in between without colliding with org or
-// user-org rows.
+// Scope stacks are built innermost-first by `./scope-stack`:
+//   global    -> [userOrgScope, orgScope]
+//   workspace -> [userWorkspaceScope, workspaceScope, userOrgScope, orgScope]
 //
-// OAuth tokens land at `ctx.scopes[0]` (the user-org scope) by default, so
-// a member's access/refresh tokens can't leak to other members via
-// `secrets.list`, while source rows and org-wide credentials live on the
-// outer scope.
+// OAuth tokens land at `ctx.scopes[0]` (the most-personal scope) by default,
+// so per-user credentials can't leak across users in the same workspace/org.
+// Source rows and shared credentials live on the outer scopes.
 // ---------------------------------------------------------------------------
 
-export const createScopedExecutor = (
-  userId: string,
-  organizationId: string,
-  organizationName: string,
-) =>
+const buildExecutor = (scopes: ReadonlyArray<Scope>) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
-
     const plugins = orgPlugins();
     const schema = collectSchemas(plugins);
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });
-
-    const orgScope = new Scope({
-      id: orgScopeId(organizationId),
-      name: organizationName,
-      createdAt: new Date(),
-    });
-    const userOrgScope = new Scope({
-      id: userOrgScopeId(userId, organizationId),
-      name: `Personal · ${organizationName}`,
-      createdAt: new Date(),
-    });
-
-    // The executor surface returns raw `StorageFailure`; translation to
-    // the opaque `InternalError({ traceId })` happens at the HTTP edge
-    // via `withCapture` (see `api/protected-layers.ts`). That's
-    // where `ErrorCaptureLive` (Sentry) gets wired in.
     return yield* createExecutor({
-      scopes: [userOrgScope, orgScope],
+      scopes,
       adapter,
       blobs,
       plugins,
       onElicitation: "accept-all",
     });
   });
+
+export const createGlobalExecutor = (ctx: GlobalContext) =>
+  buildExecutor(buildGlobalScopeStack(ctx));
+
+export const createWorkspaceExecutor = (ctx: WorkspaceContext) =>
+  buildExecutor(buildWorkspaceScopeStack(ctx));

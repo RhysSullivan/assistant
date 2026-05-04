@@ -32,7 +32,6 @@ import {
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import {
-  Scope,
   collectSchemas,
   createExecutor,
 } from "@executor-js/sdk";
@@ -51,6 +50,7 @@ import {
 } from "../../api/protected-layers";
 import { DbService } from "../db";
 import { orgScopeId, userOrgScopeId } from "../ids";
+import { buildGlobalScopeStack } from "../scope-stack";
 
 export const TEST_BASE_URL = "http://test.local";
 export const TEST_ORG_HEADER = "x-test-org-id";
@@ -82,18 +82,12 @@ const createTestScopedExecutor = (
     const schema = collectSchemas(plugins);
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });
-    const orgScope = new Scope({
-      id: orgScopeId(orgId),
-      name: orgName,
-      createdAt: new Date(),
-    });
-    const userOrgScope = new Scope({
-      id: userOrgScopeId(userId, orgId),
-      name: `Personal · ${orgName}`,
-      createdAt: new Date(),
-    });
     return yield* createExecutor({
-      scopes: [userOrgScope, orgScope],
+      scopes: buildGlobalScopeStack({
+        userId,
+        organizationId: orgId,
+        organizationName: orgName,
+      }),
       adapter,
       blobs,
       plugins,

@@ -101,7 +101,11 @@ const ExecutionStackMiddleware = HttpRouter.middleware<{
           name: `${session.firstName ?? ""} ${session.lastName ?? ""}`.trim() || null,
           avatarUrl: session.avatarUrl ?? null,
         });
-        const { executor, engine } = yield* makeExecutionStack(auth.accountId, org.id, org.name);
+        const { executor, engine } = yield* makeExecutionStack({
+          userId: auth.accountId,
+          organizationId: org.id,
+          organizationName: org.name,
+        });
         return yield* httpEffect.pipe(
           Effect.provideService(AuthContext, auth),
           Effect.provideService(ExecutorService, executor),
