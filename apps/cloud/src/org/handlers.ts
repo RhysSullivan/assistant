@@ -52,24 +52,38 @@ const assertDomainInSessionOrg = (domainId: string) =>
     }
   });
 
+// Per-plan member limits live in code, not Autumn. Members aren't billable
+// usage — they're a permission attached to the plan. We still ask Autumn
+// which plan the org is on (Autumn is the billing source of truth), but
+// the cap itself is a constant here. `null` = unlimited.
+const MEMBER_LIMITS: Record<string, number | null> = {
+  free: 3,
+  "free-pay-as-you-go": 3,
+  team: null,
+};
+const DEFAULT_MEMBER_LIMIT = 3;
+
 // Compute live seat usage from WorkOS truth (active+pending memberships +
-// pending invitations) and the per-plan limit from Autumn. Recomputed on
-// every call — no event-counting drift.
+// pending invitations) and look up the per-plan cap from MEMBER_LIMITS.
+// Recomputed on every call — no event-counting drift.
 const getMemberSeats = (organizationId: string) =>
   Effect.gen(function* () {
     const autumn = yield* AutumnService;
     const workos = yield* WorkOSAuth;
 
-    const limit = yield* autumn.use((client) =>
-      client.check({ customerId: organizationId, featureId: "members" }),
+    const customer = yield* autumn.use((client) =>
+      client.customers.getOrCreate({ customerId: organizationId }),
     );
+    const planId = customer.subscriptions[0]?.planId ?? "free";
+    const limit = planId in MEMBER_LIMITS ? MEMBER_LIMITS[planId] : DEFAULT_MEMBER_LIMIT;
+
     const memberships = yield* workos.listOrgMembers(organizationId);
     const invitations = yield* workos.listPendingInvitations(organizationId);
 
     return {
       used: memberships.data.length + invitations.data.length,
-      granted: limit.balance?.granted ?? 0,
-      unlimited: limit.balance?.unlimited ?? false,
+      granted: limit ?? 0,
+      unlimited: limit === null,
     };
   });
 

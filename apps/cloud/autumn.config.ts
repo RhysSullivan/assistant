@@ -1,13 +1,6 @@
 import { feature, item, plan } from "atmn";
 
 // Features
-export const members = feature({
-  id: "members",
-  name: "Members",
-  type: "metered",
-  consumable: false,
-});
-
 export const executions = feature({
   id: "executions",
   name: "Executions",
@@ -28,10 +21,6 @@ export const free = plan({
   autoEnable: true,
   items: [
     item({
-      featureId: members.id,
-      included: 3,
-    }),
-    item({
       featureId: executions.id,
       included: 10000,
       reset: { interval: "month" },
@@ -43,10 +32,6 @@ export const freePayAsYouGo = plan({
   id: "free-pay-as-you-go",
   name: "Free Pay As You Go",
   items: [
-    item({
-      featureId: members.id,
-      included: 3,
-    }),
     item({
       featureId: executions.id,
       included: 10000,
@@ -68,10 +53,6 @@ export const team = plan({
     interval: "month",
   },
   items: [
-    item({
-      featureId: members.id,
-      unlimited: true,
-    }),
     item({
       featureId: executions.id,
       included: 250000,
