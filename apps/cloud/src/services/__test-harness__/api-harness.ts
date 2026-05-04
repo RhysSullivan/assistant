@@ -104,7 +104,10 @@ const createTestScopedExecutor = (
 // Seed a test organization row whose handle equals the supplied id so the
 // production middleware resolution path (`resolveOrgContext(handle)`) works
 // against the test db. Uses `onConflictDoNothing` so repeated `asOrg(orgId,
-// …)` calls within a test don't fight each other.
+// …)` calls within a test don't fight each other. Lives inside the request
+// pipeline (so DbService is already provided) instead of at factory time
+// — bringing up its own DbService.Live in a Node test process leaks a
+// postgres.js socket that ECONNRESETs across test files.
 const seedTestOrg = (orgId: string) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
@@ -159,6 +162,10 @@ const TestExecutionStackMiddleware = HttpRouter.middleware<{
             new Error(`missing /api/:org prefix in ${url.pathname}`),
           );
         }
+        // Lazily seed the org row so production-mode `resolveOrgContext` (used
+        // anywhere that takes the URL handle as truth) finds it. The test
+        // harness can't pre-seed at factory time without leaking sockets.
+        yield* seedTestOrg(orgId);
         const userHeader = request.headers[TEST_USER_HEADER];
         const userId =
           typeof userHeader === "string" && userHeader.length > 0
@@ -216,56 +223,45 @@ const handler = HttpRouter.toWebHandler(TestApiLive, { disableLogger: true }).ha
 // `TEST_BASE_URL` and call endpoint methods that build paths like
 // `/scopes/.../sources` — we splice the org segment in front before the
 // request reaches the in-process handler.
-const rewriteRequestForOrg = (
+const rewriteRequestForOrg = async (
   base: Request,
   orgId: string,
   extraHeaders: Record<string, string> = {},
-): Request => {
+): Promise<Request> => {
   const url = new URL(base.url);
   if (!url.pathname.startsWith(`/api/${orgId}/`) && url.pathname !== `/api/${orgId}`) {
     url.pathname = `/api/${orgId}${url.pathname.startsWith("/") ? "" : "/"}${url.pathname}`;
   }
+  // Buffer the body — Node's `RequestInit` rejects stream bodies without
+  // `duplex: "half"`, and forwarding a Request through `new Request(url, {...})`
+  // is fragile across runtimes. ArrayBuffer survives the round-trip cleanly.
+  const body =
+    base.method === "GET" || base.method === "HEAD"
+      ? undefined
+      : await base.arrayBuffer();
   return new Request(url.toString(), {
     method: base.method,
     headers: { ...Object.fromEntries(base.headers), ...extraHeaders },
-    body:
-      base.method === "GET" || base.method === "HEAD" ? undefined : base.body,
-    redirect: base.redirect,
-    referrer: base.referrer,
-    referrerPolicy: base.referrerPolicy,
-    mode: base.mode,
-    credentials: base.credentials,
-    cache: base.cache,
-    integrity: base.integrity,
-    keepalive: base.keepalive,
-    signal: base.signal,
+    body,
   });
 };
 
-export const fetchForOrg = (orgId: string): typeof globalThis.fetch => {
-  // Best-effort seed of the org row before any real client call. Done here
-  // (factory-time) so each `asOrg(orgId, …)` block has the row in place by
-  // the time the request executes — the production middleware path requires
-  // a real organizations row to resolve the URL handle.
-  const seeded = Effect.runPromise(seedTestOrg(orgId).pipe(Effect.provide(DbService.Live)));
-  return ((input: RequestInfo | URL, init?: RequestInit) => {
+export const fetchForOrg = (orgId: string): typeof globalThis.fetch =>
+  (async (input: RequestInfo | URL, init?: RequestInit) => {
     const base = input instanceof Request ? input : new Request(input, init);
-    const req = rewriteRequestForOrg(base, orgId);
-    return seeded.then(() => handler(req));
+    const req = await rewriteRequestForOrg(base, orgId);
+    return handler(req);
   }) as typeof globalThis.fetch;
-};
 
 export const fetchForUser = (
   userId: string,
   orgId: string,
-): typeof globalThis.fetch => {
-  const seeded = Effect.runPromise(seedTestOrg(orgId).pipe(Effect.provide(DbService.Live)));
-  return ((input: RequestInfo | URL, init?: RequestInit) => {
+): typeof globalThis.fetch =>
+  (async (input: RequestInfo | URL, init?: RequestInit) => {
     const base = input instanceof Request ? input : new Request(input, init);
-    const req = rewriteRequestForOrg(base, orgId, { [TEST_USER_HEADER]: userId });
-    return seeded.then(() => handler(req));
+    const req = await rewriteRequestForOrg(base, orgId, { [TEST_USER_HEADER]: userId });
+    return handler(req);
   }) as typeof globalThis.fetch;
-};
 
 export const clientLayerForOrg = (orgId: string) =>
   FetchHttpClient.layer.pipe(
