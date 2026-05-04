@@ -1058,7 +1058,7 @@ export interface McpPluginExtension {
   readonly refreshSource: (
     namespace: string,
     scope: string,
-  ) => Effect.Effect<{ readonly toolCount: number }, McpExtensionFailure>;
+  ) => Effect.Effect<{ readonly toolCount: number }, McpSourceWriteFailure>;
   readonly getSource: (
     namespace: string,
     scope: string,

@@ -175,7 +175,12 @@ export const McpGroup = HttpApiGroup.make("mcp")
       params: ScopeParams,
       payload: NamespacePayload,
       success: RefreshSourceResponse,
-      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
+      error: [
+        InternalError,
+        McpConnectionError,
+        McpToolDiscoveryError,
+        InvalidSourceWriteTarget,
+      ],
     }),
   )
   .add(
