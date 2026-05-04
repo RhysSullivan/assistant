@@ -3,10 +3,11 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCustomer, useListPlans } from "autumn-js/react";
 import { Button } from "@executor-js/react/components/button";
 import { Badge } from "@executor-js/react/components/badge";
+import { useOrgRoute } from "../../web/org-route";
 
 type Plan = NonNullable<ReturnType<typeof useListPlans>["data"]>[number];
 
-export const Route = createFileRoute("/billing_/plans")({
+export const Route = createFileRoute("/$org/-/billing_/plans")({
   component: PlansPage,
 });
 
@@ -68,6 +69,7 @@ const ENTERPRISE_MAILTO = `mailto:rhys@executor.sh?subject=${encodeURIComponent(
 )}`;
 
 function PlansPage() {
+  const { orgHandle } = useOrgRoute();
   const { attach, openCustomerPortal, isLoading: customerLoading } = useCustomer();
   const { data: plans, isLoading: plansLoading, isFetching } = useListPlans();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
@@ -83,7 +85,8 @@ function PlansPage() {
       <div className="mx-auto max-w-5xl px-6 py-10 lg:px-10 lg:py-14">
         <div className="mb-8">
           <Link
-            to="/billing"
+            to="/$org/-/billing"
+            params={{ org: orgHandle }}
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
           >
             <svg viewBox="0 0 16 16" fill="none" className="size-3.5">

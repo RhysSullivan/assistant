@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useEffect } from "react";
-import * as Atom from "effect/unstable/reactivity/Atom";
 import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { usePostHog } from "posthog-js/react";
@@ -32,13 +31,6 @@ export const authAtom = CloudApiClient.query("cloudAuth", "me", {
   timeToLive: "5 minutes",
   reactivityKeys: [ReactivityKey.auth],
 });
-
-export const organizationsAtom = Atom.refreshOnWindowFocus(
-  CloudApiClient.query("cloudAuth", "organizations", {
-    timeToLive: "1 minute",
-    reactivityKeys: [ReactivityKey.auth],
-  }),
-);
 
 export const createOrganization = CloudApiClient.mutation("cloudAuth", "createOrganization");
 
