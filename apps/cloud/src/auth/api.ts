@@ -43,9 +43,38 @@ const CreateOrganizationResponse = Schema.Struct({
   name: Schema.String,
 });
 
+// `state` is optional — some WorkOS-initiated redirects arrive at the
+// callback without the state we set on /auth/login. The CSRF check is
+// only enforced when state is present (see callback handler).
 const AuthCallbackSearch = Schema.Struct({
   code: Schema.String,
-  state: Schema.String,
+  state: Schema.optional(Schema.String),
+});
+
+const PendingInvitationInviter = Schema.Struct({
+  email: Schema.String,
+  name: Schema.NullOr(Schema.String),
+});
+
+const PendingInvitation = Schema.Struct({
+  id: Schema.String,
+  organizationId: Schema.String,
+  organizationName: Schema.String,
+  createdAt: Schema.String,
+  inviter: Schema.NullOr(PendingInvitationInviter),
+});
+
+const PendingInvitationsResponse = Schema.Struct({
+  invitations: Schema.Array(PendingInvitation),
+});
+
+const AcceptInvitationBody = Schema.Struct({
+  invitationId: Schema.String,
+});
+
+const AcceptInvitationResponse = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
 });
 
 export const AUTH_PATHS = {
@@ -92,6 +121,19 @@ export class CloudAuthApi extends HttpApiGroup.make("cloudAuth")
     HttpApiEndpoint.post("createOrganization", "/auth/create-organization", {
       payload: CreateOrganizationBody,
       success: CreateOrganizationResponse,
+      error: AuthErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("pendingInvitations", "/auth/pending-invitations", {
+      success: PendingInvitationsResponse,
+      error: WorkOSError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("acceptInvitation", "/auth/accept-invitation", {
+      payload: AcceptInvitationBody,
+      success: AcceptInvitationResponse,
       error: AuthErrors,
     }),
   )

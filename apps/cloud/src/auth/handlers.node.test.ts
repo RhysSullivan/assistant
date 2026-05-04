@@ -7,6 +7,7 @@ import type { Effect as EffectType } from "effect/Effect";
 import { CloudAuthPublicApi } from "./api";
 import { CloudAuthPublicHandlers } from "./handlers";
 import { UserStoreService } from "./context";
+import { WorkOSError } from "./errors";
 import { WorkOSAuth } from "./workos";
 
 const TestAuthPublicApi = HttpApi.make("cloudWeb").add(CloudAuthPublicApi);
@@ -108,6 +109,33 @@ describe("Auth callback handlers", () => {
     }),
   );
 
+  // Some WorkOS-initiated redirects don't include a state parameter.
+  // The schema treats state as optional; the handler skips the CSRF
+  // check when state is absent and proceeds with the code exchange.
+  it.effect("accepts a callback without state", () =>
+    Effect.gen(function* () {
+      const fetch = makeAuthFetch({
+        authenticateWithCode: () =>
+          Effect.succeed({
+            user: fakeUser,
+            accessToken: "access_token",
+            refreshToken: "refresh_token",
+            organizationId: "org_1",
+            sealedSession: "sealed_session_no_state",
+          } satisfies AuthenticateWithCodeResult),
+      });
+
+      const response = yield* Effect.promise(() =>
+        fetch(new Request("http://test.local/auth/callback?code=stateless-code")),
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/");
+      const setCookie = response.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("wos-session=sealed_session_no_state");
+    }),
+  );
+
   it.effect("sets the session cookie and clears login state on matching callback state", () =>
     Effect.gen(function* () {
       const fetch = makeAuthFetch({
@@ -136,6 +164,102 @@ describe("Auth callback handlers", () => {
       expect(setCookie).toContain("Max-Age=604800");
       expect(setCookie).toContain("wos-login-state=");
       expect(setCookie).toContain("Max-Age=0");
+    }),
+  );
+
+  // Regression: an invited user signing in for the first time has only a
+  // *pending* membership (the WorkOS-side representation of an unaccepted
+  // invitation). The callback used to pick `data[0]` regardless of status
+  // and call refreshSession into that org, which 400s and surfaces as
+  // WorkOSError → 500. We now skip pending memberships entirely.
+  it.effect("does not refresh into a pending membership; leaves session org-less", () =>
+    Effect.gen(function* () {
+      let refreshCalls = 0;
+      const fetch = makeAuthFetch({
+        authenticateWithCode: () =>
+          Effect.succeed({
+            user: fakeUser,
+            accessToken: "access_token",
+            refreshToken: "refresh_token",
+            sealedSession: "sealed_session_no_org",
+          } satisfies AuthenticateWithCodeResult),
+        // The handler only reads `data[*].organizationId` and
+        // `data[*].status`, so we stub a minimal shape matching that
+        // contract instead of hand-rolling the full WorkOS SDK types.
+        // oxlint-disable-next-line executor/no-double-cast
+        listUserMemberships: (() =>
+          Effect.succeed({
+            data: [
+              {
+                organizationId: "org_pending",
+                status: "pending",
+              },
+            ],
+          })) as unknown as WorkOSAuth["Service"]["listUserMemberships"],
+        refreshSession: () =>
+          Effect.sync(() => {
+            refreshCalls++;
+            return null;
+          }),
+      });
+
+      const response = yield* Effect.promise(() =>
+        fetch(
+          new Request("http://test.local/auth/callback?code=code&state=state_2", {
+            headers: { cookie: "wos-login-state=state_2" },
+          }),
+        ),
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/");
+      expect(refreshCalls).toBe(0);
+      const setCookie = response.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("wos-session=sealed_session_no_org");
+    }),
+  );
+
+  // Regression: even with an active membership, if WorkOS rejects the
+  // refresh (e.g. membership just revoked, brief race), the callback
+  // should still succeed with an org-less session rather than 500.
+  it.effect("falls through to org-less session when refresh fails", () =>
+    Effect.gen(function* () {
+      const fetch = makeAuthFetch({
+        authenticateWithCode: () =>
+          Effect.succeed({
+            user: fakeUser,
+            accessToken: "access_token",
+            refreshToken: "refresh_token",
+            sealedSession: "sealed_session_fallback",
+          } satisfies AuthenticateWithCodeResult),
+        // Same minimal-shape stub as above — see comment in the
+        // pending-membership test.
+        // oxlint-disable-next-line executor/no-double-cast
+        listUserMemberships: (() =>
+          Effect.succeed({
+            data: [
+              {
+                organizationId: "org_active",
+                status: "active",
+              },
+            ],
+          })) as unknown as WorkOSAuth["Service"]["listUserMemberships"],
+        refreshSession: (() =>
+          Effect.fail(new WorkOSError())) as WorkOSAuth["Service"]["refreshSession"],
+      });
+
+      const response = yield* Effect.promise(() =>
+        fetch(
+          new Request("http://test.local/auth/callback?code=code&state=state_3", {
+            headers: { cookie: "wos-login-state=state_3" },
+          }),
+        ),
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/");
+      const setCookie = response.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("wos-session=sealed_session_fallback");
     }),
   );
 });
