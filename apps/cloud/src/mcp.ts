@@ -17,7 +17,7 @@
 import { env } from "cloudflare:workers";
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import * as Sentry from "@sentry/cloudflare";
-import { Context, Effect, Layer, Option, Schema } from "effect";
+import { Cause, Context, Effect, Layer, Option, Schema } from "effect";
 
 import { createCachedRemoteJWKSet } from "./jwks-cache";
 import { TelemetryLive } from "./services/telemetry";
@@ -697,8 +697,12 @@ export const mcpApp: Effect.Effect<
   Effect.withSpan("mcp.request"),
   Effect.catchCause((cause) =>
     Effect.sync(() => {
-      console.error("[mcp] request failed:", cause);
-      Sentry.captureException(cause);
+      const pretty = Cause.pretty(cause);
+      console.error("[mcp] request failed:", pretty);
+      Sentry.captureException(Cause.squash(cause), (scope) => {
+        scope.setExtra("cause", pretty);
+        return scope;
+      });
       return jsonRpcError(500, -32603, "Internal server error");
     }),
   ),

@@ -4,7 +4,7 @@
 
 import { DurableObject, env } from "cloudflare:workers";
 import { createTraceState } from "@opentelemetry/api";
-import { Data, Effect, Layer } from "effect";
+import { Cause, Data, Effect, Layer } from "effect";
 import * as OtelTracer from "@effect/opentelemetry/Tracer";
 import type * as Tracer from "effect/Tracer";
 import * as Sentry from "@sentry/cloudflare";
@@ -624,8 +624,12 @@ export class McpSessionDO extends DurableObject {
     }).pipe(
       Effect.catchCause((cause) =>
         Effect.sync(() => {
-          console.error("[mcp-session] handleRequest error:", cause);
-          Sentry.captureException(cause);
+          const pretty = Cause.pretty(cause);
+          console.error("[mcp-session] handleRequest error:", pretty);
+          Sentry.captureException(Cause.squash(cause), (scope) => {
+            scope.setExtra("cause", pretty);
+            return scope;
+          });
           return jsonRpcError(500, -32603, "Internal error");
         }),
       ),

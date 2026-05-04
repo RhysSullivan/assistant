@@ -48,11 +48,26 @@ const toHttpResponseError = (error: unknown): HttpResponseError => {
       });
 };
 
+// Sentry's `captureException` can't extract a real Error from an Effect
+// `Cause` — it logs a `'CauseImpl' captured as exception` warning. Squash
+// to a plain value and stash the pretty-printed cause as an extra.
+const captureSentryError = (error: unknown): void => {
+  if (Cause.isCause(error)) {
+    const pretty = Cause.pretty(error);
+    Sentry.captureException(Cause.squash(error), (scope) => {
+      scope.setExtra("cause", pretty);
+      return scope;
+    });
+  } else {
+    Sentry.captureException(error);
+  }
+};
+
 export const isServerError = (error: unknown): boolean => toHttpResponseError(error).status >= 500;
 
 export const toErrorResponse = (error: unknown): Response => {
   const mapped = toHttpResponseError(error);
-  if (mapped.status >= 500) Sentry.captureException(error);
+  if (mapped.status >= 500) captureSentryError(error);
   return Response.json({ error: mapped.message, code: mapped.code }, { status: mapped.status });
 };
 
@@ -61,9 +76,9 @@ export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpSe
   if (mapped.status >= 500) {
     console.error(
       "[api] toErrorServerResponse error:",
-      error instanceof Error ? error.stack : error,
+      Cause.isCause(error) ? Cause.pretty(error) : error instanceof Error ? error.stack : error,
     );
-    Sentry.captureException(error);
+    captureSentryError(error);
   }
   return HttpServerResponse.jsonUnsafe(
     { error: mapped.message, code: mapped.code },
