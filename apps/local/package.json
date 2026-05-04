@@ -47,7 +47,7 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
-    "@rhyssul/portless": "^0.12.0",
+    "@rhyssul/portless": "^0.13.0",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/router-plugin": "^1.167.12",
     "@types/node": "catalog:",
