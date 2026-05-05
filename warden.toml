@@ -61,17 +61,13 @@ paths = [
 [[skills]]
 name = "wrdn-gha-workflows"
 remote = "getsentry/warden-skills"
-paths = [
-  ".github/workflows/**/*.yml",
-  ".github/workflows/**/*.yaml",
-]
+paths = [".github/workflows/**/*.yml", ".github/workflows/**/*.yaml"]
 
 # Local skill — no `remote =`, resolved from `.agents/skills/<name>/SKILL.md`.
 [[skills]]
 name = "wrdn-effect-atom-optimistic"
 paths = [
   "packages/react/src/api/atoms.tsx",
-  "packages/react/src/api/optimistic.tsx",
   "packages/react/src/pages/**/*.tsx",
   "packages/react/src/components/**/*.tsx",
 ]

@@ -1,16 +1,11 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useAtomSet } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { PlusIcon } from "lucide-react";
 import type { SourceDetectionResult } from "@executor-js/sdk";
-import {
-  useSourcePlugins,
-  type SourcePlugin,
-  type SourcePreset,
-} from "@executor-js/sdk/client";
-import { detectSource } from "../api/atoms";
-import { useSourcesWithPending } from "../api/optimistic";
+import { useSourcePlugins, type SourcePlugin, type SourcePreset } from "@executor-js/sdk/client";
+import { detectSource, sourcesOptimisticAtom } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
 import { McpInstallCard } from "../components/mcp-install-card";
 import { Button } from "../components/button";
@@ -60,7 +55,7 @@ const bestDetection = (
 
 export function SourcesPage() {
   const scopeId = useScope();
-  const sources = useSourcesWithPending(scopeId);
+  const sources = useAtomValue(sourcesOptimisticAtom(scopeId));
   const [connectOpen, setConnectOpen] = useState(false);
 
   return (
@@ -228,10 +223,7 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
                 className="flex-1"
               />
               {isUrl && (
-                <Button
-                  onClick={() => void handleDetect()}
-                  disabled={detecting || !query.trim()}
-                >
+                <Button onClick={() => void handleDetect()} disabled={detecting || !query.trim()}>
                   {detecting ? "Detecting..." : "Detect"}
                 </Button>
               )}
@@ -256,11 +248,7 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
             </div>
           </div>
 
-          <PresetGrid
-            plugins={sourcePlugins}
-            onPick={closeAndReset}
-            searchQuery={presetSearch}
-          />
+          <PresetGrid plugins={sourcePlugins} onPick={closeAndReset} searchQuery={presetSearch} />
         </div>
       </DialogContent>
     </Dialog>
@@ -324,8 +312,7 @@ function PresetGrid(props: {
     const q = (props.searchQuery ?? "").trim().toLowerCase();
     if (q.length === 0) return allPresets;
     return allPresets.filter(({ preset, pluginLabel }) => {
-      const corpus =
-        `${preset.name} ${preset.summary ?? ""} ${pluginLabel}`.toLowerCase();
+      const corpus = `${preset.name} ${preset.summary ?? ""} ${pluginLabel}`.toLowerCase();
       return corpus.includes(q);
     });
   }, [allPresets, props.searchQuery]);

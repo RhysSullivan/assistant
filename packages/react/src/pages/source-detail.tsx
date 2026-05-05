@@ -6,9 +6,9 @@ import { effectivePolicyFromSorted } from "@executor-js/sdk";
 import {
   policiesOptimisticAtom,
   sourceToolsAtom,
-  sourcesAtom,
+  sourcesOptimisticAtom,
   sourceAtom,
-  removeSource,
+  removeSourceOptimistic,
   refreshSource,
 } from "../api/atoms";
 import { sourceWriteKeys } from "../api/reactivity-keys";
@@ -29,9 +29,9 @@ export function SourceDetailPage(props: { namespace: string }) {
   const source = useAtomValue(sourceAtom(namespace, scopeId));
   const tools = useAtomValue(sourceToolsAtom(namespace, scopeId));
   const policies = useAtomValue(policiesOptimisticAtom(scopeId));
-  const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
+  const refreshSources = useAtomRefresh(sourcesOptimisticAtom(scopeId));
   const refreshTools = useAtomRefresh(sourceToolsAtom(namespace, scopeId));
-  const doRemove = useAtomSet(removeSource, { mode: "promise" });
+  const doRemove = useAtomSet(removeSourceOptimistic(scopeId), { mode: "promise" });
   const doRefresh = useAtomSet(refreshSource, { mode: "promise" });
   const policyActions = usePolicyActions(scopeId);
   const navigate = useNavigate();

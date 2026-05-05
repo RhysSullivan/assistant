@@ -4,7 +4,7 @@ import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { PlusIcon } from "lucide-react";
 import { SourceFavicon } from "./source-favicon";
-import { sourcesAtom } from "../api/atoms";
+import { sourcesOptimisticAtom } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
 import { useSourcePlugins } from "@executor-js/sdk/client";
 import {
@@ -32,7 +32,7 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const scopeId = useScope();
-  const sourcesResult = useAtomValue(sourcesAtom(scopeId));
+  const sourcesResult = useAtomValue(sourcesOptimisticAtom(scopeId));
 
   // Toggle with ⌘K / Ctrl+K
   useEffect(() => {

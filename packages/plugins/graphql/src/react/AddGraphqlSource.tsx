@@ -1,9 +1,10 @@
 import { useCallback, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 
 import { useScope } from "@executor-js/react/api/scope-context";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
-import { usePendingSources } from "@executor-js/react/api/optimistic";
 import {
   HttpCredentialsEditor,
   httpCredentialsValid,
@@ -33,7 +34,7 @@ import {
 import { FloatActions } from "@executor-js/react/components/float-actions";
 import { Input } from "@executor-js/react/components/input";
 import { Spinner } from "@executor-js/react/components/spinner";
-import { addGraphqlSource } from "./atoms";
+import { addGraphqlSourceOptimistic } from "./atoms";
 import { initialGraphqlCredentials } from "./defaults";
 import type { HeaderValue } from "../sdk/types";
 
@@ -55,8 +56,7 @@ export default function AddGraphqlSource(props: {
   const [tokens, setTokens] = useState<OAuthCompletionPayload | null>(null);
 
   const scopeId = useScope();
-  const doAdd = useAtomSet(addGraphqlSource, { mode: "promise" });
-  const { beginAdd } = usePendingSources();
+  const doAdd = useAtomSet(addGraphqlSourceOptimistic(scopeId), { mode: "promiseExit" });
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow({
     popupName: "graphql-oauth",
@@ -112,41 +112,38 @@ export default function AddGraphqlSource(props: {
     const { headers: headerMap, queryParams } = serializeHttpCredentials(credentials);
 
     const { trimmedEndpoint, namespace, displayName } = sourceIdentity();
-    const placeholder = beginAdd({
-      id: namespace,
-      name: displayName,
-      kind: "graphql",
-      url: trimmedEndpoint || undefined,
+    const exit = await doAdd({
+      params: { scopeId },
+      payload: {
+        endpoint: trimmedEndpoint,
+        name: displayName,
+        namespace,
+        ...(Object.keys(headerMap).length > 0 ? { headers: headerMap } : {}),
+        ...(Object.keys(queryParams).length > 0
+          ? { queryParams: queryParams as Record<string, HeaderValue> }
+          : {}),
+        ...(authMode === "oauth2" && tokens
+          ? {
+              auth: {
+                kind: "oauth2" as const,
+                connectionId: tokens.connectionId,
+              },
+            }
+          : {}),
+      },
+      reactivityKeys: sourceWriteKeys,
     });
-    try {
-      await doAdd({
-        params: { scopeId },
-        payload: {
-          endpoint: trimmedEndpoint,
-          name: identity.name.trim() || undefined,
-          namespace: slugifyNamespace(identity.namespace) || undefined,
-          ...(Object.keys(headerMap).length > 0 ? { headers: headerMap } : {}),
-          ...(Object.keys(queryParams).length > 0
-            ? { queryParams: queryParams as Record<string, HeaderValue> }
-            : {}),
-          ...(authMode === "oauth2" && tokens
-            ? {
-                auth: {
-                  kind: "oauth2" as const,
-                  connectionId: tokens.connectionId,
-                },
-              }
-            : {}),
-        },
-        reactivityKeys: sourceWriteKeys,
-      });
-      props.onComplete();
-    } catch (e) {
-      setAddError(e instanceof Error ? e.message : "Failed to add source");
+    if (Exit.isFailure(exit)) {
+      const error = Exit.findErrorOption(exit);
+      setAddError(
+        Option.isSome(error) && error.value instanceof Error
+          ? error.value.message
+          : "Failed to add source",
+      );
       setAdding(false);
-    } finally {
-      placeholder.done();
+      return;
     }
+    props.onComplete();
   };
 
   return (

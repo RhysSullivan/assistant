@@ -1,9 +1,8 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAtomRefresh } from "@effect/atom-react";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { sourcesAtom, toolsAtom } from "@executor-js/react/api/atoms";
-import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
+import { sourcesAtom, sourcesOptimisticAtom, toolsAtom } from "@executor-js/react/api/atoms";
 import { useScope, useScopeInfo } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
 import { SourceFavicon } from "@executor-js/react/components/source-favicon";
@@ -261,7 +260,7 @@ function PluginNav(props: { pathname: string; onNavigate?: () => void }) {
 
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const scopeId = useScope();
-  const sources = useSourcesWithPending(scopeId);
+  const sources = useAtomValue(sourcesOptimisticAtom(scopeId));
 
   return AsyncResult.match(sources, {
     onInitial: () => <div className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</div>,

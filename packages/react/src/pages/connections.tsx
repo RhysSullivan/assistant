@@ -6,8 +6,11 @@ import * as Option from "effect/Option";
 import { ConnectionId, ConnectionInUseError, type ScopeId } from "@executor-js/sdk";
 import { toast } from "sonner";
 
-import { connectionUsagesAtom, removeConnection } from "../api/atoms";
-import { useConnectionsWithPendingRemovals, usePendingConnectionRemovals } from "../api/optimistic";
+import {
+  connectionUsagesAtom,
+  connectionsOptimisticAtom,
+  removeConnectionOptimistic,
+} from "../api/atoms";
 import { connectionWriteKeys } from "../api/reactivity-keys";
 import { useScope, useScopeStack } from "../hooks/use-scope";
 import { Badge } from "../components/badge";
@@ -59,13 +62,8 @@ const connectionScopeLabel = (
 // don't get a stray "Used by 0" line before any source binds to them.
 // ---------------------------------------------------------------------------
 
-function ConnectionUsageFooter(props: {
-  scopeId: ScopeId;
-  connectionId: ConnectionId;
-}) {
-  const usages = useAtomValue(
-    connectionUsagesAtom(props.scopeId, props.connectionId),
-  );
+function ConnectionUsageFooter(props: { scopeId: ScopeId; connectionId: ConnectionId }) {
+  const usages = useAtomValue(connectionUsagesAtom(props.scopeId, props.connectionId));
   return AsyncResult.match(usages, {
     onInitial: () => null,
     onFailure: () => null,
@@ -161,18 +159,15 @@ function ConnectionRow(props: {
 export function ConnectionsPage() {
   const scopeId = useScope();
   const scopeStack = useScopeStack();
-  const connections = useConnectionsWithPendingRemovals(scopeId);
-  const { beginRemove } = usePendingConnectionRemovals();
-  const doRemove = useAtomSet(removeConnection, { mode: "promiseExit" });
+  const connections = useAtomValue(connectionsOptimisticAtom(scopeId));
+  const doRemove = useAtomSet(removeConnectionOptimistic(scopeId), { mode: "promiseExit" });
 
   const handleRemove = async (connectionId: string) => {
-    const pending = beginRemove(connectionId);
     const exit = await doRemove({
       params: { scopeId, connectionId: ConnectionId.make(connectionId) },
       reactivityKeys: connectionWriteKeys,
     });
     if (Exit.isFailure(exit)) {
-      pending.undo();
       const error = Exit.findErrorOption(exit);
       if (Option.isSome(error) && error.value instanceof ConnectionInUseError) {
         const count = error.value.usageCount;

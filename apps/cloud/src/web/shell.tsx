@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import * as Exit from "effect/Exit";
-import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
+import { sourcesOptimisticAtom } from "@executor-js/react/api/atoms";
 import { useScope } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
 import { Skeleton } from "@executor-js/react/components/skeleton";
@@ -60,7 +60,7 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
 
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const scopeId = useScope();
-  const sources = useSourcesWithPending(scopeId);
+  const sources = useAtomValue(sourcesOptimisticAtom(scopeId));
 
   return AsyncResult.match(sources, {
     onInitial: () => (

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 
-import { usePendingSources } from "@executor-js/react/api/optimistic";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { useScope } from "@executor-js/react/api/scope-context";
 import type { SecretPickerSecret } from "@executor-js/react/plugins/secret-picker";
@@ -44,7 +45,7 @@ import { FloatActions } from "@executor-js/react/components/float-actions";
 import { Input } from "@executor-js/react/components/input";
 import { RadioGroup, RadioGroupItem } from "@executor-js/react/components/radio-group";
 import { IOSSpinner, Spinner } from "@executor-js/react/components/spinner";
-import { addGoogleDiscoverySource, probeGoogleDiscovery } from "./atoms";
+import { addGoogleDiscoverySourceOptimistic, probeGoogleDiscovery } from "./atoms";
 import { GOOGLE_DISCOVERY_OAUTH_POPUP_NAME, googleDiscoveryOAuthStrategy } from "./oauth";
 import { googleDiscoveryPresets, type GoogleDiscoveryPreset } from "../sdk/presets";
 
@@ -203,8 +204,9 @@ export default function AddGoogleDiscoverySource(props: {
 
   const scopeId = useScope();
   const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promise" });
-  const doAdd = useAtomSet(addGoogleDiscoverySource, { mode: "promise" });
-  const { beginAdd } = usePendingSources();
+  const doAdd = useAtomSet(addGoogleDiscoverySourceOptimistic(scopeId), {
+    mode: "promiseExit",
+  });
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow({
     popupName: GOOGLE_DISCOVERY_OAUTH_POPUP_NAME,
@@ -326,38 +328,36 @@ export default function AddGoogleDiscoverySource(props: {
     setError(null);
     const displayName = identity.name.trim() || probe.name;
     const namespace = resolvedNamespace;
-    const placeholder = beginAdd({
-      id: namespace,
-      name: displayName,
-      kind: "google-discovery",
+    const exit = await doAdd({
+      params: { scopeId },
+      payload: {
+        name: displayName,
+        discoveryUrl: discoveryUrl.trim(),
+        namespace,
+        auth:
+          authKind === "oauth2" && oauthAuth
+            ? {
+                kind: "oauth2" as const,
+                connectionId: oauthAuth.connectionId,
+                clientIdSecretId: oauthAuth.clientIdSecretId,
+                clientSecretSecretId: oauthAuth.clientSecretSecretId,
+                scopes: oauthAuth.scopes,
+              }
+            : { kind: "none" as const },
+      },
+      reactivityKeys: [...sourceWriteKeys],
     });
-    try {
-      await doAdd({
-        params: { scopeId },
-        payload: {
-          name: displayName,
-          discoveryUrl: discoveryUrl.trim(),
-          namespace,
-          auth:
-            authKind === "oauth2" && oauthAuth
-              ? {
-                  kind: "oauth2" as const,
-                  connectionId: oauthAuth.connectionId,
-                  clientIdSecretId: oauthAuth.clientIdSecretId,
-                  clientSecretSecretId: oauthAuth.clientSecretSecretId,
-                  scopes: oauthAuth.scopes,
-                }
-              : { kind: "none" as const },
-        },
-        reactivityKeys: [...sourceWriteKeys],
-      });
-      props.onComplete();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to add source");
+    if (Exit.isFailure(exit)) {
+      const error = Exit.findErrorOption(exit);
+      setError(
+        Option.isSome(error) && error.value instanceof Error
+          ? error.value.message
+          : "Failed to add source",
+      );
       setAdding(false);
-    } finally {
-      placeholder.done();
+      return;
     }
+    props.onComplete();
   }, [
     probe,
     doAdd,
@@ -367,7 +367,6 @@ export default function AddGoogleDiscoverySource(props: {
     oauthAuth,
     props,
     scopeId,
-    beginAdd,
     resolvedNamespace,
   ]);
 

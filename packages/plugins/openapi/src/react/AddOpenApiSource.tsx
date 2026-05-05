@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
-import { Option } from "effect";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 
 import { ConnectionId, ScopeId, SecretId } from "@executor-js/sdk/core";
 import { startOAuth } from "@executor-js/react/api/atoms";
@@ -14,7 +15,6 @@ import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/rea
 // state without a refresh.
 const addSpecWriteKeys = [...sourceWriteKeys, ...connectionWriteKeys] as const;
 const bindingWriteKeys = [...sourceWriteKeys, ...connectionWriteKeys] as const;
-import { usePendingSources } from "@executor-js/react/api/optimistic";
 import { HeadersList } from "@executor-js/react/plugins/headers-list";
 import {
   HttpCredentialsEditor,
@@ -65,7 +65,7 @@ import { SourceFavicon } from "@executor-js/react/components/source-favicon";
 import { RadioGroup, RadioGroupItem } from "@executor-js/react/components/radio-group";
 import { Skeleton } from "@executor-js/react/components/skeleton";
 import { IOSSpinner, Spinner } from "@executor-js/react/components/spinner";
-import { addOpenApiSpec, previewOpenApiSpec, setOpenApiSourceBinding } from "./atoms";
+import { addOpenApiSpecOptimistic, previewOpenApiSpec, setOpenApiSourceBinding } from "./atoms";
 import type { SpecPreview, HeaderPreset, OAuth2Preset } from "../sdk/preview";
 import {
   headerBindingSlot,
@@ -243,10 +243,9 @@ export default function AddOpenApiSource(props: {
   const scopeId = useScope();
   const userScope = useUserScope();
   const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promise" });
-  const doAdd = useAtomSet(addOpenApiSpec, { mode: "promise" });
+  const doAdd = useAtomSet(addOpenApiSpecOptimistic(scopeId), { mode: "promiseExit" });
   const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
-  const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
-  const { beginAdd } = usePendingSources();
+  const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promiseExit" });
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
     popupName: OPENAPI_OAUTH_POPUP_NAME,
@@ -615,109 +614,146 @@ export default function AddOpenApiSource(props: {
     const displayName =
       identity.name.trim() ||
       (preview ? Option.getOrElse(preview.title, () => namespace) : namespace);
-    const placeholder = beginAdd({
-      id: namespace,
-      name: displayName,
-      kind: "openapi",
-      url: resolvedBaseUrl || undefined,
+    const exit = await doAdd({
+      params: { scopeId },
+      payload: {
+        spec: specUrl,
+        specFetchCredentials: serializeHttpCredentials(specFetchCredentials),
+        name: displayName,
+        namespace,
+        baseUrl: resolvedBaseUrl || undefined,
+        ...(hasHeaders ? { headers: configuredHeaders } : {}),
+        ...(Object.keys(serializeHttpCredentials(runtimeCredentials).queryParams).length > 0
+          ? { queryParams: serializeHttpCredentials(runtimeCredentials).queryParams }
+          : {}),
+        ...(configuredOAuth2 ? { oauth2: configuredOAuth2 } : {}),
+      },
+      reactivityKeys: addSpecWriteKeys,
     });
-    try {
-      const result = await doAdd({
+    if (Exit.isFailure(exit)) {
+      const error = Exit.findErrorOption(exit);
+      setAddError(
+        Option.isSome(error) && error.value instanceof Error
+          ? error.value.message
+          : "Failed to add source",
+      );
+      setAdding(false);
+      return;
+    }
+
+    const sourceId = exit.value.namespace;
+    const sourceScope = ScopeId.make(scopeId);
+    const bindingScope = ScopeId.make(userScope);
+
+    for (const binding of headerBindings) {
+      const bindingExit = await doSetBinding({
         params: { scopeId },
         payload: {
-          spec: specUrl,
-          specFetchCredentials: serializeHttpCredentials(specFetchCredentials),
-          name: identity.name.trim() || undefined,
-          namespace: slugifyNamespace(identity.namespace) || undefined,
-          baseUrl: resolvedBaseUrl || undefined,
-          ...(hasHeaders ? { headers: configuredHeaders } : {}),
-          ...(Object.keys(serializeHttpCredentials(runtimeCredentials).queryParams).length > 0
-            ? { queryParams: serializeHttpCredentials(runtimeCredentials).queryParams }
-            : {}),
-          ...(configuredOAuth2 ? { oauth2: configuredOAuth2 } : {}),
+          sourceId,
+          sourceScope,
+          scope: bindingScope,
+          slot: binding.slot,
+          value: {
+            kind: "secret",
+            secretId: SecretId.make(binding.secretId),
+          },
         },
-        reactivityKeys: addSpecWriteKeys,
+        reactivityKeys: bindingWriteKeys,
       });
-
-      const sourceId = result.namespace;
-      const sourceScope = ScopeId.make(scopeId);
-      const bindingScope = ScopeId.make(userScope);
-
-      for (const binding of headerBindings) {
-        await doSetBinding({
-          params: { scopeId },
-          payload: {
-            sourceId,
-            sourceScope,
-            scope: bindingScope,
-            slot: binding.slot,
-            value: {
-              kind: "secret",
-              secretId: SecretId.make(binding.secretId),
-            },
-          },
-          reactivityKeys: bindingWriteKeys,
-        });
+      if (Exit.isFailure(bindingExit)) {
+        const error = Exit.findErrorOption(bindingExit);
+        setAddError(
+          Option.isSome(error) && error.value instanceof Error
+            ? error.value.message
+            : "Failed to add source",
+        );
+        setAdding(false);
+        return;
       }
-
-      if (configuredOAuth2 && oauth2ClientIdSecretId) {
-        await doSetBinding({
-          params: { scopeId },
-          payload: {
-            sourceId,
-            sourceScope,
-            scope: bindingScope,
-            slot: configuredOAuth2.clientIdSlot,
-            value: {
-              kind: "secret",
-              secretId: SecretId.make(oauth2ClientIdSecretId),
-            },
-          },
-          reactivityKeys: bindingWriteKeys,
-        });
-      }
-
-      if (configuredOAuth2?.clientSecretSlot && oauth2ClientSecretSecretId) {
-        await doSetBinding({
-          params: { scopeId },
-          payload: {
-            sourceId,
-            sourceScope,
-            scope: bindingScope,
-            slot: configuredOAuth2.clientSecretSlot,
-            value: {
-              kind: "secret",
-              secretId: SecretId.make(oauth2ClientSecretSecretId),
-            },
-          },
-          reactivityKeys: bindingWriteKeys,
-        });
-      }
-
-      if (configuredOAuth2 && oauth2Auth) {
-        await doSetBinding({
-          params: { scopeId },
-          payload: {
-            sourceId,
-            sourceScope,
-            scope: bindingScope,
-            slot: configuredOAuth2.connectionSlot,
-            value: {
-              kind: "connection",
-              connectionId: ConnectionId.make(oauth2Auth.connectionId),
-            },
-          },
-          reactivityKeys: bindingWriteKeys,
-        });
-      }
-
-      props.onComplete();
-    } catch (e) {
-      setAddError(e instanceof Error ? e.message : "Failed to add source");
-      setAdding(false);
-    } finally {
-      placeholder.done();
     }
+
+    if (configuredOAuth2 && oauth2ClientIdSecretId) {
+      const bindingExit = await doSetBinding({
+        params: { scopeId },
+        payload: {
+          sourceId,
+          sourceScope,
+          scope: bindingScope,
+          slot: configuredOAuth2.clientIdSlot,
+          value: {
+            kind: "secret",
+            secretId: SecretId.make(oauth2ClientIdSecretId),
+          },
+        },
+        reactivityKeys: bindingWriteKeys,
+      });
+      if (Exit.isFailure(bindingExit)) {
+        const error = Exit.findErrorOption(bindingExit);
+        setAddError(
+          Option.isSome(error) && error.value instanceof Error
+            ? error.value.message
+            : "Failed to add source",
+        );
+        setAdding(false);
+        return;
+      }
+    }
+
+    if (configuredOAuth2?.clientSecretSlot && oauth2ClientSecretSecretId) {
+      const bindingExit = await doSetBinding({
+        params: { scopeId },
+        payload: {
+          sourceId,
+          sourceScope,
+          scope: bindingScope,
+          slot: configuredOAuth2.clientSecretSlot,
+          value: {
+            kind: "secret",
+            secretId: SecretId.make(oauth2ClientSecretSecretId),
+          },
+        },
+        reactivityKeys: bindingWriteKeys,
+      });
+      if (Exit.isFailure(bindingExit)) {
+        const error = Exit.findErrorOption(bindingExit);
+        setAddError(
+          Option.isSome(error) && error.value instanceof Error
+            ? error.value.message
+            : "Failed to add source",
+        );
+        setAdding(false);
+        return;
+      }
+    }
+
+    if (configuredOAuth2 && oauth2Auth) {
+      const bindingExit = await doSetBinding({
+        params: { scopeId },
+        payload: {
+          sourceId,
+          sourceScope,
+          scope: bindingScope,
+          slot: configuredOAuth2.connectionSlot,
+          value: {
+            kind: "connection",
+            connectionId: ConnectionId.make(oauth2Auth.connectionId),
+          },
+        },
+        reactivityKeys: bindingWriteKeys,
+      });
+      if (Exit.isFailure(bindingExit)) {
+        const error = Exit.findErrorOption(bindingExit);
+        setAddError(
+          Option.isSome(error) && error.value instanceof Error
+            ? error.value.message
+            : "Failed to add source",
+        );
+        setAdding(false);
+        return;
+      }
+    }
+
+    props.onComplete();
   };
 
   // ---- Render ----
