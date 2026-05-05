@@ -16,10 +16,10 @@
 
 import { env } from "cloudflare:workers";
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import * as Sentry from "@sentry/cloudflare";
 import { Cause, Context, Effect, Layer, Option, Schema } from "effect";
 
 import { createCachedRemoteJWKSet } from "./jwks-cache";
+import { captureCause } from "./observability";
 import { TelemetryLive } from "./services/telemetry";
 import {
   McpJwtVerificationError,
@@ -697,12 +697,8 @@ export const mcpApp: Effect.Effect<
   Effect.withSpan("mcp.request"),
   Effect.catchCause((cause) =>
     Effect.sync(() => {
-      const pretty = Cause.pretty(cause);
-      console.error("[mcp] request failed:", pretty);
-      Sentry.captureException(Cause.squash(cause), (scope) => {
-        scope.setExtra("cause", pretty);
-        return scope;
-      });
+      console.error("[mcp] request failed:", Cause.pretty(cause));
+      captureCause(cause);
       return jsonRpcError(500, -32603, "Internal server error");
     }),
   ),
