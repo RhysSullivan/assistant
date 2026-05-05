@@ -1,10 +1,11 @@
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
 import { definePlugin } from "@executor-js/sdk/core";
 
 import {
   makeConfiguredWorkOSVaultClient,
   type WorkOSVaultClient,
+  type WorkOSVaultClientInstantiationError,
   type WorkOSVaultCredentials,
 } from "./client";
 import {
@@ -36,9 +37,17 @@ export interface WorkOSVaultPluginOptions {
   readonly contextForScope?: WorkOSVaultContextForScope;
 }
 
-export interface WorkOSVaultExtension {
-  readonly providerKey: typeof WORKOS_VAULT_PROVIDER_KEY;
-}
+class WorkOSVaultPluginConfigurationError extends Data.TaggedError(
+  "WorkOSVaultPluginConfigurationError",
+)<{
+  readonly message: string;
+}> {}
+
+const makeWorkOSVaultExtension = (_ctx: unknown) => ({
+  providerKey: WORKOS_VAULT_PROVIDER_KEY,
+});
+
+export type WorkOSVaultExtension = ReturnType<typeof makeWorkOSVaultExtension>;
 
 // The plugin's typed store is just its metadata-store wrapper. The
 // secret provider closes over this store plus the resolved WorkOS
@@ -48,15 +57,19 @@ type WorkosVaultPluginStore = WorkosVaultStore;
 
 const buildClient = (
   options: WorkOSVaultPluginOptions | undefined,
-): Effect.Effect<WorkOSVaultClient, Error, never> => {
+): Effect.Effect<
+  WorkOSVaultClient,
+  WorkOSVaultClientInstantiationError | WorkOSVaultPluginConfigurationError,
+  never
+> => {
   if (options?.client) return Effect.succeed(options.client);
   if (options?.credentials) {
     return makeConfiguredWorkOSVaultClient(options.credentials);
   }
   return Effect.fail(
-    new Error(
-      "workosVaultPlugin requires either `client` or `credentials` to be provided",
-    ),
+    new WorkOSVaultPluginConfigurationError({
+      message: "workosVaultPlugin requires either `client` or `credentials` to be provided",
+    }),
   );
 };
 
@@ -67,9 +80,7 @@ export const workosVaultPlugin = definePlugin(
     schema: workosVaultSchema,
     storage: (deps): WorkosVaultPluginStore => makeWorkosVaultStore(deps),
 
-    extension: (_ctx): WorkOSVaultExtension => ({
-      providerKey: WORKOS_VAULT_PROVIDER_KEY,
-    }),
+    extension: makeWorkOSVaultExtension,
 
     secretProviders: (ctx) => {
       // Build (or accept) the WorkOS client once at startup. If
