@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useAuth } from "../web/auth";
 import { useCustomer, useListPlans } from "autumn-js/react";
@@ -16,7 +16,6 @@ import {
 } from "@executor-js/react/components/dialog";
 import { Input } from "@executor-js/react/components/input";
 import { Label } from "@executor-js/react/components/label";
-import { Textarea } from "@executor-js/react/components/textarea";
 
 type Plan = NonNullable<ReturnType<typeof useListPlans>["data"]>[number];
 
@@ -310,40 +309,27 @@ function SlackContactCta() {
   const auth = useAuth();
   const signedIn = auth.status === "authenticated" ? auth : null;
   const prefillEmail = signedIn?.user.email ?? "";
-  const prefillName = signedIn?.user.name ?? "";
   const orgName = signedIn?.organization?.name ?? "";
 
-  const turnstileSiteKey = import.meta.env.VITE_PUBLIC_TURNSTILE_SITEKEY ?? "";
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState(prefillEmail);
-  const [name, setName] = useState(prefillName);
-  const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   // Hydrate prefill once auth resolves (it starts as `loading` on first render).
   useEffect(() => {
     if (prefillEmail && !email) setEmail(prefillEmail);
-    if (prefillName && !name) setName(prefillName);
-  }, [prefillEmail, prefillName]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [prefillEmail]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reset = () => {
     setEmail(prefillEmail);
-    setName(prefillName);
-    setNote("");
     setError(null);
     setInviteUrl(null);
-    setTurnstileToken(null);
   };
 
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!turnstileToken) {
-      setError("Please complete the captcha first.");
-      return;
-    }
     setSubmitting(true);
     setError(null);
     try {
@@ -352,10 +338,7 @@ function SlackContactCta() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           email,
-          name: name || undefined,
-          note: note || undefined,
           organization: orgName || undefined,
-          turnstileToken,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
@@ -368,9 +351,6 @@ function SlackContactCta() {
       setError("Network error. Please try again.");
     } finally {
       setSubmitting(false);
-      // Turnstile tokens are single-use server-side — clear so the widget
-      // re-issues a fresh one on retry.
-      setTurnstileToken(null);
     }
   };
 
@@ -445,29 +425,6 @@ function SlackContactCta() {
                     placeholder="you@company.com"
                   />
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="slack-contact-name">Name (optional)</Label>
-                  <Input
-                    id="slack-contact-name"
-                    autoComplete="name"
-                    value={name}
-                    onChange={(e) => setName(e.currentTarget.value)}
-                    placeholder="Ada Lovelace"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="slack-contact-note">What's on your mind? (optional)</Label>
-                  <Textarea
-                    id="slack-contact-note"
-                    rows={3}
-                    value={note}
-                    onChange={(e) => setNote(e.currentTarget.value)}
-                    placeholder="Pricing question, integration help, anything…"
-                  />
-                </div>
-                {turnstileSiteKey && (
-                  <TurnstileWidget siteKey={turnstileSiteKey} onToken={setTurnstileToken} />
-                )}
                 {error && <p className="text-sm text-destructive">{error}</p>}
               </div>
               <DialogFooter>
@@ -476,10 +433,7 @@ function SlackContactCta() {
                     Cancel
                   </Button>
                 </DialogClose>
-                <Button
-                  type="submit"
-                  disabled={submitting || !email || (!!turnstileSiteKey && !turnstileToken)}
-                >
+                <Button type="submit" disabled={submitting || !email}>
                   {submitting ? "Sending…" : "Send invite"}
                 </Button>
               </DialogFooter>
@@ -509,86 +463,6 @@ function MailIcon({ className }: { className?: string }) {
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 7l9 6 9-6M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
     </svg>
   );
-}
-
-type TurnstileApi = {
-  render: (
-    el: HTMLElement,
-    opts: {
-      sitekey: string;
-      callback?: (token: string) => void;
-      "error-callback"?: () => void;
-      "expired-callback"?: () => void;
-      theme?: "light" | "dark" | "auto";
-    },
-  ) => string;
-  remove: (id: string) => void;
-};
-
-declare global {
-  interface Window {
-    turnstile?: TurnstileApi;
-  }
-}
-
-function TurnstileWidget({
-  siteKey,
-  onToken,
-}: {
-  siteKey: string;
-  onToken: (token: string | null) => void;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const widgetIdRef = useRef<string | null>(null);
-  const onTokenRef = useRef(onToken);
-  onTokenRef.current = onToken;
-
-  useEffect(() => {
-    let cancelled = false;
-    const render = () => {
-      if (cancelled || !containerRef.current || !window.turnstile) return;
-      if (widgetIdRef.current) {
-        window.turnstile.remove(widgetIdRef.current);
-        widgetIdRef.current = null;
-      }
-      widgetIdRef.current = window.turnstile.render(containerRef.current, {
-        sitekey: siteKey,
-        callback: (token) => onTokenRef.current(token),
-        "error-callback": () => onTokenRef.current(null),
-        "expired-callback": () => onTokenRef.current(null),
-      });
-    };
-
-    if (window.turnstile) {
-      render();
-    } else {
-      const existing = document.querySelector<HTMLScriptElement>("script[data-turnstile]");
-      if (existing) {
-        existing.addEventListener("load", render);
-        return () => {
-          cancelled = true;
-          existing.removeEventListener("load", render);
-        };
-      }
-      const script = document.createElement("script");
-      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
-      script.async = true;
-      script.defer = true;
-      script.dataset.turnstile = "1";
-      script.addEventListener("load", render);
-      document.head.appendChild(script);
-    }
-
-    return () => {
-      cancelled = true;
-      if (widgetIdRef.current && window.turnstile) {
-        window.turnstile.remove(widgetIdRef.current);
-        widgetIdRef.current = null;
-      }
-    };
-  }, [siteKey]);
-
-  return <div ref={containerRef} className="flex justify-center" />;
 }
 
 function SlackMark({ className }: { className?: string }) {
