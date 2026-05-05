@@ -82,6 +82,7 @@ const startFakeServer = async (): Promise<FakeServer> => {
       res.end(payload);
     };
 
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Node http request handler converts server failures into a stable HTTP 500 test response
     try {
       if (url.pathname === "/.well-known/oauth-protected-resource") {
         const origin = `http://${req.headers.host}`;
@@ -215,6 +216,7 @@ const startFakeServer = async (): Promise<FakeServer> => {
 
       send(404, { error: "not_found", params: url.pathname });
     } catch (e) {
+      // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: fake OAuth HTTP server exposes thrown callback failures as a stable response body
       send(500, { error: "server_error", message: String(e) });
     }
   });
@@ -244,10 +246,12 @@ const followAuthorize = async (
   const response = await fetch(authorizationUrl, { redirect: "manual" });
   expect(response.status).toBe(302);
   const location = response.headers.get("location");
+  // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-raw-error-throw, executor/no-error-constructor -- boundary: test helper fails the test when the fake OAuth redirect is malformed
   if (!location) throw new Error("no location header on authorize redirect");
   const dest = new URL(location);
   const code = dest.searchParams.get("code");
   const state = dest.searchParams.get("state");
+  // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-raw-error-throw, executor/no-error-constructor -- boundary: test helper fails the test when the fake OAuth redirect is malformed
   if (!code || !state) throw new Error(`redirect missing code/state: ${location}`);
   return { code, state };
 };

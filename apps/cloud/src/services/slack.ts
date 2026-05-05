@@ -10,6 +10,7 @@ import { Context, Data, Effect, Layer } from "effect";
 export class SlackError extends Data.TaggedError("SlackError")<{
   method: string;
   error: string;
+  cause?: unknown;
 }> {}
 
 export type ISlackService = Readonly<{
@@ -67,15 +68,27 @@ const make = Effect.sync(() => {
           body: JSON.stringify(body),
         });
         const json = (await res.json()) as A;
-        if (!json.ok) throw new Error(json.error ?? "unknown_slack_error");
         return json;
       },
       catch: (cause) =>
         new SlackError({
           method,
-          error: cause instanceof Error ? cause.message : String(cause),
+          error: "slack_request_failed",
+          cause,
         }),
-    }).pipe(Effect.withSpan(`slack.${method}`));
+    }).pipe(
+      Effect.flatMap((json) =>
+        json.ok
+          ? Effect.succeed(json)
+          : Effect.fail(
+              new SlackError({
+                method,
+                error: json.error ?? "unknown_slack_error",
+              }),
+            ),
+      ),
+      Effect.withSpan(`slack.${method}`),
+    );
 
   const createConnectInvite: ISlackService["createConnectInvite"] = ({
     email,

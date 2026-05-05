@@ -46,9 +46,18 @@ const resolveOAuthSecretBackedMap = <E extends OAuthProbeError | OAuthStartError
   );
 
 const toPopupErrorMessage = (error: unknown): string => {
-  if (error instanceof OAuthStartError) return error.message;
-  if (error instanceof OAuthCompleteError) return error.message;
-  if (error instanceof OAuthProbeError) return error.message;
+  if (error instanceof OAuthStartError) {
+    // oxlint-disable-next-line executor/no-unknown-error-message -- typed OAuthStartError branch preserves user-facing popup text
+    return error.message;
+  }
+  if (error instanceof OAuthCompleteError) {
+    // oxlint-disable-next-line executor/no-unknown-error-message -- typed OAuthCompleteError branch preserves user-facing popup text
+    return error.message;
+  }
+  if (error instanceof OAuthProbeError) {
+    // oxlint-disable-next-line executor/no-unknown-error-message -- typed OAuthProbeError branch preserves user-facing popup text
+    return error.message;
+  }
   if (error instanceof OAuthSessionNotFoundError) {
     return `OAuth session not found: ${error.sessionId}`;
   }
@@ -147,7 +156,9 @@ export const OAuthHandlers = HttpApiBuilder.group(ExecutorApi, "oauth", (handler
                   Effect.tapError((cause) =>
                     Effect.logError("OAuth callback completion failed", cause),
                   ),
-                  Effect.catchCause(() => Effect.fail(new Error("Authentication failed"))),
+                  Effect.catchCause(() =>
+                    Effect.fail(new OAuthCompleteError({ message: "Authentication failed" })),
+                  ),
                 ),
             urlParams,
             toErrorMessage: toPopupErrorMessage,

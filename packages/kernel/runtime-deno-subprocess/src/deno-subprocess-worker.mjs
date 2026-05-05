@@ -17,10 +17,13 @@ const writeIpcMessage = (message) => {
 };
 
 const toErrorMessage = (error) => {
+  // oxlint-disable-next-line executor/no-instanceof-error -- boundary: Deno worker serializes arbitrary host/user failures to IPC
   if (error instanceof Error) {
+    // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: preserve native stack/message text for subprocess IPC
     return error.stack ?? error.message;
   }
 
+  // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: last-resort serialization for non-Error IPC failure values
   return String(error);
 };
 
@@ -49,6 +52,7 @@ const createToolsProxy = (path = []) => {
     apply(_target, _thisArg, args) {
       const toolPath = path.join(".");
       if (!toolPath) {
+        // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: proxy apply trap must reject invalid dynamic tool invocations
         throw new Error("Tool path missing in invocation");
       }
 
@@ -62,6 +66,7 @@ const formatLogArg = (value) => {
     return value;
   }
 
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: console serialization fallback for arbitrary user values
   try {
     return JSON.stringify(value);
   } catch {
@@ -113,6 +118,7 @@ const handleStart = (message) => {
 
   started = true;
 
+  // oxlint-disable-next-line executor/no-promise-catch -- boundary: top-level subprocess bridge turns user-code rejection into IPC
   runUserCode(message.code)
     .then((result) => {
       writeIpcMessage({
@@ -143,6 +149,7 @@ const handleToolResult = (message) => {
     return;
   }
 
+  // oxlint-disable-next-line executor/no-error-constructor -- boundary: remote tool failure must reject the caller's native Promise
   pending.reject(new Error(message.error));
 };
 
@@ -187,6 +194,7 @@ const decodeLines = async () => {
         continue;
       }
 
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: host IPC line parser reports malformed input over IPC
       try {
         const message = JSON.parse(line);
         handleHostMessage(message);

@@ -33,15 +33,19 @@ describe("CLI tooling helpers", () => {
 
   it.effect("rejects non-object JSON input", () =>
     Effect.gen(function* () {
-      const error = yield* parseJsonObjectInput('[1,2,3]').pipe(Effect.flip);
-      expect(error.message).toContain("must decode to a JSON object");
+      const error = yield* parseJsonObjectInput("[1,2,3]").pipe(Effect.flip);
+      expect(error).toEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("must decode to a JSON object"),
+        }),
+      );
     }),
   );
 
   it("builds bracket-safe invocation code for dynamic tool paths", () => {
     const code = buildInvokeToolCode("google-drive.files.list", { pageSize: 10 });
     expect(code).toContain('const __target = tools["google-drive"]["files"]["list"]');
-    expect(code).toContain('const __args = {');
+    expect(code).toContain("const __args = {");
   });
 
   it("builds tool paths from dot or segmented forms", () => {
@@ -64,13 +68,17 @@ describe("CLI tooling helpers", () => {
     expect(searchCode).toBe(
       'return await tools.search({"query":"google calendar events","limit":5,"namespace":"google"});',
     );
-    expect(sourcesCode).toBe('return await tools.executor.sources.list({"limit":20,"query":"google"});');
+    expect(sourcesCode).toBe(
+      'return await tools.executor.sources.list({"limit":20,"query":"google"});',
+    );
   });
 
   it("extracts completed result payload and pause execution id", () => {
-    expect(extractExecutionResult({ status: "completed", result: { ok: true }, logs: [] })).toEqual({
-      ok: true,
-    });
+    expect(extractExecutionResult({ status: "completed", result: { ok: true }, logs: [] })).toEqual(
+      {
+        ok: true,
+      },
+    );
     expect(extractExecutionResult({ status: "completed" })).toBeNull();
 
     expect(extractExecutionId({ executionId: "exec_123" })).toBe("exec_123");

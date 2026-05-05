@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 
 import { usePendingSources } from "@executor-js/react/api/optimistic";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
@@ -203,7 +205,7 @@ export default function AddGoogleDiscoverySource(props: {
 
   const scopeId = useScope();
   const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promise" });
-  const doAdd = useAtomSet(addGoogleDiscoverySource, { mode: "promise" });
+  const doAdd = useAtomSet(addGoogleDiscoverySource, { mode: "promiseExit" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow({
@@ -331,33 +333,33 @@ export default function AddGoogleDiscoverySource(props: {
       name: displayName,
       kind: "google-discovery",
     });
-    try {
-      await doAdd({
-        params: { scopeId },
-        payload: {
-          name: displayName,
-          discoveryUrl: discoveryUrl.trim(),
-          namespace,
-          auth:
-            authKind === "oauth2" && oauthAuth
-              ? {
-                  kind: "oauth2" as const,
-                  connectionId: oauthAuth.connectionId,
-                  clientIdSecretId: oauthAuth.clientIdSecretId,
-                  clientSecretSecretId: oauthAuth.clientSecretSecretId,
-                  scopes: oauthAuth.scopes,
-                }
-              : { kind: "none" as const },
-        },
-        reactivityKeys: [...sourceWriteKeys],
-      });
-      props.onComplete();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to add source");
+    const exit = await doAdd({
+      params: { scopeId },
+      payload: {
+        name: displayName,
+        discoveryUrl: discoveryUrl.trim(),
+        namespace,
+        auth:
+          authKind === "oauth2" && oauthAuth
+            ? {
+                kind: "oauth2" as const,
+                connectionId: oauthAuth.connectionId,
+                clientIdSecretId: oauthAuth.clientIdSecretId,
+                clientSecretSecretId: oauthAuth.clientSecretSecretId,
+                scopes: oauthAuth.scopes,
+              }
+            : { kind: "none" as const },
+      },
+      reactivityKeys: [...sourceWriteKeys],
+    });
+    placeholder.done();
+    if (Exit.isFailure(exit)) {
+      const error = Exit.findErrorOption(exit);
+      setError(Option.isSome(error) ? error.value.message : "Failed to add source");
       setAdding(false);
-    } finally {
-      placeholder.done();
+      return;
     }
+    props.onComplete();
   }, [
     probe,
     doAdd,

@@ -61,6 +61,7 @@ const listen = async (server: ReturnType<typeof createServer>): Promise<number> 
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
       if (!address || typeof address === "string") {
+        // oxlint-disable-next-line executor/no-promise-reject, executor/no-error-constructor -- boundary: Node http server smoke-test helper reports listen failures through Promise rejection
         reject(new Error("Failed to resolve server address"));
         return;
       }
@@ -72,6 +73,7 @@ const closeServer = async (server: ReturnType<typeof createServer>): Promise<voi
   new Promise((resolveClose, reject) => {
     server.close((error) => {
       if (error) {
+        // oxlint-disable-next-line executor/no-promise-reject -- boundary: Node http server smoke-test helper preserves close callback failure semantics
         reject(error);
         return;
       }
@@ -121,6 +123,7 @@ describe("release bootstrap smoke", () => {
       await mkdir(join(installedWrapperDir, "node_modules"), { recursive: true });
       await cp(platformDir, installedPlatformDir, { recursive: true });
 
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: smoke test temp install cleanup must run after process and filesystem assertions
       try {
         const firstRun = await runCommand(
           process.execPath,
@@ -178,11 +181,13 @@ describe("release bootstrap smoke", () => {
           webStderr += chunk;
         });
 
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: spawned CLI smoke test must terminate the child process after assertions
         try {
           const deadline = Date.now() + 30_000;
           let rootResponse: Response | null = null;
           while (Date.now() < deadline) {
             await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+            // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: polling fetch intentionally ignores transient connection failures until the server is ready
             try {
               rootResponse = await fetch(`http://127.0.0.1:${webPort}/`);
               if (rootResponse.ok) {

@@ -15,7 +15,7 @@
 // before prod does.
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -40,6 +40,10 @@ import {
 import { makeTestWorkOSVaultClient } from "@executor-js/plugin-workos-vault/testing";
 import executorConfig from "../executor.config";
 import { DbService } from "./services/db";
+
+class TransportCloseError extends Data.TaggedError("TransportCloseError")<{
+  readonly cause: unknown;
+}> {}
 
 // ---------------------------------------------------------------------------
 // Test-only plugin: exposes one in-memory tool that elicits once. Lets the
@@ -146,10 +150,23 @@ const openSession = (
       return { client, clientTransport, serverTransport };
     }),
     ({ clientTransport, serverTransport }) =>
-      Effect.promise(async () => {
-        await clientTransport.close().catch(() => undefined);
-        await serverTransport.close().catch(() => undefined);
-      }),
+      Effect.all(
+        [
+          Effect.ignore(
+            Effect.tryPromise({
+              try: () => clientTransport.close(),
+              catch: (cause) => new TransportCloseError({ cause }),
+            }),
+          ),
+          Effect.ignore(
+            Effect.tryPromise({
+              try: () => serverTransport.close(),
+              catch: (cause) => new TransportCloseError({ cause }),
+            }),
+          ),
+        ],
+        { discard: true, concurrency: 1 },
+      ),
   ).pipe(Effect.map(({ client }) => ({ client })));
 
 const nextOrgId = (() => {

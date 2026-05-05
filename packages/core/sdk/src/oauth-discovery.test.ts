@@ -251,11 +251,13 @@ describe("registerDynamicClient", () => {
     expect(Exit.isFailure(exit)).toBe(true);
     if (!Exit.isFailure(exit)) return;
     const reason = exit.cause.reasons.find(Cause.isFailReason);
-    if (!(reason?.error instanceof OAuthDiscoveryError)) {
-      throw new Error("expected OAuthDiscoveryError");
-    }
-    expect(reason.error.status).toBe(400);
-    expect(reason.error.message).toMatch(/invalid_client_metadata/);
+    const error = reason?.error;
+    expect(error).toBeInstanceOf(OAuthDiscoveryError);
+    if (!(error instanceof OAuthDiscoveryError)) return;
+    expect(error).toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/invalid_client_metadata/),
+    });
   });
 });
 

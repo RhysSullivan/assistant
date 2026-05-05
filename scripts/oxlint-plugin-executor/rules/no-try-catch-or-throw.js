@@ -1,7 +1,7 @@
 const tryCatchMessage =
-  "Do not use try/catch blocks. Model failures with Effect instead. Skill: wrdn-effect-typed-errors; React useAtomSet mutation handlers use wrdn-effect-promise-exit.";
+  "Do not use try/catch blocks in Effect domain code. Model failures with Effect instead; at true adapter boundaries use a narrow suppression with a boundary reason. Skill: wrdn-effect-typed-errors; React useAtomSet mutation handlers use wrdn-effect-promise-exit.";
 const throwMessage =
-  "Do not throw errors. Model failures with Effect.fail or typed error values instead. Skill: wrdn-effect-typed-errors.";
+  "Do not throw errors in Effect domain code. Model failures with Effect.fail or typed error values instead; at true adapter boundaries use a narrow suppression with a boundary reason. Skill: wrdn-effect-typed-errors.";
 
 export default {
   meta: {

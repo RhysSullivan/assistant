@@ -25,17 +25,14 @@ import type {
   StorageFailure,
 } from "../adapter";
 import type { DBSchema } from "../schema";
+import { StorageError } from "../errors";
 import { createAdapter } from "../factory";
 
 type Row = Record<string, unknown>;
 type Store = Record<string, Row[]>;
 type Comparable = string | number | boolean | Date;
 
-const compare = (
-  a: unknown,
-  b: unknown,
-  op: "gt" | "gte" | "lt" | "lte",
-): boolean => {
+const compare = (a: unknown, b: unknown, op: "gt" | "gte" | "lt" | "lte"): boolean => {
   if (
     !(
       typeof a === "string" ||
@@ -43,12 +40,7 @@ const compare = (
       typeof a === "boolean" ||
       a instanceof Date
     ) ||
-    !(
-      typeof b === "string" ||
-      typeof b === "number" ||
-      typeof b === "boolean" ||
-      b instanceof Date
-    )
+    !(typeof b === "string" || typeof b === "number" || typeof b === "boolean" || b instanceof Date)
   ) {
     return false;
   }
@@ -69,58 +61,60 @@ const compare = (
 const rowAs = <T>(row: Row): T => row as T;
 const rowsAs = <T>(rows: readonly Row[]): T[] => rows.map(rowAs<T>);
 
-const evalClause = (record: Row, clause: CleanedWhere): boolean => {
+const evalClause = (record: Row, clause: CleanedWhere): Effect.Effect<boolean, StorageFailure> => {
   const { field, value, operator, mode } = clause;
   const isInsensitive =
     mode === "insensitive" &&
     (typeof value === "string" ||
-      (Array.isArray(value) &&
-        (value as unknown[]).every((v) => typeof v === "string")));
+      (Array.isArray(value) && (value as unknown[]).every((v) => typeof v === "string")));
 
   const lhs = record[field];
-  const lowerStr = (v: unknown) =>
-    typeof v === "string" ? v.toLowerCase() : v;
+  const lowerStr = (v: unknown) => (typeof v === "string" ? v.toLowerCase() : v);
 
   const cmp = (a: unknown, b: unknown): boolean =>
     isInsensitive ? lowerStr(a) === lowerStr(b) : a === b;
   switch (operator) {
     case "in":
-      if (!Array.isArray(value)) throw new Error("Value must be an array");
-      return (value as unknown[]).some((v) => cmp(lhs, v));
+      if (!Array.isArray(value)) {
+        return Effect.fail(new StorageError({ message: "Value must be an array", cause: clause }));
+      }
+      return Effect.succeed((value as unknown[]).some((v) => cmp(lhs, v)));
     case "not_in":
-      if (!Array.isArray(value)) throw new Error("Value must be an array");
-      return !(value as unknown[]).some((v) => cmp(lhs, v));
+      if (!Array.isArray(value)) {
+        return Effect.fail(new StorageError({ message: "Value must be an array", cause: clause }));
+      }
+      return Effect.succeed(!(value as unknown[]).some((v) => cmp(lhs, v)));
     case "contains": {
-      if (typeof lhs !== "string" || typeof value !== "string") return false;
-      return isInsensitive
-        ? lhs.toLowerCase().includes(value.toLowerCase())
-        : lhs.includes(value);
+      if (typeof lhs !== "string" || typeof value !== "string") return Effect.succeed(false);
+      return Effect.succeed(
+        isInsensitive ? lhs.toLowerCase().includes(value.toLowerCase()) : lhs.includes(value),
+      );
     }
     case "starts_with": {
-      if (typeof lhs !== "string" || typeof value !== "string") return false;
-      return isInsensitive
-        ? lhs.toLowerCase().startsWith(value.toLowerCase())
-        : lhs.startsWith(value);
+      if (typeof lhs !== "string" || typeof value !== "string") return Effect.succeed(false);
+      return Effect.succeed(
+        isInsensitive ? lhs.toLowerCase().startsWith(value.toLowerCase()) : lhs.startsWith(value),
+      );
     }
     case "ends_with": {
-      if (typeof lhs !== "string" || typeof value !== "string") return false;
-      return isInsensitive
-        ? lhs.toLowerCase().endsWith(value.toLowerCase())
-        : lhs.endsWith(value);
+      if (typeof lhs !== "string" || typeof value !== "string") return Effect.succeed(false);
+      return Effect.succeed(
+        isInsensitive ? lhs.toLowerCase().endsWith(value.toLowerCase()) : lhs.endsWith(value),
+      );
     }
     case "ne":
-      return !cmp(lhs, value);
+      return Effect.succeed(!cmp(lhs, value));
     case "gt":
-      return value != null && compare(lhs, value, "gt");
+      return Effect.succeed(value != null && compare(lhs, value, "gt"));
     case "gte":
-      return value != null && compare(lhs, value, "gte");
+      return Effect.succeed(value != null && compare(lhs, value, "gte"));
     case "lt":
-      return value != null && compare(lhs, value, "lt");
+      return Effect.succeed(value != null && compare(lhs, value, "lt"));
     case "lte":
-      return value != null && compare(lhs, value, "lte");
+      return Effect.succeed(value != null && compare(lhs, value, "lte"));
     case "eq":
     default:
-      return cmp(lhs, value);
+      return Effect.succeed(cmp(lhs, value));
   }
 };
 
@@ -132,22 +126,43 @@ const evalClause = (record: Row, clause: CleanedWhere): boolean => {
 // conformance suite. This diverges from upstream's *memory* adapter, which
 // still uses a left-to-right fold; we prefer drizzle parity so that a
 // plugin that works against memory always works against SQL.
-const matchAll = (record: Row, where: readonly CleanedWhere[]): boolean => {
-  if (where.length === 0) return true;
-  if (where.length === 1) return evalClause(record, where[0]!);
-  const andGroup = where.filter(
-    (w) => w.connector === "AND" || !w.connector,
-  );
-  const orGroup = where.filter((w) => w.connector === "OR");
-  const andResult =
-    andGroup.length === 0 ? true : andGroup.every((w) => evalClause(record, w));
-  const orResult =
-    orGroup.length === 0 ? true : orGroup.some((w) => evalClause(record, w));
-  return andResult && orResult;
-};
+const matchAll = (
+  record: Row,
+  where: readonly CleanedWhere[],
+): Effect.Effect<boolean, StorageFailure> =>
+  Effect.gen(function* () {
+    if (where.length === 0) return true;
+    if (where.length === 1) return yield* evalClause(record, where[0]!);
+    const andGroup = where.filter((w) => w.connector === "AND" || !w.connector);
+    const orGroup = where.filter((w) => w.connector === "OR");
+    let andResult = true;
+    for (const clause of andGroup) {
+      if (!(yield* evalClause(record, clause))) {
+        andResult = false;
+        break;
+      }
+    }
+    let orResult = orGroup.length === 0;
+    for (const clause of orGroup) {
+      if (yield* evalClause(record, clause)) {
+        orResult = true;
+        break;
+      }
+    }
+    return andResult && orResult;
+  });
 
-const filterWhere = (rows: Row[], where: readonly CleanedWhere[]): Row[] =>
-  rows.filter((r) => matchAll(r, where));
+const filterWhere = (
+  rows: Row[],
+  where: readonly CleanedWhere[],
+): Effect.Effect<Row[], StorageFailure> =>
+  Effect.gen(function* () {
+    const out: Row[] = [];
+    for (const row of rows) {
+      if (yield* matchAll(row, where)) out.push(row);
+    }
+    return out;
+  });
 
 const cloneStore = (s: Store): Store => {
   const out: Store = {};
@@ -167,9 +182,7 @@ export interface MakeMemoryAdapterOptions {
   readonly generateId?: () => string;
 }
 
-export const makeMemoryAdapter = (
-  options: MakeMemoryAdapterOptions,
-): DBAdapter => {
+export const makeMemoryAdapter = (options: MakeMemoryAdapterOptions): DBAdapter => {
   let store: Store = {};
 
   const tableFor = (model: string): Row[] => {
@@ -186,9 +199,7 @@ export const makeMemoryAdapter = (
     const out: Row = { ...base };
     for (const [target, cfg] of Object.entries(join)) {
       const targetRows = tableFor(target);
-      const matches = targetRows.filter(
-        (r) => r[cfg.on.to] === base[cfg.on.from],
-      );
+      const matches = targetRows.filter((r) => r[cfg.on.to] === base[cfg.on.from]);
       if (cfg.relation === "one-to-one") {
         out[target] = matches[0] ?? null;
       } else {
@@ -209,8 +220,8 @@ export const makeMemoryAdapter = (
     select?: string[] | undefined;
     join?: JoinConfig | undefined;
   }) =>
-    Effect.sync<T | null>(() => {
-      const rows = filterWhere(tableFor(model), where);
+    Effect.gen(function* () {
+      const rows = yield* filterWhere(tableFor(model), where);
       const first = rows[0];
       if (!first) return null;
       return rowAs<T>(join ? attachJoins(first, join) : first);
@@ -232,8 +243,8 @@ export const makeMemoryAdapter = (
     offset?: number | undefined;
     join?: JoinConfig | undefined;
   }) =>
-    Effect.sync<T[]>(() => {
-      let rows = filterWhere(tableFor(model), where ?? []);
+    Effect.gen(function* () {
+      let rows = yield* filterWhere(tableFor(model), where ?? []);
       if (sortBy) {
         const { field, direction } = sortBy;
         const sign = direction === "asc" ? 1 : -1;
@@ -261,8 +272,8 @@ export const makeMemoryAdapter = (
     where: CleanedWhere[];
     update: T;
   }) =>
-    Effect.sync<T | null>(() => {
-      const rows = filterWhere(tableFor(model), where);
+    Effect.gen(function* () {
+      const rows = yield* filterWhere(tableFor(model), where);
       const first = rows[0];
       if (!first) return null;
       Object.assign(first, update as Row);
@@ -289,21 +300,21 @@ export const makeMemoryAdapter = (
     findMany,
 
     count: ({ model, where }) =>
-      Effect.sync(() => filterWhere(tableFor(model), where ?? []).length),
+      Effect.map(filterWhere(tableFor(model), where ?? []), (rows) => rows.length),
 
     update: updateOne,
 
     updateMany: ({ model, where, update }) =>
-      Effect.sync(() => {
-        const rows = filterWhere(tableFor(model), where);
+      Effect.gen(function* () {
+        const rows = yield* filterWhere(tableFor(model), where);
         for (const r of rows) Object.assign(r, update);
         return rows.length;
       }),
 
     delete: ({ model, where }) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         const table = tableFor(model);
-        const matches = filterWhere(table, where);
+        const matches = yield* filterWhere(table, where);
         const first = matches[0];
         if (!first) return;
         const idx = table.indexOf(first);
@@ -311,9 +322,9 @@ export const makeMemoryAdapter = (
       }),
 
     deleteMany: ({ model, where }) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         const table = tableFor(model);
-        const matches = new Set(filterWhere(table, where));
+        const matches = new Set(yield* filterWhere(table, where));
         let count = 0;
         store[model] = table.filter((r) => {
           if (matches.has(r)) {
@@ -328,11 +339,9 @@ export const makeMemoryAdapter = (
 
   // Snapshot-based transaction: clone on entry, restore on failure.
   const txFn: DBAdapterFactoryConfig["transaction"] = <R, E>(
-    cb: (trx: Parameters<DBAdapter["transaction"]>[0] extends (
-      t: infer T,
-    ) => unknown
-      ? T
-      : never) => Effect.Effect<R, E>,
+    cb: (
+      trx: Parameters<DBAdapter["transaction"]>[0] extends (t: infer T) => unknown ? T : never,
+    ) => Effect.Effect<R, E>,
   ) =>
     Effect.gen(function* () {
       const snapshot = cloneStore(store);
@@ -353,9 +362,7 @@ export const makeMemoryAdapter = (
       supportsDates: true,
       supportsBooleans: true,
       supportsArrays: true,
-      customIdGenerator: options.generateId
-        ? () => options.generateId!()
-        : undefined,
+      customIdGenerator: options.generateId ? () => options.generateId!() : undefined,
       transaction: txFn,
     },
     adapter: custom,

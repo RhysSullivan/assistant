@@ -13,8 +13,65 @@ The preferred boundary is typed `Schema.TaggedError` / `Data.TaggedError` values
 1. **Identify the boundary.** Is this Effect domain code, React UI code, a third-party callback, or plain test/tooling code?
 2. **Find the existing domain errors.** Check nearby `errors.ts`, `Schema.TaggedError`, `Data.TaggedError`, and API `.addError(...)` declarations before adding a new class.
 3. **Decide whether a new error is needed.** Add a new tagged error only if callers have a distinct recovery path, HTTP status, UI affordance, retry policy, or telemetry classification.
-4. **Preserve the typed channel.** Do not convert typed failures into `Error`, thrown exceptions, `String(error)`, or `.message` reads from unknown values.
-5. **Do not hide construction behind trivial helpers.** Inline `new DomainError(...)` unless the helper branches on input or maps an external error format into a domain error.
+4. **Preserve failure semantics.** If the old code failed, the new code should fail in the Effect error channel. Do not replace thrown failures with fallback values like `false`, `null`, `undefined`, `[]`, or `"unknown"` unless the existing contract already treats that condition as non-fatal.
+5. **Preserve the typed channel.** Do not convert typed failures into `Error`, thrown exceptions, `String(error)`, or `.message` reads from unknown values.
+6. **Recognize real boundaries.** Runtime workers, Vite/CLI tooling, callback APIs, and third-party interfaces may have to throw, catch, or reject at the boundary. Do not contort those files into fake Effect shapes. Keep the boundary idiom when it is contained and immediately wrapped into an Effect error channel, stable IPC envelope, or test/tooling result.
+7. **Do not hide construction behind trivial helpers.** Inline `new DomainError(...)` unless the helper branches on input or maps an external error format into a domain error.
+
+## Preserve behavior first
+
+The lint rule is about **where the failure lives**, not whether the operation should still fail.
+
+Bad fix: this removes the lint finding by silently changing invalid input into a non-match.
+
+```ts
+case "in":
+  if (!Array.isArray(value)) return false;
+  return value.some((v) => cmp(lhs, v));
+```
+
+Good fix: keep the invalid input as a failure, but make it typed.
+
+```ts
+case "in":
+  if (!Array.isArray(value)) {
+    return Effect.fail(
+      new StorageError({ message: "Value must be an array", cause: clause }),
+    );
+  }
+  return Effect.succeed(value.some((v) => cmp(lhs, v)));
+```
+
+When the containing helper was synchronous, make the helper return `Effect.Effect<Success, DomainError>` and thread that through callers. Do not collapse the error into a success value to avoid changing call sites.
+
+## Boundary exceptions
+
+The lint rule is not a mandate to make every file Effect-shaped. It is acceptable to keep `try/catch`, `throw`, `new Error`, `.catch`, or `String(error)` at a true adapter boundary when all of these are true:
+
+- the surrounding API is inherently throwing, callback-based, Promise-based, process/IPC-based, or plain JS tooling
+- the untyped behavior is contained to the boundary function or module
+- control is immediately translated into a typed Effect failure, stable IPC payload, stable test assertion, or deliberately best-effort cleanup
+- the suppression is narrow and explains the boundary
+
+Good boundary suppression:
+
+```ts
+// oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: JSON.parse feeds stable IPC failure envelope
+try {
+  const message = JSON.parse(line);
+  handleHostMessage(message);
+} catch (error) {
+  writeIpcMessage({ type: "failed", error: formatBoundaryError(error) });
+}
+```
+
+Bad boundary fix: do not replace natural boundary code with fake thenables, fake error objects, promise chains that emulate `try/catch`, or broad helper machinery solely to make lint pass.
+
+```ts
+return makeRejectedThenable(makeErrorLike("Tool path missing"));
+```
+
+For Effect domain code, fix the code. For boundary code, either wrap once with `Effect.try` / `Effect.tryPromise` at the entry point or use a narrow suppression with a reason.
 
 ## Fix shapes
 
@@ -38,7 +95,7 @@ Good in combinators:
 Effect.fail(new SourceNotFoundError({ sourceId }));
 ```
 
-If a third-party interface requires throwing, keep the throw at the adapter edge only and convert back into a typed failure as soon as control returns to Effect.
+If a third-party interface requires throwing, keep the throw at the adapter edge only and convert back into a typed failure as soon as control returns to Effect. Prefer a narrow `oxlint-disable-next-line` with a `boundary:` reason over code contortions.
 
 ### Effect.fail inside generators
 
@@ -51,10 +108,13 @@ return yield* new SourceNotFoundError({ sourceId });
 Use `Effect.fail(...)` in non-generator combinator code:
 
 ```ts
-Effect.flatMap(source, Option.match({
-  onNone: () => Effect.fail(new SourceNotFoundError({ sourceId })),
-  onSome: Effect.succeed,
-}));
+Effect.flatMap(
+  source,
+  Option.match({
+    onNone: () => Effect.fail(new SourceNotFoundError({ sourceId })),
+    onSome: Effect.succeed,
+  }),
+);
 ```
 
 ### Promise.catch / Promise.reject
@@ -123,6 +183,13 @@ Bad:
 err instanceof Error ? err.message : String(err);
 ```
 
+Also bad: destructuring `message` only hides the same unknown-state problem from a shallow property-access lint.
+
+```ts
+const { message } = err;
+return message;
+```
+
 Prefer one of:
 
 ```ts
@@ -130,12 +197,12 @@ Effect.mapError((err) => new DomainError({ cause: err }));
 ```
 
 ```ts
-Effect.catchTag("KnownError", (err) =>
-  Effect.fail(new DomainError({ message: err.message })),
-);
+Effect.catchTag("KnownError", (err) => Effect.fail(new DomainError({ message: err.message })));
 ```
 
 Only read `.message` from a typed error union where the type proves that property exists. Do not inspect unknown thrown values for domain behavior.
+
+If the lint rule overfires inside a branch that has already narrowed to a specific typed error, keep the direct typed read and use a narrow suppression with a reason. Do not rewrite to destructuring just to avoid the lint selector.
 
 ### Redundant error helpers
 
@@ -182,7 +249,7 @@ Do not create one tagged error per sentence of prose.
 ## What not to report
 
 - Test assertions that intentionally construct errors as fixture values.
-- Runtime adapter edges that must satisfy a third-party throwing API, as long as the throw is contained and converted to typed Effect failure.
+- Runtime adapter edges that must satisfy a third-party throwing API, IPC contract, process worker contract, or tooling contract, as long as the untyped behavior is contained and converted to typed Effect failure or a stable boundary envelope.
 - Real normalization helpers like `toOAuth2Error(cause)` that inspect protocol fields and preserve structured semantics.
 - React/effect-atom mutation handlers using `try/catch`; use `wrdn-effect-promise-exit` for that UI-specific boundary.
 

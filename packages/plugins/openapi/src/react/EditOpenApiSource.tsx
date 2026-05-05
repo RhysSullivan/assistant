@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 
 import { connectionsAtom, sourceAtom, startOAuth } from "@executor-js/react/api/atoms";
 import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
@@ -163,6 +165,7 @@ export default function EditOpenApiSource(props: {
 
   const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promise" });
   const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
+  const doSetBindingExit = useAtomSet(setOpenApiSourceBinding, { mode: "promiseExit" });
   const doRemoveBinding = useAtomSet(removeOpenApiSourceBinding, { mode: "promise" });
   const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
@@ -321,23 +324,22 @@ export default function EditOpenApiSource(props: {
     if (!trimmed) return;
     setBusyKey(inputKey);
     setError(null);
-    try {
-      await doSetBinding({
-        params: { scopeId: displayScope },
-        payload: {
-          sourceId: props.sourceId,
-          sourceScope,
-          scope: targetScope,
-          slot,
-          value: { kind: "secret", secretId: SecretId.make(trimmed) },
-        },
-        reactivityKeys: sourceWriteKeys,
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save credential binding");
-    } finally {
-      setBusyKey(null);
+    const exit = await doSetBindingExit({
+      params: { scopeId: displayScope },
+      payload: {
+        sourceId: props.sourceId,
+        sourceScope,
+        scope: targetScope,
+        slot,
+        value: { kind: "secret", secretId: SecretId.make(trimmed) },
+      },
+      reactivityKeys: sourceWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
+      const error = Exit.findErrorOption(exit);
+      setError(Option.isSome(error) ? error.value.message : "Failed to save credential binding");
     }
+    setBusyKey(null);
   };
 
   const clearBinding = async (targetScope: ScopeId, slot: string) => {

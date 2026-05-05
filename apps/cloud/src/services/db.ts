@@ -73,6 +73,7 @@ export class DbService extends Context.Service<
         // Fire-and-forget: the Terminate round-trip sometimes hangs, and
         // we don't need to block scope close waiting for it.
         Effect.sync(() => {
+          // oxlint-disable-next-line executor/no-promise-catch -- boundary: deliberately best-effort fire-and-forget cleanup
           sql.end({ timeout: 0 }).catch(() => undefined);
         }),
     ),

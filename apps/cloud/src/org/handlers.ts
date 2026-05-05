@@ -1,5 +1,5 @@
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 
 import { UserStoreService } from "../auth/context";
 import { AuthContext } from "../auth/middleware";
@@ -103,7 +103,7 @@ const reserveMemberSlot = Effect.gen(function* () {
     Effect.catchCause((cause) =>
       Effect.gen(function* () {
         yield* Effect.logError("members.seats lookup failed; failing closed").pipe(
-          Effect.annotateLogs({ "org.id": auth.organizationId, cause: String(cause) }),
+          Effect.annotateLogs({ "org.id": auth.organizationId, cause: Cause.pretty(cause) }),
         );
         return yield* new Forbidden();
       }),

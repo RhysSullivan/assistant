@@ -13,6 +13,7 @@ export const generateSchema = (
 ) => {
   const generator = generators[adapter];
   if (!generator) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: CLI generator API is Promise-based, preserve its rejection shape
     throw new Error(
       `Generator "${adapter}" is not supported. Available: ${Object.keys(generators).join(", ")}`,
     );

@@ -44,6 +44,7 @@ const DEFAULT_CONFIG_CANDIDATES = [
 const DEFAULT_JSONC_CANDIDATES = ["executor.jsonc", "executor.json"];
 
 const readJsoncPlugins = (path: string): readonly string[] => {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Vite plugin probes optional project config files
   try {
     const raw = readFileSync(path, "utf8");
     const parsed = jsonc.parse(raw) as
@@ -61,6 +62,7 @@ const tryResolveClient = (
   fromDir: string,
 ): string | null => {
   const require = createRequire(resolvePath(fromDir, "_anchor.js"));
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Vite resolver probes optional client entrypoints
   try {
     return require.resolve(`${packageName}/client`);
   } catch {
