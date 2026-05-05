@@ -27,10 +27,10 @@ export const discoverTools = (
     // Acquire connection
     const connection = yield* connector.pipe(
       Effect.mapError(
-        (err) =>
+        () =>
           new McpToolDiscoveryError({
             stage: "connect",
-            message: `Failed connecting to MCP server: ${err.message}`,
+            message: "Failed connecting to MCP server",
           }),
       ),
     );
@@ -38,23 +38,19 @@ export const discoverTools = (
     // List tools
     const listResult = yield* Effect.tryPromise({
       try: () => connection.client.listTools(),
-      catch: (cause) =>
+      catch: () =>
         new McpToolDiscoveryError({
           stage: "list_tools",
-          message: `Failed listing MCP tools: ${
-            cause instanceof Error ? cause.message : String(cause)
-          }`,
+          message: "Failed listing MCP tools",
         }),
     });
 
     if (!isListToolsResult(listResult)) {
-      yield* Effect.promise(() => connection.close().catch(() => {}));
-      return yield* Effect.fail(
-        new McpToolDiscoveryError({
-          stage: "list_tools",
-          message: "MCP listTools response did not match the expected schema",
-        }),
-      );
+      yield* Effect.ignore(Effect.tryPromise(() => connection.close()));
+      return yield* new McpToolDiscoveryError({
+        stage: "list_tools",
+        message: "MCP listTools response did not match the expected schema",
+      });
     }
 
     const manifest = extractManifestFromListToolsResult(listResult, {
@@ -62,7 +58,7 @@ export const discoverTools = (
     });
 
     // Close the connection after discovery
-    yield* Effect.promise(() => connection.close().catch(() => {}));
+    yield* Effect.ignore(Effect.tryPromise(() => connection.close()));
 
     return manifest;
   });

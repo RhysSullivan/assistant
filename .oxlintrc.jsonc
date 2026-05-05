@@ -11,6 +11,8 @@
     "executor/no-effect-internal-tags": "error",
     "executor/no-error-constructor": "error",
     "executor/no-instanceof-error": "error",
+    "executor/no-instanceof-tagged-error": "error",
+    "executor/no-manual-tag-check": "error",
     "executor/no-promise-catch": "error",
     "executor/no-promise-reject": "error",
     "executor/no-redundant-error-factory": "error",
@@ -19,6 +21,7 @@
     "executor/no-unknown-error-message": "error",
     "executor/prefer-schema-inferred-types": "error",
     "executor/prefer-value-inferred-extension-types": "error",
+    "executor/prefer-yield-tagged-error": "error",
     "react/forbid-elements": [
       "error",
       {

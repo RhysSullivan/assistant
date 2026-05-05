@@ -18,6 +18,7 @@ import noUnknownErrorMessage from "./oxlint-plugin-executor/rules/no-unknown-err
 import noUnknownShapeProbing from "./oxlint-plugin-executor/rules/no-unknown-shape-probing.js";
 import noVitestImport from "./oxlint-plugin-executor/rules/no-vitest-import.js";
 import preferSchemaInferredTypes from "./oxlint-plugin-executor/rules/prefer-schema-inferred-types.js";
+import preferYieldTaggedError from "./oxlint-plugin-executor/rules/prefer-yield-tagged-error.js";
 import preferValueInferredExtensionTypes from "./oxlint-plugin-executor/rules/prefer-value-inferred-extension-types.js";
 import requireReactivityKeys from "./oxlint-plugin-executor/rules/require-reactivity-keys.js";
 
@@ -48,5 +49,6 @@ export default {
     "no-unknown-shape-probing": noUnknownShapeProbing,
     "prefer-schema-inferred-types": preferSchemaInferredTypes,
     "prefer-value-inferred-extension-types": preferValueInferredExtensionTypes,
+    "prefer-yield-tagged-error": preferYieldTaggedError,
   },
 };

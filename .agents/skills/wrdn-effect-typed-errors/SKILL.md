@@ -105,6 +105,12 @@ Prefer yielding the error directly in generator code:
 return yield* new SourceNotFoundError({ sourceId });
 ```
 
+Do not write:
+
+```ts
+return yield* Effect.fail(new SourceNotFoundError({ sourceId }));
+```
+
 Use `Effect.fail(...)` in non-generator combinator code:
 
 ```ts
@@ -200,9 +206,67 @@ Effect.mapError((err) => new DomainError({ cause: err }));
 Effect.catchTag("KnownError", (err) => Effect.fail(new DomainError({ message: err.message })));
 ```
 
-Only read `.message` from a typed error union where the type proves that property exists. Do not inspect unknown thrown values for domain behavior.
+Only read `.message` from a typed error union when that field is explicitly part of the user-facing contract. Most boundary errors should instead use a stable product message and keep the original value in a separate `cause`, trace, log, or telemetry channel. Do not inspect unknown thrown values for domain behavior or customer copy.
 
 If the lint rule overfires inside a branch that has already narrowed to a specific typed error, keep the direct typed read and use a narrow suppression with a reason. Do not rewrite to destructuring just to avoid the lint selector.
+
+Bad: leaks internal provider/native details to users.
+
+```ts
+Effect.tryPromise({
+  try: () => client.call(),
+  catch: (cause) =>
+    new SourceError({
+      message: cause instanceof Error ? cause.message : String(cause),
+    }),
+});
+```
+
+Good: user-facing message is stable; internal detail goes into `cause` only if the error type has an internal channel.
+
+```ts
+Effect.tryPromise({
+  try: () => client.call(),
+  catch: (cause) =>
+    new SourceError({
+      message: "Failed to connect to source",
+      cause,
+    }),
+});
+```
+
+If the error schema is serialized to customers and only has `message`, do not put internal details there. Prefer adding a non-serialized/internal `cause` field or logging/telemetry over suppressing the lint rule.
+
+### Manual tags and broad error laundering
+
+Bad: manually probing `_tag` to recover from typed Effect failures.
+
+```ts
+Effect.mapError((err) =>
+  "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+    ? new SourceError({ message: "Failed to resolve secret" })
+    : err,
+);
+```
+
+Good: catch the one typed case you intentionally translate.
+
+```ts
+effect.pipe(
+  Effect.catchTag("SecretOwnedByConnectionError", () =>
+    Effect.fail(new SourceError({ message: "Failed to resolve secret" })),
+  ),
+);
+```
+
+Do not wrap a typed error union into one local error only to satisfy a narrower helper signature. Widen the helper/cache/invocation error channel when callers can still use the original typed failure. Wrap only when the new error adds product meaning, such as turning a connection-owned secret into a source configuration problem.
+
+For Effect data types, use public helpers instead of `_tag` checks:
+
+```ts
+if (Option.isNone(parsed)) return null;
+if (Exit.isFailure(exit)) return ...
+```
 
 ### Redundant error helpers
 

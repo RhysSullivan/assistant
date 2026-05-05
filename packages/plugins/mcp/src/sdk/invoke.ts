@@ -10,13 +10,14 @@
 //   4. Retrying once on connection failure (invalidate + reconnect).
 // ---------------------------------------------------------------------------
 
-import { Cause, Effect, Exit, Schema, ScopedCache } from "effect";
+import { Cause, Effect, Exit, Predicate, Schema, ScopedCache } from "effect";
 
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
 import {
   FormElicitation,
   UrlElicitation,
+  type ElicitationDeclinedError,
   type Elicit,
   type ElicitationRequest,
 } from "@executor-js/sdk/core";
@@ -108,14 +109,13 @@ const installElicitationHandler = (
       }
       const failure = exit.cause.reasons.find(Cause.isFailReason);
       if (failure) {
-        const err = failure.error as {
-          readonly _tag?: string;
-          readonly action?: "decline" | "cancel";
-        };
-        if (err._tag === "ElicitationDeclinedError") {
-          return { action: err.action ?? "decline" };
+        const err = failure.error;
+        if (Predicate.isTagged(err, "ElicitationDeclinedError")) {
+          const action = (err as ElicitationDeclinedError).action;
+          return { action };
         }
       }
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: MCP SDK request handler must throw JSON-RPC failures
       throw Cause.squash(exit.cause);
     },
   );
@@ -135,12 +135,10 @@ const useConnection = (
     installElicitationHandler(connection.client, elicit);
     return yield* Effect.tryPromise({
       try: () => connection.client.callTool({ name: toolName, arguments: args }),
-      catch: (cause) =>
+      catch: () =>
         new McpInvocationError({
           toolName,
-          message: `MCP tool call failed for ${toolName}: ${
-            cause instanceof Error ? cause.message : String(cause)
-          }`,
+          message: `MCP tool call failed for ${toolName}`,
         }),
     }).pipe(
       Effect.withSpan("plugin.mcp.client.call_tool", {
@@ -153,7 +151,7 @@ const useConnection = (
 // Public API
 // ---------------------------------------------------------------------------
 
-export interface InvokeMcpToolInput {
+export interface InvokeMcpToolInput<E = McpConnectionError> {
   readonly toolId: string;
   readonly toolName: string;
   readonly args: unknown;
@@ -162,22 +160,22 @@ export interface InvokeMcpToolInput {
    *  connection cache key so per-user OAuth/secret resolution doesn't
    *  collapse multiple users onto one shared connection. */
   readonly invokerScope: string;
-  readonly resolveConnector: () => Effect.Effect<McpConnection, McpConnectionError>;
+  readonly resolveConnector: () => Effect.Effect<McpConnection, E>;
   readonly connectionCache: ScopedCache.ScopedCache<
     string,
     McpConnection,
-    McpConnectionError
+    E
   >;
   readonly pendingConnectors: Map<
     string,
-    Effect.Effect<McpConnection, McpConnectionError>
+    Effect.Effect<McpConnection, E>
   >;
   readonly elicit: Elicit;
 }
 
-export const invokeMcpTool = (
-  input: InvokeMcpToolInput,
-): Effect.Effect<unknown, McpConnectionError | McpInvocationError> => {
+export const invokeMcpTool = <E = McpConnectionError>(
+  input: InvokeMcpToolInput<E>,
+): Effect.Effect<unknown, E | McpInvocationError> => {
   const transport: string =
     input.sourceData.transport === "stdio"
       ? "stdio"

@@ -1,4 +1,4 @@
-import { Duration, Effect, Exit, Result, Scope, ScopedCache } from "effect";
+import { Duration, Effect, Exit, Option, Result, Scope, ScopedCache } from "effect";
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 
@@ -10,6 +10,11 @@ import {
   SourceDetectionResult,
   Usage,
   definePlugin,
+  type ConnectionNotFoundError,
+  type ConnectionProviderNotRegisteredError,
+  type ConnectionReauthRequiredError,
+  type ConnectionRefreshError,
+  type ConnectionRefreshNotSupportedError,
   resolveSecretBackedMap as resolveSharedSecretBackedMap,
   type PluginCtx,
   type StorageFailure,
@@ -182,10 +187,12 @@ const makeOAuthProvider = (accessToken: string): OAuthClientProvider => ({
   tokens: () => ({ access_token: accessToken, token_type: "Bearer" }),
   saveTokens: () => undefined,
   redirectToAuthorization: async () => {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: MCP SDK OAuth provider callback must reject unsupported reauth
     throw new Error("MCP OAuth re-authorization required");
   },
   saveCodeVerifier: () => undefined,
   codeVerifier: () => {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: MCP SDK OAuth provider callback must throw when no PKCE verifier exists
     throw new Error("No active PKCE verifier");
   },
   saveDiscoveryState: () => undefined,
@@ -198,29 +205,25 @@ const resolveSecretBackedMap = (
 ): Effect.Effect<Record<string, string> | undefined, McpConnectionError | StorageFailure> =>
   resolveSharedSecretBackedMap({
     values,
-    getSecret: ctx.secrets.get,
+    getSecret: (secretId) =>
+      ctx.secrets.get(secretId).pipe(
+        Effect.catchTag(
+          "SecretOwnedByConnectionError",
+          () =>
+            Effect.fail(
+              new McpConnectionError({
+                transport: "remote",
+                message: `Failed to resolve secret "${secretId}"`,
+              }),
+            ),
+        ),
+      ),
     onMissing: (_name, value) =>
       new McpConnectionError({
         transport: "remote",
         message: `Failed to resolve secret "${value.secretId}"`,
       }),
-    onError: (err, _name, value) =>
-      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
-        ? new McpConnectionError({
-            transport: "remote",
-            message: `Failed to resolve secret "${value.secretId}"`,
-          })
-        : err,
-  }).pipe(
-    Effect.mapError((err) =>
-      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
-        ? new McpConnectionError({
-            transport: "remote",
-            message: "Failed to resolve secret",
-          })
-        : err,
-    ),
-  );
+  });
 
 const plainStringMap = (
   values: Record<string, SecretBackedValue> | undefined,
@@ -236,11 +239,23 @@ const plainStringMap = (
 // Shared connector resolution — reads secrets, builds stdio/remote input
 // ---------------------------------------------------------------------------
 
+export type McpConnectionAccessFailure =
+  | ConnectionNotFoundError
+  | ConnectionProviderNotRegisteredError
+  | ConnectionRefreshNotSupportedError
+  | ConnectionReauthRequiredError
+  | ConnectionRefreshError;
+
+type McpConnectorResolutionFailure =
+  | McpConnectionError
+  | McpConnectionAccessFailure
+  | StorageFailure;
+
 const resolveConnectorInput = (
   sd: McpStoredSourceData,
   ctx: PluginCtx<McpBindingStore>,
   allowStdio: boolean,
-): Effect.Effect<ConnectorInput, McpConnectionError | StorageFailure> => {
+): Effect.Effect<ConnectorInput, McpConnectorResolutionFailure> => {
   if (sd.transport === "stdio") {
     if (!allowStdio) {
       return Effect.fail(
@@ -271,22 +286,22 @@ const resolveConnectorInput = (
       const val = yield* ctx.secrets
         .get(auth.secretId)
         .pipe(
-          Effect.mapError((err) =>
-            "_tag" in err && err._tag === "SecretOwnedByConnectionError"
-              ? new McpConnectionError({
+          Effect.catchTag(
+            "SecretOwnedByConnectionError",
+            () =>
+              Effect.fail(
+                new McpConnectionError({
                   transport: "remote",
                   message: `Failed to resolve secret "${auth.secretId}"`,
-                })
-              : err,
+                }),
+              ),
           ),
         );
       if (val === null) {
-        return yield* Effect.fail(
-          new McpConnectionError({
-            transport: "remote",
-            message: `Failed to resolve secret "${auth.secretId}"`,
-          }),
-        );
+        return yield* new McpConnectionError({
+          transport: "remote",
+          message: `Failed to resolve secret "${auth.secretId}"`,
+        });
       }
       headers[auth.headerName] = auth.prefix ? `${auth.prefix}${val}` : val;
     } else if (auth.kind === "oauth2") {
@@ -295,19 +310,7 @@ const resolveConnectorInput = (
       // The canonical `"oauth2"` ConnectionProvider registered by
       // core owns the refresh lifecycle; we just wrap the current
       // token for the SDK's transport.
-      const accessToken = yield* ctx.connections
-        .accessToken(auth.connectionId)
-        .pipe(
-          Effect.mapError((err) =>
-            new McpConnectionError({
-              transport: "remote",
-              message: `Failed to resolve OAuth connection "${auth.connectionId}": ${
-                // oxlint-disable-next-line executor/no-unknown-error-message -- preserve existing public error text while removing the trivial factory helper
-                "message" in err ? (err as { message: string }).message : String(err)
-              }`,
-            }),
-          ),
-        );
+      const accessToken = yield* ctx.connections.accessToken(auth.connectionId);
       authProvider = makeOAuthProvider(accessToken);
     }
 
@@ -329,15 +332,25 @@ const resolveConnectorInput = (
 // ---------------------------------------------------------------------------
 
 interface McpRuntime {
-  readonly connectionCache: ScopedCache.ScopedCache<string, McpConnection, McpConnectionError>;
-  readonly pendingConnectors: Map<string, Effect.Effect<McpConnection, McpConnectionError>>;
+  readonly connectionCache: ScopedCache.ScopedCache<
+    string,
+    McpConnection,
+    McpConnectorResolutionFailure
+  >;
+  readonly pendingConnectors: Map<
+    string,
+    Effect.Effect<McpConnection, McpConnectorResolutionFailure>
+  >;
   readonly cacheScope: Scope.Closeable;
 }
 
 const makeRuntime = (): Effect.Effect<McpRuntime, never> =>
   Effect.gen(function* () {
     const cacheScope = yield* Scope.make();
-    const pendingConnectors = new Map<string, Effect.Effect<McpConnection, McpConnectionError>>();
+    const pendingConnectors = new Map<
+      string,
+      Effect.Effect<McpConnection, McpConnectorResolutionFailure>
+    >();
     const connectionCache = yield* ScopedCache.make({
       lookup: (key: string) =>
         Effect.acquireRelease(
@@ -353,7 +366,17 @@ const makeRuntime = (): Effect.Effect<McpRuntime, never> =>
             }
             return connector;
           }),
-          (connection) => Effect.promise(() => connection.close().catch(() => {})),
+          (connection) =>
+            Effect.ignore(
+              Effect.tryPromise({
+                try: () => connection.close(),
+                catch: () =>
+                  new McpConnectionError({
+                    transport: "auto",
+                    message: "Failed to close MCP connection",
+                  }),
+              }),
+            ),
         ),
       capacity: 64,
       timeToLive: Duration.minutes(5),
@@ -466,12 +489,10 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           const endpoint = typeof input === "string" ? input : input.endpoint;
           const trimmed = endpoint.trim();
           if (!trimmed) {
-            return yield* Effect.fail(
-              new McpConnectionError({
-                transport: "remote",
-                message: "Endpoint URL is required",
-              }),
-            );
+            return yield* new McpConnectionError({
+              transport: "remote",
+              message: "Endpoint URL is required",
+            });
           }
 
           const name = yield* Effect.try({
@@ -526,15 +547,13 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             queryParams: probeQueryParams,
           });
           if (shape.kind !== "mcp") {
-            return yield* Effect.fail(
-              new McpConnectionError({
-                transport: "remote",
-                message:
-                  shape.kind === "not-mcp"
-                    ? `Endpoint does not look like an MCP server: ${shape.reason}`
-                    : `Could not reach endpoint: ${shape.reason}`,
-              }),
-            );
+            return yield* new McpConnectionError({
+              transport: "remote",
+              message:
+                shape.kind === "not-mcp"
+                  ? `Endpoint does not look like an MCP server: ${shape.reason}`
+                  : `Could not reach endpoint: ${shape.reason}`,
+            });
           }
 
           const probeResult = yield* ctx.oauth
@@ -560,12 +579,10 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             } satisfies McpProbeResult;
           }
 
-          return yield* Effect.fail(
-            new McpConnectionError({
-              transport: "remote",
-              message: "MCP server requires authentication but OAuth discovery failed",
-            }),
-          );
+          return yield* new McpConnectionError({
+            transport: "remote",
+            message: "MCP server requires authentication but OAuth discovery failed",
+          });
         }).pipe(
           Effect.withSpan("mcp.plugin.probe_endpoint", {
             attributes: { "mcp.endpoint": typeof input === "string" ? input : input.endpoint },
@@ -606,15 +623,14 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           // the caller at the end.
           const discovery: Result.Result<
             McpToolManifest,
-            McpToolDiscoveryError | McpConnectionError | StorageFailure
+            McpToolDiscoveryError | McpConnectorResolutionFailure
           > =
             Result.isSuccess(resolved)
               ? yield* discoverTools(createMcpConnector(resolved.success)).pipe(
-                  Effect.mapError((err) =>
+                  Effect.mapError(() =>
                     new McpToolDiscoveryError({
                       stage: "list_tools",
-                      // oxlint-disable-next-line executor/no-unknown-error-message -- err is the typed McpToolDiscoveryError from discoverTools; keep existing wrapper text
-                      message: `MCP discovery failed: ${err.message}`,
+                      message: "MCP discovery failed",
                     }),
                   ),
                   Effect.result,
@@ -731,12 +747,10 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             }),
           );
           if (!sd) {
-            return yield* Effect.fail(
-              new McpConnectionError({
-                transport: "remote",
-                message: `No stored config for MCP source "${namespace}"`,
-              }),
-            );
+            return yield* new McpConnectionError({
+              transport: "remote",
+              message: `No stored config for MCP source "${namespace}"`,
+            });
           }
 
           const ci = yield* resolveConnectorInput(sd, ctx, allowStdio).pipe(
@@ -749,11 +763,10 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           );
           const manifest = yield* discoverTools(createMcpConnector(ci)).pipe(
             Effect.mapError(
-              (err) =>
+              () =>
                 new McpToolDiscoveryError({
                   stage: "list_tools",
-                  // oxlint-disable-next-line executor/no-unknown-error-message -- err is the typed McpToolDiscoveryError from discoverTools; keep existing wrapper text
-                  message: `MCP refresh failed: ${err.message}`,
+                  message: "MCP refresh failed",
                 }),
             ),
             Effect.withSpan("mcp.plugin.discover_tools", {
@@ -871,7 +884,10 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           }),
         );
         if (!entry) {
-          return yield* Effect.fail(new Error(`No MCP binding found for tool "${toolRow.id}"`));
+          return yield* new McpConnectionError({
+            transport: "auto",
+            message: `No MCP binding found for tool "${toolRow.id}"`,
+          });
         }
 
         const sd = yield* ctx.storage.getSourceConfig(entry.namespace, toolScope).pipe(
@@ -880,9 +896,10 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           }),
         );
         if (!sd) {
-          return yield* Effect.fail(
-            new Error(`No MCP source config for namespace "${entry.namespace}"`),
-          );
+          return yield* new McpConnectionError({
+            transport: "auto",
+            message: `No MCP source config for namespace "${entry.namespace}"`,
+          });
         }
 
         return yield* invokeMcpTool({
@@ -894,14 +911,6 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           resolveConnector: () =>
             resolveConnectorInput(sd, ctx, allowStdio).pipe(
               Effect.flatMap((ci) => createMcpConnector(ci)),
-              Effect.mapError((err) =>
-                err instanceof McpConnectionError
-                  ? err
-                  : new McpConnectionError({
-                      transport: "auto",
-                      message: err instanceof Error ? err.message : String(err),
-                    }),
-              ),
               Effect.withSpan("mcp.plugin.resolve_connector", {
                 attributes: {
                   "mcp.source.namespace": entry.namespace,
@@ -931,7 +940,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           try: () => new URL(trimmed),
           catch: (cause) => cause,
         }).pipe(Effect.option);
-        if (parsed._tag === "None") return null;
+        if (Option.isNone(parsed)) return null;
 
         const name = parsed.value.hostname || "mcp";
         const namespace = deriveMcpNamespace({ endpoint: trimmed });
@@ -1137,7 +1146,11 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
  * composition. `UniqueViolationError` passes through — plugins can
  * `Effect.catchTag` it if they want a friendlier user-facing error.
  */
-export type McpExtensionFailure = McpConnectionError | McpToolDiscoveryError | StorageFailure;
+export type McpExtensionFailure =
+  | McpConnectionError
+  | McpToolDiscoveryError
+  | McpConnectionAccessFailure
+  | StorageFailure;
 
 export interface McpPluginExtension {
   readonly probeEndpoint: (
