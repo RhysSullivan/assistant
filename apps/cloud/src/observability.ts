@@ -36,17 +36,23 @@ const truncate = (s: string): string =>
 // `Cause.prettyErrors` instead — it always produces real `Error` instances,
 // even for non-Error defects (including a CauseImpl defect, which gets
 // wrapped via `causePrettyMessage`).
-export const captureCause = (input: unknown): string | undefined => {
+export const sentryPayloadForCause = (
+  input: unknown,
+): { primary: unknown; pretty: string | null } => {
   if (Cause.isCause(input)) {
     const pretty = Cause.pretty(input);
     const errors = Cause.prettyErrors(input);
-    const primary = errors[0] ?? new Error(pretty);
-    return Sentry.captureException(primary, (scope) => {
-      scope.setExtra("cause", pretty);
-      return scope;
-    });
+    return { primary: errors[0] ?? new Error(pretty), pretty };
   }
-  return Sentry.captureException(input);
+  return { primary: input, pretty: null };
+};
+
+export const captureCause = (input: unknown): string | undefined => {
+  const { primary, pretty } = sentryPayloadForCause(input);
+  return Sentry.captureException(primary, (scope) => {
+    if (pretty !== null) scope.setExtra("cause", pretty);
+    return scope;
+  });
 };
 
 export const ErrorCaptureLive: Layer.Layer<ErrorCapture> = Layer.succeed(
