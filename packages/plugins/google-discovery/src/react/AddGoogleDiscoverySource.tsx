@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 
 import { usePendingSources } from "@executor-js/react/api/optimistic";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
@@ -97,22 +99,21 @@ type GoogleDiscoveryTemplate = GoogleDiscoveryPreset & {
 const GOOGLE_G_ICON = "https://fonts.gstatic.com/s/i/productlogos/googleg/v6/192px.svg";
 
 function parseGoogleDiscoveryPreset(preset: GoogleDiscoveryPreset): GoogleDiscoveryTemplate {
-  try {
-    const url = new URL(preset.url);
-    const parts = url.pathname.split("/").filter(Boolean);
-    const apisIndex = parts.indexOf("apis");
-    const service = apisIndex >= 0 ? parts[apisIndex + 1] : undefined;
-    const version =
-      apisIndex >= 0 ? parts[apisIndex + 2] : (url.searchParams.get("version") ?? undefined);
-    return {
-      ...preset,
-      discoveryUrl: preset.url,
-      service: service ?? url.hostname.replace(/\.googleapis\.com$/, ""),
-      version: version ?? "",
-    };
-  } catch {
+  if (!URL.canParse(preset.url)) {
     return { ...preset, discoveryUrl: preset.url, service: preset.id, version: "" };
   }
+  const url = new URL(preset.url);
+  const parts = url.pathname.split("/").filter(Boolean);
+  const apisIndex = parts.indexOf("apis");
+  const service = apisIndex >= 0 ? parts[apisIndex + 1] : undefined;
+  const version =
+    apisIndex >= 0 ? parts[apisIndex + 2] : (url.searchParams.get("version") ?? undefined);
+  return {
+    ...preset,
+    discoveryUrl: preset.url,
+    service: service ?? url.hostname.replace(/\.googleapis\.com$/, ""),
+    version: version ?? "",
+  };
 }
 
 const GOOGLE_DISCOVERY_TEMPLATES = googleDiscoveryPresets.map(parseGoogleDiscoveryPreset);
@@ -202,8 +203,8 @@ export default function AddGoogleDiscoverySource(props: {
     "google";
 
   const scopeId = useScope();
-  const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promise" });
-  const doAdd = useAtomSet(addGoogleDiscoverySource, { mode: "promise" });
+  const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promiseExit" });
+  const doAdd = useAtomSet(addGoogleDiscoverySource, { mode: "promiseExit" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow({
@@ -235,25 +236,26 @@ export default function AddGoogleDiscoverySource(props: {
     setError(null);
     setOauthAuth(null);
     setShowScopes(false);
-    try {
-      const result = await doProbe({
-        params: { scopeId },
-        payload: { discoveryUrl: discoveryUrl.trim() },
-      });
-      setProbe({
-        ...result,
-        scopes: [...result.scopes],
-        operations: [...result.operations],
-      });
-      if (result.scopes.length === 0) {
-        setAuthKind("none");
-      }
-    } catch (e) {
+    const exit = await doProbe({
+      params: { scopeId },
+      payload: { discoveryUrl: discoveryUrl.trim() },
+    });
+    if (Exit.isFailure(exit)) {
       setProbe(null);
-      setError(e instanceof Error ? e.message : "Failed to inspect discovery document");
-    } finally {
+      setError("Failed to inspect discovery document");
       setLoadingProbe(false);
+      return;
     }
+    const result = exit.value;
+    setProbe({
+      ...result,
+      scopes: [...result.scopes],
+      operations: [...result.operations],
+    });
+    if (result.scopes.length === 0) {
+      setAuthKind("none");
+    }
+    setLoadingProbe(false);
   }, [discoveryUrl, doProbe, scopeId]);
 
   // Keep the latest handleProbe in a ref so the debounced effect can call it
@@ -331,33 +333,33 @@ export default function AddGoogleDiscoverySource(props: {
       name: displayName,
       kind: "google-discovery",
     });
-    try {
-      await doAdd({
-        params: { scopeId },
-        payload: {
-          name: displayName,
-          discoveryUrl: discoveryUrl.trim(),
-          namespace,
-          auth:
-            authKind === "oauth2" && oauthAuth
-              ? {
-                  kind: "oauth2" as const,
-                  connectionId: oauthAuth.connectionId,
-                  clientIdSecretId: oauthAuth.clientIdSecretId,
-                  clientSecretSecretId: oauthAuth.clientSecretSecretId,
-                  scopes: oauthAuth.scopes,
-                }
-              : { kind: "none" as const },
-        },
-        reactivityKeys: [...sourceWriteKeys],
-      });
-      props.onComplete();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to add source");
+    const exit = await doAdd({
+      params: { scopeId },
+      payload: {
+        name: displayName,
+        discoveryUrl: discoveryUrl.trim(),
+        namespace,
+        auth:
+          authKind === "oauth2" && oauthAuth
+            ? {
+                kind: "oauth2" as const,
+                connectionId: oauthAuth.connectionId,
+                clientIdSecretId: oauthAuth.clientIdSecretId,
+                clientSecretSecretId: oauthAuth.clientSecretSecretId,
+                scopes: oauthAuth.scopes,
+              }
+            : { kind: "none" as const },
+      },
+      reactivityKeys: [...sourceWriteKeys],
+    });
+    placeholder.done();
+    if (Exit.isFailure(exit)) {
+      const error = Exit.findErrorOption(exit);
+      setError(Option.isSome(error) ? error.value.message : "Failed to add source");
       setAdding(false);
-    } finally {
-      placeholder.done();
+      return;
     }
+    props.onComplete();
   }, [
     probe,
     doAdd,
