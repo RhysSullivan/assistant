@@ -27,19 +27,41 @@ const truncate = (s: string): string =>
     ? s
     : `${s.slice(0, MAX_CONSOLE_CAUSE_CHARS)}\n…[truncated ${s.length - MAX_CONSOLE_CAUSE_CHARS} chars]`;
 
+// Sentry's `captureException` can't serialize Effect's `CauseImpl` (it logs
+// `'CauseImpl' captured as exception with keys: reasons, ~effect/Cause` and
+// drops the real failure). `Cause.squash` isn't enough on its own: when an
+// inner `runPromise` rejects with a CauseImpl from its own `causeSquash`
+// (Effect v4's behaviour), `Effect.promise` re-wraps it as `Die(causeImpl)`,
+// and `Cause.squash(outer)` then hands the CauseImpl straight back. Use
+// `Cause.prettyErrors` instead — it always produces real `Error` instances,
+// even for non-Error defects (including a CauseImpl defect, which gets
+// wrapped via `causePrettyMessage`).
+export const sentryPayloadForCause = (
+  input: unknown,
+): { primary: unknown; pretty: string | null } => {
+  if (Cause.isCause(input)) {
+    const pretty = Cause.pretty(input);
+    const errors = Cause.prettyErrors(input);
+    return { primary: errors[0] ?? new Error(pretty), pretty };
+  }
+  return { primary: input, pretty: null };
+};
+
+export const captureCause = (input: unknown): string | undefined => {
+  const { primary, pretty } = sentryPayloadForCause(input);
+  return Sentry.captureException(primary, (scope) => {
+    if (pretty !== null) scope.setExtra("cause", pretty);
+    return scope;
+  });
+};
+
 export const ErrorCaptureLive: Layer.Layer<ErrorCapture> = Layer.succeed(
   ErrorCapture,
   ErrorCapture.of({
     captureException: (cause) =>
       Effect.sync(() => {
-        const squashed = Cause.squash(cause);
-        const pretty = Cause.pretty(cause);
-        console.error("[api] unhandled cause:", truncate(pretty));
-        const eventId = Sentry.captureException(squashed, (scope) => {
-          scope.setExtra("cause", pretty);
-          return scope;
-        });
-        return eventId ?? "";
+        console.error("[api] unhandled cause:", truncate(Cause.pretty(cause)));
+        return captureCause(cause) ?? "";
       }),
   }),
 );

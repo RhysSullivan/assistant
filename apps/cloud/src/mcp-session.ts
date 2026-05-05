@@ -7,7 +7,6 @@ import { createTraceState } from "@opentelemetry/api";
 import { Cause, Data, Effect, Layer } from "effect";
 import * as OtelTracer from "@effect/opentelemetry/Tracer";
 import type * as Tracer from "effect/Tracer";
-import * as Sentry from "@sentry/cloudflare";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { TransportState } from "agents/mcp";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -29,6 +28,7 @@ import { DbService, combinedSchema, resolveConnectionString } from "./services/d
 import { makeExecutionStack } from "./services/execution-stack";
 import { makeMcpWorkerTransport, type McpWorkerTransport } from "./services/mcp-worker-transport";
 import { DoTelemetryLive } from "./services/telemetry";
+import { captureCause } from "./observability";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -624,12 +624,8 @@ export class McpSessionDO extends DurableObject {
     }).pipe(
       Effect.catchCause((cause) =>
         Effect.sync(() => {
-          const pretty = Cause.pretty(cause);
-          console.error("[mcp-session] handleRequest error:", pretty);
-          Sentry.captureException(Cause.squash(cause), (scope) => {
-            scope.setExtra("cause", pretty);
-            return scope;
-          });
+          console.error("[mcp-session] handleRequest error:", Cause.pretty(cause));
+          captureCause(cause);
           return jsonRpcError(500, -32603, "Internal error");
         }),
       ),
