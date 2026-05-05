@@ -19,7 +19,7 @@
 import * as http from "node:http";
 
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Predicate } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
@@ -325,8 +325,8 @@ describe("per-user MCP auth isolation", () => {
               cause?: { _tag?: string };
             }
           | undefined;
-        expect(outer?._tag).toBe("ToolInvocationError");
-        expect(outer?.cause?._tag).toBe("McpConnectionError");
+        expect(Predicate.isTagged(outer, "ToolInvocationError")).toBe(true);
+        expect(Predicate.isTagged(outer?.cause, "ConnectionNotFoundError")).toBe(true);
 
         // CRITICAL: no outbound MCP request was made on user B's behalf
         // carrying user A's bearer token. Auth resolution must have
@@ -431,8 +431,8 @@ describe("per-user MCP auth isolation", () => {
               cause?: { _tag?: string };
             }
           | undefined;
-        expect(outer?._tag).toBe("ToolInvocationError");
-        expect(outer?.cause?._tag).toBe("McpConnectionError");
+        expect(Predicate.isTagged(outer, "ToolInvocationError")).toBe(true);
+        expect(Predicate.isTagged(outer?.cause, "McpConnectionError")).toBe(true);
 
         const afterUserB = server.recorded().slice(recordedBeforeUserB);
         for (const req of afterUserB) {

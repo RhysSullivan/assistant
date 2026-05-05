@@ -3,12 +3,15 @@ import { Context, Effect } from "effect";
 
 import { addGroup, capture } from "@executor-js/api";
 import type {
+  McpConnectionAccessFailure,
+  McpExtensionFailure,
   McpPluginExtension,
   McpProbeEndpointInput,
   McpSourceConfig,
   McpUpdateSourceInput,
 } from "../sdk/plugin";
 import type { SecretBackedValue } from "../sdk/types";
+import { McpConnectionError } from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
 import { McpGroup } from "./group";
 
@@ -28,6 +31,53 @@ export class McpExtensionService extends Context.Service<McpExtensionService, Mc
 // ---------------------------------------------------------------------------
 
 const ExecutorApiWithMcp = addGroup(McpGroup);
+
+const connectionAccessToMcpError = <A, R>(
+  effect: Effect.Effect<A, McpExtensionFailure, R>,
+): Effect.Effect<
+  A,
+  Exclude<McpExtensionFailure, McpConnectionAccessFailure> | McpConnectionError,
+  R
+> =>
+  effect.pipe(
+    Effect.catchTags({
+      ConnectionNotFoundError: (err) =>
+        Effect.fail(
+          new McpConnectionError({
+            transport: "remote",
+            message: `OAuth connection "${err.connectionId}" was not found`,
+          }),
+        ),
+      ConnectionProviderNotRegisteredError: (err) =>
+        Effect.fail(
+          new McpConnectionError({
+            transport: "remote",
+            message: `OAuth provider "${err.provider}" is not registered`,
+          }),
+        ),
+      ConnectionRefreshNotSupportedError: (err) =>
+        Effect.fail(
+          new McpConnectionError({
+            transport: "remote",
+            message: `OAuth provider "${err.provider}" does not support refresh`,
+          }),
+        ),
+      ConnectionReauthRequiredError: (err) =>
+        Effect.fail(
+          new McpConnectionError({
+            transport: "remote",
+            message: `OAuth connection "${err.connectionId}" requires reauthentication`,
+          }),
+        ),
+      ConnectionRefreshError: (err) =>
+        Effect.fail(
+          new McpConnectionError({
+            transport: "remote",
+            message: `Failed to refresh OAuth connection "${err.connectionId}"`,
+          }),
+        ),
+    }),
+  );
 
 // ---------------------------------------------------------------------------
 // Convert API payload → McpSourceConfig
@@ -100,67 +150,79 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
   handlers
     .handle("probeEndpoint", ({ payload }) =>
       capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.probeEndpoint(payload as McpProbeEndpointInput);
-        }),
+        connectionAccessToMcpError(
+          Effect.gen(function* () {
+            const ext = yield* McpExtensionService;
+            return yield* ext.probeEndpoint(payload as McpProbeEndpointInput);
+          }),
+        ),
       ),
     )
     .handle("addSource", ({ params: path, payload }) =>
       capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.addSource(
-            toSourceConfig(payload as Parameters<typeof toSourceConfig>[0], path.scopeId),
-          );
-        }),
+        connectionAccessToMcpError(
+          Effect.gen(function* () {
+            const ext = yield* McpExtensionService;
+            return yield* ext.addSource(
+              toSourceConfig(payload as Parameters<typeof toSourceConfig>[0], path.scopeId),
+            );
+          }),
+        ),
       ),
     )
     .handle("removeSource", ({ params: path, payload }) =>
       capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          yield* ext.removeSource(payload.namespace, path.scopeId);
-          return { removed: true };
-        }),
+        connectionAccessToMcpError(
+          Effect.gen(function* () {
+            const ext = yield* McpExtensionService;
+            yield* ext.removeSource(payload.namespace, path.scopeId);
+            return { removed: true };
+          }),
+        ),
       ),
     )
     .handle("refreshSource", ({ params: path, payload }) =>
       capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.refreshSource(payload.namespace, path.scopeId);
-        }),
+        connectionAccessToMcpError(
+          Effect.gen(function* () {
+            const ext = yield* McpExtensionService;
+            return yield* ext.refreshSource(payload.namespace, path.scopeId);
+          }),
+        ),
       ),
     )
     .handle("getSource", ({ params: path }) =>
       capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          const source = yield* ext.getSource(path.namespace, path.scopeId);
-          return source
-            ? new McpStoredSourceSchema({
-                namespace: source.namespace,
-                name: source.name,
-                config: source.config,
-              })
-            : null;
-        }),
+        connectionAccessToMcpError(
+          Effect.gen(function* () {
+            const ext = yield* McpExtensionService;
+            const source = yield* ext.getSource(path.namespace, path.scopeId);
+            return source
+              ? new McpStoredSourceSchema({
+                  namespace: source.namespace,
+                  name: source.name,
+                  config: source.config,
+                })
+              : null;
+          }),
+        ),
       ),
     )
     .handle("updateSource", ({ params: path, payload }) =>
       capture(
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          yield* ext.updateSource(path.namespace, path.scopeId, {
-            name: payload.name,
-            endpoint: payload.endpoint,
-            headers: payload.headers,
-            queryParams: payload.queryParams,
-            auth: payload.auth as McpUpdateSourceInput["auth"],
-          });
-          return { updated: true };
-        }),
+        connectionAccessToMcpError(
+          Effect.gen(function* () {
+            const ext = yield* McpExtensionService;
+            yield* ext.updateSource(path.namespace, path.scopeId, {
+              name: payload.name,
+              endpoint: payload.endpoint,
+              headers: payload.headers,
+              queryParams: payload.queryParams,
+              auth: payload.auth as McpUpdateSourceInput["auth"],
+            });
+            return { updated: true };
+          }),
+        ),
       ),
     ),
 );

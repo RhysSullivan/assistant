@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import { Exit } from "effect";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { mcpSourceAtom, updateMcpSource } from "./atoms";
 import { useScope } from "@executor-js/react/api/scope-context";
@@ -35,7 +36,7 @@ function RemoteEditForm(props: {
   onSave: () => void;
 }) {
   const scopeId = useScope();
-  const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
+  const doUpdate = useAtomSet(updateMcpSource, { mode: "promiseExit" });
   const secretList = useSecretPickerSecrets();
 
   const identity = useSourceIdentity({
@@ -64,24 +65,24 @@ function RemoteEditForm(props: {
     setSaving(true);
     setError(null);
     const { headers, queryParams } = serializeHttpCredentials(credentials);
-    try {
-      await doUpdate({
-        params: { scopeId, namespace: props.sourceId },
-        payload: {
-          name: identity.name.trim() || undefined,
-          endpoint: endpoint.trim() || undefined,
-          headers,
-          queryParams,
-        },
-        reactivityKeys: sourceWriteKeys,
-      });
-      setDirty(false);
-      props.onSave();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to update source");
-    } finally {
+    const exit = await doUpdate({
+      params: { scopeId, namespace: props.sourceId },
+      payload: {
+        name: identity.name.trim() || undefined,
+        endpoint: endpoint.trim() || undefined,
+        headers,
+        queryParams,
+      },
+      reactivityKeys: sourceWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
+      setError("Failed to update source");
       setSaving(false);
+      return;
     }
+    setDirty(false);
+    props.onSave();
+    setSaving(false);
   };
 
   return (
