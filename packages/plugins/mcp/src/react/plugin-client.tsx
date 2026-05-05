@@ -1,21 +1,33 @@
 // ---------------------------------------------------------------------------
-// @executor-js/plugin-mcp/client — `defineClientPlugin` entry.
+// @executor-js/plugin-mcp/client — `defineClientPlugin` factory entry.
 //
-// Bakes `allowStdio: true` into the source plugin shipped via the
-// virtual `plugins-client` module — that's the local-app default and
-// the source plugin's UI options only matter when the server-side flag
-// is also on. Hosts that want stdio off can keep importing
-// `createMcpSourcePlugin({ allowStdio: false })` from `./react`
-// directly and bypass the virtual module.
+// Default-exports a factory rather than a value: at build time the
+// `@executor-js/vite-plugin` reads each plugin spec's `clientConfig`
+// from `executor.config.ts` and emits `__p(<JSON.stringify(clientConfig)>)`
+// into the virtual `plugins-client` module. So `allowStdio` flows from
+// the server-side `mcpPlugin({ dangerouslyAllowStdioMCP })` straight
+// into the bundle — no parallel client-side flag, no per-host shim,
+// no runtime fetch.
 // ---------------------------------------------------------------------------
 
 import { defineClientPlugin } from "@executor-js/sdk/client";
 
 import { createMcpSourcePlugin } from "./source-plugin";
 
-const mcpSourcePlugin = createMcpSourcePlugin({ allowStdio: true });
+export interface McpClientConfig {
+  /**
+   * Mirrors `dangerouslyAllowStdioMCP` on the server-side plugin. When
+   * false, the AddMcpSource UI hides the stdio tab and stdio presets.
+   * Defaults to false — same default as the server flag.
+   */
+  readonly allowStdio?: boolean;
+}
 
-export default defineClientPlugin({
-  id: "mcp" as const,
-  sourcePlugin: mcpSourcePlugin,
-});
+export default function createMcpClientPlugin(config?: McpClientConfig) {
+  return defineClientPlugin({
+    id: "mcp" as const,
+    sourcePlugin: createMcpSourcePlugin({
+      allowStdio: config?.allowStdio ?? false,
+    }),
+  });
+}

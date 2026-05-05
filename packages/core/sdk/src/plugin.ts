@@ -349,6 +349,20 @@ export interface PluginSpec<
    *  structurally impossible. */
   readonly storage: (deps: StorageDeps<TSchema>) => TStore;
 
+  /** JSON-serializable config the plugin wants its `./client` bundle to
+   *  see. The Vite plugin reads this off each `executor.config.ts` spec
+   *  at build time and bakes it into the virtual `plugins-client`
+   *  module by calling the plugin's default `./client` export as a
+   *  factory: `__p(<JSON.stringify(clientConfig)>)`. Plugins that don't
+   *  set this stay as bare-value default exports — no churn.
+   *
+   *  Use this when a server-side option (e.g. `dangerouslyAllowStdioMCP`)
+   *  needs to drive client UI behaviour: declaring it once in
+   *  `executor.config.ts` flows through to the bundle automatically,
+   *  with no runtime fetch and no parallel client-side flag to keep in
+   *  sync. */
+  readonly clientConfig?: unknown;
+
   /** Build the plugin's extension API. The returned object becomes
    *  `executor[plugin.id]` and is also the `self` passed to
    *  `staticSources`. Field order matters: `extension` MUST appear
