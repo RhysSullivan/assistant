@@ -6,14 +6,13 @@ import Layout from '../layouts/Layout.astro'
 <Layout>
   <!-- ─── NAV ─── -->
   <nav class="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-lg">
-    <div class="max-w-[1200px] mx-auto px-6 sm:px-10 h-14 flex items-center justify-between border-b border-rule">
+    <div class="max-w-[1200px] mx-auto px-6 sm:px-10 h-14 flex items-center justify-between">
       <a href="/" class="font-display text-xl italic text-ink tracking-tight hover:text-teal transition-colors">executor</a>
-      <div class="flex items-center gap-8">
+      <div class="flex items-center gap-6 sm:gap-8">
         <a href="#roadmap" class="hidden sm:block text-[13px] text-ink-muted hover:text-ink transition-colors">Roadmap</a>
-        <!-- <a href="/setup" class="hidden sm:block text-[13px] text-ink-muted hover:text-ink transition-colors">Setup</a> -->
         <a href="https://github.com/RhysSullivan/executor" class="hidden sm:block text-[13px] text-ink-muted hover:text-ink transition-colors">GitHub</a>
-        <a href="#install" class="text-[13px] font-medium text-surface bg-teal hover:bg-teal-dim px-4 py-1.5 rounded-md transition-colors">
-          Get started
+        <a href="/cloud" class="text-[13px] font-medium text-surface bg-teal hover:bg-teal-dim px-4 py-1.5 rounded-md transition-colors">
+          Try Cloud
         </a>
       </div>
     </div>
@@ -27,7 +26,7 @@ import Layout from '../layouts/Layout.astro'
       <!-- Text centered -->
       <div class="text-center max-w-2xl mx-auto mt-10 mb-16">
         <h1 class="rise-d1 font-display text-[clamp(3rem,7vw,5.5rem)] leading-[0.95] tracking-tight mb-8">
-          <span class="text-ink">Your missing<br /></span><span class="italic text-teal">execution&nbsp;layer</span>
+          <span class="text-ink">Your missing<br /></span><span class="italic text-teal">integration&nbsp;layer</span>
         </h1>
 
         <p class="rise-d2 text-[17px] leading-[1.7] text-ink-muted mb-10">
@@ -35,10 +34,13 @@ import Layout from '../layouts/Layout.astro'
           Cursor, Claude Code, OpenCode&mdash;or your own.
         </p>
 
-        <div class="rise-d3 flex flex-wrap items-center justify-center gap-4">
-          <a href="#install" class="inline-flex items-center gap-2 text-[14px] font-medium text-surface bg-teal hover:bg-teal-dim px-5 py-2.5 rounded-md transition-colors">
-            Get started
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+        <div class="rise-d3 flex flex-wrap items-center justify-center gap-3">
+          <a href="/cloud" class="inline-flex items-center gap-2 text-[14px] font-medium text-surface bg-teal hover:bg-teal-dim pl-5 pr-3 py-2.5 rounded-md transition-colors">
+            Try Cloud
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+          </a>
+          <a href="#get-started" class="inline-flex items-center gap-2 text-[14px] font-medium text-ink-muted hover:text-ink border border-rule hover:border-ink-faint px-5 py-2.5 rounded-md transition-colors">
+            Run it locally
           </a>
         </div>
       </div>
@@ -722,6 +724,10 @@ import Layout from '../layouts/Layout.astro'
                 <svg class="w-4 h-4 text-teal mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                 <span class="text-ink-muted">Desktop app</span>
               </li>
+              <li class="flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-teal mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                <span class="text-ink-muted">Team management &amp; SaaS</span>
+              </li>
             </ul>
           </div>
         </div>
@@ -733,9 +739,10 @@ import Layout from '../layouts/Layout.astro'
             <span class="font-mono text-[11px] text-ink-muted uppercase tracking-[0.15em]">Soon</span>
           </div>
           <ul class="space-y-3 text-[14px]">
-            <li class="text-ink-muted">Team management &amp; SaaS</li>
-            <li class="text-ink-muted">Advanced approval workflows</li>
-            <li class="text-ink-muted">Org-wide source catalog</li>
+            <li class="text-ink-muted">Skills</li>
+            <li class="text-ink-muted">Generative UI</li>
+            <li class="text-ink-muted">Workflows</li>
+            <li class="text-ink-muted">Workspaces</li>
           </ul>
         </div>
 
@@ -756,68 +763,129 @@ import Layout from '../layouts/Layout.astro'
     </div>
   </section>
 
-  <!-- ─── CTA ─── -->
-  <section id="install" class="py-32 sm:py-40 relative">
+  <!-- ─── GET STARTED: dual path ─── -->
+  <section id="get-started" class="py-32 sm:py-40 relative">
     <div class="absolute inset-0 border-t border-rule"></div>
 
     <div class="relative max-w-[1200px] mx-auto px-6 sm:px-10">
-      <div class="reveal max-w-2xl mx-auto text-center">
-        <h2 class="font-display text-[clamp(2rem,5vw,4rem)] leading-[1.05] tracking-tight mb-8">
-          Try the future of <span class="italic text-teal">tool calling.</span>
+      <div class="reveal max-w-2xl mx-auto text-center mb-16">
+        <span class="text-[11px] font-mono uppercase tracking-[0.2em] text-ink-faint mb-4 block">Get started</span>
+        <h2 class="font-display text-[clamp(2rem,5vw,4rem)] leading-[1.05] tracking-tight mb-5">
+          Pick your <span class="italic text-teal">path</span>
         </h2>
+        <p class="text-[15px] leading-[1.6] text-ink-muted">
+          Hosted Executor for teams, or open source on your own machine.
+        </p>
+      </div>
 
-        <div class="flex items-center justify-center mb-10">
-          <a href="https://github.com/RhysSullivan/executor" class="inline-flex items-center gap-2 text-[14px] text-ink-muted hover:text-ink border border-rule hover:border-ink-faint px-6 py-3 rounded-md transition-colors">
-            View on GitHub
-          </a>
+      <!-- Dual-path cards -->
+      <div class="reveal grid md:grid-cols-2 gap-6 items-stretch" id="install">
+
+        <!-- Cloud (recommended) -->
+        <div class="relative rounded-xl border border-teal/25 bg-surface-raised p-6 sm:p-8 flex flex-col justify-between overflow-hidden">
+          <div class="absolute inset-0 bg-gradient-to-b from-teal/[0.04] to-transparent pointer-events-none"></div>
+          <div class="relative">
+            <div class="flex items-center justify-between mb-5">
+              <span class="font-mono text-[11px] text-teal uppercase tracking-[0.15em]">Cloud</span>
+              <span class="text-[10px] font-mono text-teal border border-teal/25 rounded px-2 py-0.5 uppercase tracking-[0.1em]">Recommended for teams</span>
+            </div>
+
+            <h3 class="font-display text-[clamp(1.5rem,2.6vw,2rem)] leading-[1.1] tracking-tight text-ink mb-3">
+              Run it with <span class="italic text-teal">your team</span>
+            </h3>
+            <p class="text-[14px] leading-[1.6] text-ink-muted mb-6">
+              A managed Executor for your whole org. Shared sources, shared auth, shared policies &mdash; onboard a teammate in seconds.
+            </p>
+
+            <ul role="list" class="space-y-2.5 text-[13px] mb-8">
+              <li class="flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-teal mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                <span class="text-ink-muted">Free for up to 3 members</span>
+              </li>
+              <li class="flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-teal mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                <span class="text-ink-muted">Org-wide catalog &amp; policy engine</span>
+              </li>
+              <li class="flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-teal mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                <span class="text-ink-muted">Zero infra &mdash; sign in and go</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="relative">
+            <a href="/cloud" class="inline-flex w-full items-center justify-center gap-2 text-[14px] font-medium text-surface bg-teal hover:bg-teal-dim pl-5 pr-3 py-3 rounded-md transition-colors">
+              Try Cloud
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+            </a>
+          </div>
         </div>
 
-        <!-- MCP installation steps -->
-        <div class="mt-10 text-left max-w-lg mx-auto space-y-5" id="install-steps">
+        <!-- Local (open source) -->
+        <div class="rounded-xl border border-rule bg-surface-raised p-6 sm:p-8 flex flex-col justify-between">
           <div>
-            <p class="text-[12px] font-medium text-ink-muted uppercase tracking-wider mb-2">1. Install</p>
-            <!-- Package manager tabs -->
-            <div class="flex gap-0 border border-rule rounded-lg overflow-hidden">
-              <div class="flex border-b border-rule w-full bg-surface-raised">
-                <button data-pm="npm" class="pm-tab pm-tab-active flex-1 text-[12px] font-medium py-2 border-b-2 transition-colors">npm</button>
-                <button data-pm="bun" class="pm-tab flex-1 text-[12px] font-medium py-2 border-b-2 border-transparent text-ink-faint hover:text-ink transition-colors">bun</button>
-                <button data-pm="pnpm" class="pm-tab flex-1 text-[12px] font-medium py-2 border-b-2 border-transparent text-ink-faint hover:text-ink transition-colors">pnpm</button>
+            <div class="flex items-center justify-between mb-5">
+              <span class="font-mono text-[11px] text-ink-faint uppercase tracking-[0.15em]">Local</span>
+              <span class="text-[10px] font-mono text-ink-faint border border-rule rounded px-2 py-0.5 uppercase tracking-[0.1em]">Open source</span>
+            </div>
+
+            <h3 class="font-display text-[clamp(1.5rem,2.6vw,2rem)] leading-[1.1] tracking-tight text-ink mb-3">
+              Run it on <span class="italic text-ink-muted">your laptop</span>
+            </h3>
+            <p class="text-[14px] leading-[1.6] text-ink-muted mb-6">
+              The same Executor, MIT-licensed, running entirely on your machine. Secrets stay in your keychain. Nothing leaves your laptop.
+            </p>
+
+            <!-- MCP installation steps -->
+            <div class="space-y-4">
+              <div>
+                <p class="text-[11px] font-medium text-ink-muted uppercase tracking-wider mb-2">1. Install</p>
+                <div class="flex border border-rule border-b-0 rounded-t-lg overflow-hidden bg-surface">
+                  <button data-pm="npm" class="pm-tab pm-tab-active flex-1 text-[12px] font-medium py-2 border-b-2 transition-colors">npm</button>
+                  <button data-pm="bun" class="pm-tab flex-1 text-[12px] font-medium py-2 border-b-2 border-transparent text-ink-faint hover:text-ink transition-colors">bun</button>
+                  <button data-pm="pnpm" class="pm-tab flex-1 text-[12px] font-medium py-2 border-b-2 border-transparent text-ink-faint hover:text-ink transition-colors">pnpm</button>
+                </div>
+                <div class="install-cmd relative bg-surface border border-rule rounded-b-lg px-4 py-2.5 font-mono text-[13px]">
+                  <span class="text-ink-faint select-none">$ </span><span class="cmd-text text-ink">npm install -g executor</span>
+                  <button class="copy-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink transition-colors p-1" aria-label="Copy">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <p class="text-[11px] font-medium text-ink-muted uppercase tracking-wider mb-2">2. Add to your agent</p>
+                <div class="flex border border-rule border-b-0 rounded-t-lg overflow-hidden bg-surface">
+                  <button data-runner="npx" class="runner-tab runner-tab-active flex-1 text-[12px] font-medium py-2 border-b-2 transition-colors">npx</button>
+                  <button data-runner="bunx" class="runner-tab flex-1 text-[12px] font-medium py-2 border-b-2 border-transparent text-ink-faint hover:text-ink transition-colors">bunx</button>
+                  <button data-runner="pnpx" class="runner-tab flex-1 text-[12px] font-medium py-2 border-b-2 border-transparent text-ink-faint hover:text-ink transition-colors">pnpx</button>
+                </div>
+                <div class="relative bg-surface border border-rule rounded-b-lg px-4 py-2.5 font-mono text-[13px]">
+                  <span class="text-ink-faint select-none">$ </span><span class="runner-cmd-text text-ink">npx add-mcp "executor mcp" --name "executor"</span>
+                  <button class="copy-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink transition-colors p-1" aria-label="Copy">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <p class="text-[11px] font-medium text-ink-muted uppercase tracking-wider mb-2">3. Open the dashboard</p>
+                <div class="relative bg-surface border border-rule rounded-lg px-4 py-2.5 font-mono text-[13px]">
+                  <span class="text-ink-faint select-none">$ </span><span class="text-ink">executor web</span>
+                  <button class="copy-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink transition-colors p-1" aria-label="Copy">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
+                  </button>
+                </div>
               </div>
             </div>
-            <div class="install-cmd relative bg-surface-raised border border-t-0 border-rule rounded-b-lg px-5 py-3 font-mono text-[14px]">
-              <span class="text-ink-faint select-none">$ </span><span class="cmd-text text-ink">npm install -g executor</span>
-              <button class="copy-btn absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink transition-colors p-1" aria-label="Copy">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-              </button>
-            </div>
           </div>
-          <div>
-            <p class="text-[12px] font-medium text-ink-muted uppercase tracking-wider mb-2">2. Add to your agent</p>
-            <!-- Runner tabs -->
-            <div class="flex gap-0 border border-rule rounded-lg overflow-hidden">
-              <div class="flex border-b border-rule w-full bg-surface-raised">
-                <button data-runner="npx" class="runner-tab runner-tab-active flex-1 text-[12px] font-medium py-2 border-b-2 transition-colors">npx</button>
-                <button data-runner="bunx" class="runner-tab flex-1 text-[12px] font-medium py-2 border-b-2 border-transparent text-ink-faint hover:text-ink transition-colors">bunx</button>
-                <button data-runner="pnpx" class="runner-tab flex-1 text-[12px] font-medium py-2 border-b-2 border-transparent text-ink-faint hover:text-ink transition-colors">pnpx</button>
-              </div>
-            </div>
-            <div class="relative bg-surface-raised border border-t-0 border-rule rounded-b-lg px-5 py-3 font-mono text-[14px]">
-              <span class="text-ink-faint select-none">$ </span><span class="runner-cmd-text text-ink">npx add-mcp "executor mcp" --name "executor"</span>
-              <button class="copy-btn absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink transition-colors p-1" aria-label="Copy">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-              </button>
-            </div>
-            <p class="text-[12px] text-ink-faint mt-1.5">You can also tell your agent to use the <code class="text-ink/70 bg-surface-raised px-1 py-0.5 rounded text-[11px]">executor</code> CLI directly if they don't support MCP.</p>
-          </div>
-          <div>
-            <p class="text-[12px] font-medium text-ink-muted uppercase tracking-wider mb-2">3. Add a source and go</p>
-            <div class="relative bg-surface-raised border border-rule rounded-lg px-5 py-3 font-mono text-[14px]">
-              <span class="text-ink-faint select-none">$ </span><span class="text-ink">executor web</span>
-              <button class="copy-btn absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink transition-colors p-1" aria-label="Copy">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-              </button>
-            </div>
-            <p class="text-[12px] text-ink-faint mt-1.5">Opens the dashboard at localhost:4788 — add sources, set policies, manage auth.</p>
+
+          <div class="mt-8">
+            <a href="https://github.com/RhysSullivan/executor" class="inline-flex w-full items-center justify-center gap-2 text-[14px] font-medium text-ink-muted hover:text-ink border border-rule hover:border-ink-faint px-5 py-3 rounded-md transition-colors">
+              <svg class="w-4 h-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+              View on GitHub
+            </a>
+            <p class="text-[12px] text-ink-faint mt-2.5 text-center">MIT-licensed. <code class="text-ink/70 bg-surface-overlay px-1 py-0.5 rounded text-[11px]">executor web</code> opens the dashboard at localhost:4788.</p>
           </div>
         </div>
       </div>
