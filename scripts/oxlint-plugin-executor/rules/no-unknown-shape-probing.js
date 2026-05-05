@@ -1,7 +1,7 @@
 import { isIdentifier, isStringLiteral } from "../utils.js";
 
 const message =
-  "Do not probe unknown object shapes in domain code. Normalize at a boundary with Schema, a typed adapter, or a named guard.";
+  "Do not probe unknown object shapes in domain code. Normalize at a boundary with Schema, a typed adapter, or a named guard. Skill: wrdn-effect-schema-boundaries.";
 
 const isReflectGet = (node) =>
   node?.type === "MemberExpression" &&

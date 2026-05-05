@@ -15,7 +15,7 @@ export default {
         context.report({
           node: node.source,
           message:
-            "Import test helpers from @effect/vitest or @effect/vitest/utils instead of vitest.",
+            "Import test helpers from @effect/vitest or @effect/vitest/utils instead of vitest. Skill: wrdn-effect-vitest-tests.",
         });
       },
     };

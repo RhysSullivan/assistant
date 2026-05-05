@@ -1,7 +1,7 @@
 import { containsPromiseType, nodeName } from "../utils.js";
 
 const message =
-  "Do not expose Promise-shaped client surfaces. Wrap third-party SDK promises at the adapter boundary and expose Effect methods.";
+  "Do not expose Promise-shaped client surfaces. Wrap third-party SDK promises at the adapter boundary and expose Effect methods. Skill: effect-client-wrapper.";
 
 const isExported = (node) => node?.parent?.type === "ExportNamedDeclaration";
 

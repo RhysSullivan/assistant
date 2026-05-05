@@ -19,7 +19,7 @@ export default {
         context.report({
           node,
           message:
-            "Avoid double casts through unknown/any; use a typed boundary, schema decode, or a narrow allow comment with a reason.",
+            "Avoid double casts through unknown/any; use a typed boundary, schema decode, or a narrow allow comment with a reason. Skill: wrdn-effect-schema-boundaries.",
         });
       },
     };

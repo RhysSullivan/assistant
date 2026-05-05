@@ -1,7 +1,7 @@
 import { isIdentifier, nodeName } from "../utils.js";
 
 const message =
-  "Do not use instanceof for tagged errors. Use Effect.catchTag, Effect.catchTags, or a _tag-based guard.";
+  "Do not use instanceof for tagged errors. Use Effect.catchTag, Effect.catchTags, or a _tag-based guard. Skill: wrdn-effect-typed-errors.";
 
 const looksLikeTaggedErrorName = (name) =>
   typeof name === "string" && name !== "Error" && name.endsWith("Error");

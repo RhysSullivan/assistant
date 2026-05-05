@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema, SchemaGetter } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import { GraphqlIntrospectionError } from "./errors";
@@ -78,52 +78,78 @@ const INTROSPECTION_QUERY = `
 `;
 
 // ---------------------------------------------------------------------------
-// Introspection result types
+// Introspection result schema
 // ---------------------------------------------------------------------------
 
-export interface IntrospectionTypeRef {
+interface IntrospectionTypeRefRecursive {
   readonly kind: string;
   readonly name: string | null;
-  readonly ofType: IntrospectionTypeRef | null;
+  readonly ofType: IntrospectionTypeRefRecursive | null;
 }
 
-export interface IntrospectionInputValue {
-  readonly name: string;
-  readonly description: string | null;
-  readonly type: IntrospectionTypeRef;
-  readonly defaultValue: string | null;
-}
+const IntrospectionTypeRefModel: Schema.Codec<IntrospectionTypeRefRecursive> = Schema.Struct({
+  kind: Schema.String,
+  name: Schema.NullOr(Schema.String),
+  ofType: Schema.NullOr(
+    Schema.suspend((): Schema.Codec<IntrospectionTypeRefRecursive> => IntrospectionTypeRefModel),
+  ),
+});
 
-export interface IntrospectionField {
-  readonly name: string;
-  readonly description: string | null;
-  readonly args: readonly IntrospectionInputValue[];
-  readonly type: IntrospectionTypeRef;
-}
+const IntrospectionInputValueModel = Schema.Struct({
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  type: IntrospectionTypeRefModel,
+  defaultValue: Schema.NullOr(Schema.String),
+});
 
-export interface IntrospectionEnumValue {
-  readonly name: string;
-  readonly description: string | null;
-}
+const IntrospectionFieldModel = Schema.Struct({
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  args: Schema.Array(IntrospectionInputValueModel),
+  type: IntrospectionTypeRefModel,
+});
 
-export interface IntrospectionType {
-  readonly kind: string;
-  readonly name: string;
-  readonly description: string | null;
-  readonly fields: readonly IntrospectionField[] | null;
-  readonly inputFields: readonly IntrospectionInputValue[] | null;
-  readonly enumValues: readonly IntrospectionEnumValue[] | null;
-}
+const IntrospectionEnumValueModel = Schema.Struct({
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+});
 
-export interface IntrospectionSchema {
-  readonly queryType: { readonly name: string } | null;
-  readonly mutationType: { readonly name: string } | null;
-  readonly types: readonly IntrospectionType[];
-}
+const IntrospectionTypeModel = Schema.Struct({
+  kind: Schema.String,
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  fields: Schema.NullOr(Schema.Array(IntrospectionFieldModel)),
+  inputFields: Schema.NullOr(Schema.Array(IntrospectionInputValueModel)),
+  enumValues: Schema.NullOr(Schema.Array(IntrospectionEnumValueModel)),
+});
 
-export interface IntrospectionResult {
-  readonly __schema: IntrospectionSchema;
-}
+const IntrospectionSchemaModel = Schema.Struct({
+  queryType: Schema.NullOr(Schema.Struct({ name: Schema.String })),
+  mutationType: Schema.NullOr(Schema.Struct({ name: Schema.String })),
+  types: Schema.Array(IntrospectionTypeModel),
+});
+
+const IntrospectionResultModel = Schema.Struct({
+  __schema: IntrospectionSchemaModel,
+});
+
+export type IntrospectionTypeRef = Schema.Schema.Type<typeof IntrospectionTypeRefModel>;
+export type IntrospectionInputValue = Schema.Schema.Type<typeof IntrospectionInputValueModel>;
+export type IntrospectionField = Schema.Schema.Type<typeof IntrospectionFieldModel>;
+export type IntrospectionEnumValue = Schema.Schema.Type<typeof IntrospectionEnumValueModel>;
+export type IntrospectionType = Schema.Schema.Type<typeof IntrospectionTypeModel>;
+export type IntrospectionSchema = Schema.Schema.Type<typeof IntrospectionSchemaModel>;
+export type IntrospectionResult = Schema.Schema.Type<typeof IntrospectionResultModel>;
+
+const IntrospectionJsonModel = Schema.Union([
+  IntrospectionResultModel,
+  Schema.Struct({ data: IntrospectionResultModel }),
+]).pipe(
+  Schema.decodeTo(IntrospectionResultModel, {
+    decode: SchemaGetter.transform((value) => ("data" in value ? value.data : value)),
+    encode: SchemaGetter.transform((value) => value),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Introspect a GraphQL endpoint
@@ -176,9 +202,7 @@ export const introspect = Effect.fn("GraphQL.introspect")(function* (
   }
 
   const raw = yield* response.json.pipe(
-    Effect.tapCause((cause) =>
-      Effect.logError("graphql introspection JSON parse failed", cause),
-    ),
+    Effect.tapCause((cause) => Effect.logError("graphql introspection JSON parse failed", cause)),
     Effect.mapError(
       () =>
         new GraphqlIntrospectionError({
@@ -211,18 +235,11 @@ export const introspect = Effect.fn("GraphQL.introspect")(function* (
 export const parseIntrospectionJson = (
   text: string,
 ): Effect.Effect<IntrospectionResult, GraphqlIntrospectionError> =>
-  Effect.try({
-    try: () => {
-      const parsed = JSON.parse(text);
-      // Accept both { data: { __schema } } and { __schema } formats
-      const result = parsed.data ?? parsed;
-      if (!result.__schema) {
-        throw new Error("Missing __schema in introspection JSON");
-      }
-      return result as IntrospectionResult;
-    },
-    catch: (err) =>
-      new GraphqlIntrospectionError({
-        message: `Failed to parse introspection JSON: ${err instanceof Error ? err.message : String(err)}`,
-      }),
-  });
+  Schema.decodeUnknownEffect(Schema.fromJsonString(IntrospectionJsonModel))(text).pipe(
+    Effect.mapError(
+      () =>
+        new GraphqlIntrospectionError({
+          message: "Failed to parse introspection JSON",
+        }),
+    ),
+  );

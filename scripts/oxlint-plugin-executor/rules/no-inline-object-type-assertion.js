@@ -1,7 +1,7 @@
 import { isIdentifier } from "../utils.js";
 
 const message =
-  "Do not assert against inline object-shaped types. Use a named type, Schema, or a proper type guard.";
+  "Do not assert against inline object-shaped types. Use a named type, Schema, or a proper type guard. Skill: wrdn-effect-schema-boundaries.";
 
 const isUnknownKeyword = (node) => node?.type === "TSUnknownKeyword";
 
