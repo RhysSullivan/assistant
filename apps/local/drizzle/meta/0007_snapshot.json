@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "11111111-2222-3333-4444-555555555555",
+  "id": "44444444-5555-6666-7777-888888888888",
   "prevId": "7a331df8-ce69-4d97-b6ce-6bf3aff98b56",
   "tables": {
     "blob": {
@@ -354,6 +354,42 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "auth_kind": {
+          "name": "auth_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'none'"
+        },
+        "auth_connection_id": {
+          "name": "auth_connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "auth_client_id_secret_id": {
+          "name": "auth_client_id_secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "auth_client_secret_secret_id": {
+          "name": "auth_client_secret_secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "auth_scopes": {
+          "name": "auth_scopes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -361,6 +397,27 @@
           "name": "google_discovery_source_scope_id_idx",
           "columns": [
             "scope_id"
+          ],
+          "isUnique": false
+        },
+        "google_discovery_source_auth_connection_id_idx": {
+          "name": "google_discovery_source_auth_connection_id_idx",
+          "columns": [
+            "auth_connection_id"
+          ],
+          "isUnique": false
+        },
+        "google_discovery_source_auth_client_id_secret_id_idx": {
+          "name": "google_discovery_source_auth_client_id_secret_id_idx",
+          "columns": [
+            "auth_client_id_secret_id"
+          ],
+          "isUnique": false
+        },
+        "google_discovery_source_auth_client_secret_secret_id_idx": {
+          "name": "google_discovery_source_auth_client_secret_secret_id_idx",
+          "columns": [
+            "auth_client_secret_secret_id"
           ],
           "isUnique": false
         }
@@ -620,6 +677,56 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "auth_kind": {
+          "name": "auth_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'none'"
+        },
+        "auth_header_name": {
+          "name": "auth_header_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "auth_secret_id": {
+          "name": "auth_secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "auth_secret_prefix": {
+          "name": "auth_secret_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "auth_connection_id": {
+          "name": "auth_connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "auth_client_id_secret_id": {
+          "name": "auth_client_id_secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "auth_client_secret_secret_id": {
+          "name": "auth_client_secret_secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -627,6 +734,34 @@
           "name": "mcp_source_scope_id_idx",
           "columns": [
             "scope_id"
+          ],
+          "isUnique": false
+        },
+        "mcp_source_auth_secret_id_idx": {
+          "name": "mcp_source_auth_secret_id_idx",
+          "columns": [
+            "auth_secret_id"
+          ],
+          "isUnique": false
+        },
+        "mcp_source_auth_connection_id_idx": {
+          "name": "mcp_source_auth_connection_id_idx",
+          "columns": [
+            "auth_connection_id"
+          ],
+          "isUnique": false
+        },
+        "mcp_source_auth_client_id_secret_id_idx": {
+          "name": "mcp_source_auth_client_id_secret_id_idx",
+          "columns": [
+            "auth_client_id_secret_id"
+          ],
+          "isUnique": false
+        },
+        "mcp_source_auth_client_secret_secret_id_idx": {
+          "name": "mcp_source_auth_client_secret_secret_id_idx",
+          "columns": [
+            "auth_client_secret_secret_id"
           ],
           "isUnique": false
         }
@@ -867,25 +1002,11 @@
           "notNull": false,
           "autoincrement": false
         },
-        "query_params": {
-          "name": "query_params",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "oauth2": {
           "name": "oauth2",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false
-        },
-        "invocation_config": {
-          "name": "invocation_config",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
           "autoincrement": false
         }
       },
@@ -949,13 +1070,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "value": {
-          "name": "value",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -968,6 +1082,35 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'text'"
+        },
+        "secret_id": {
+          "name": "secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "text_value": {
+          "name": "text_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },
@@ -997,6 +1140,20 @@
           "name": "openapi_source_binding_slot_idx",
           "columns": [
             "slot"
+          ],
+          "isUnique": false
+        },
+        "openapi_source_binding_secret_id_idx": {
+          "name": "openapi_source_binding_secret_id_idx",
+          "columns": [
+            "secret_id"
+          ],
+          "isUnique": false
+        },
+        "openapi_source_binding_connection_id_idx": {
+          "name": "openapi_source_binding_connection_id_idx",
+          "columns": [
+            "connection_id"
           ],
           "isUnique": false
         }
@@ -1574,6 +1731,678 @@
             "id"
           ],
           "name": "graphql_source_query_param_scope_id_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "openapi_source_query_param": {
+      "name": "openapi_source_query_param",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text_value": {
+          "name": "text_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_id": {
+          "name": "secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_prefix": {
+          "name": "secret_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "openapi_source_query_param_scope_id_idx": {
+          "name": "openapi_source_query_param_scope_id_idx",
+          "columns": [
+            "scope_id"
+          ],
+          "isUnique": false
+        },
+        "openapi_source_query_param_source_id_idx": {
+          "name": "openapi_source_query_param_source_id_idx",
+          "columns": [
+            "source_id"
+          ],
+          "isUnique": false
+        },
+        "openapi_source_query_param_secret_id_idx": {
+          "name": "openapi_source_query_param_secret_id_idx",
+          "columns": [
+            "secret_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "openapi_source_query_param_scope_id_id_pk": {
+          "columns": [
+            "scope_id",
+            "id"
+          ],
+          "name": "openapi_source_query_param_scope_id_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "openapi_source_spec_fetch_header": {
+      "name": "openapi_source_spec_fetch_header",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text_value": {
+          "name": "text_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_id": {
+          "name": "secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_prefix": {
+          "name": "secret_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "openapi_source_spec_fetch_header_scope_id_idx": {
+          "name": "openapi_source_spec_fetch_header_scope_id_idx",
+          "columns": [
+            "scope_id"
+          ],
+          "isUnique": false
+        },
+        "openapi_source_spec_fetch_header_source_id_idx": {
+          "name": "openapi_source_spec_fetch_header_source_id_idx",
+          "columns": [
+            "source_id"
+          ],
+          "isUnique": false
+        },
+        "openapi_source_spec_fetch_header_secret_id_idx": {
+          "name": "openapi_source_spec_fetch_header_secret_id_idx",
+          "columns": [
+            "secret_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "openapi_source_spec_fetch_header_scope_id_id_pk": {
+          "columns": [
+            "scope_id",
+            "id"
+          ],
+          "name": "openapi_source_spec_fetch_header_scope_id_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "openapi_source_spec_fetch_query_param": {
+      "name": "openapi_source_spec_fetch_query_param",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text_value": {
+          "name": "text_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_id": {
+          "name": "secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_prefix": {
+          "name": "secret_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "openapi_source_spec_fetch_query_param_scope_id_idx": {
+          "name": "openapi_source_spec_fetch_query_param_scope_id_idx",
+          "columns": [
+            "scope_id"
+          ],
+          "isUnique": false
+        },
+        "openapi_source_spec_fetch_query_param_source_id_idx": {
+          "name": "openapi_source_spec_fetch_query_param_source_id_idx",
+          "columns": [
+            "source_id"
+          ],
+          "isUnique": false
+        },
+        "openapi_source_spec_fetch_query_param_secret_id_idx": {
+          "name": "openapi_source_spec_fetch_query_param_secret_id_idx",
+          "columns": [
+            "secret_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "openapi_source_spec_fetch_query_param_scope_id_id_pk": {
+          "columns": [
+            "scope_id",
+            "id"
+          ],
+          "name": "openapi_source_spec_fetch_query_param_scope_id_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "mcp_source_header": {
+      "name": "mcp_source_header",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text_value": {
+          "name": "text_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_id": {
+          "name": "secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_prefix": {
+          "name": "secret_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "mcp_source_header_scope_id_idx": {
+          "name": "mcp_source_header_scope_id_idx",
+          "columns": [
+            "scope_id"
+          ],
+          "isUnique": false
+        },
+        "mcp_source_header_source_id_idx": {
+          "name": "mcp_source_header_source_id_idx",
+          "columns": [
+            "source_id"
+          ],
+          "isUnique": false
+        },
+        "mcp_source_header_secret_id_idx": {
+          "name": "mcp_source_header_secret_id_idx",
+          "columns": [
+            "secret_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "mcp_source_header_scope_id_id_pk": {
+          "columns": [
+            "scope_id",
+            "id"
+          ],
+          "name": "mcp_source_header_scope_id_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "mcp_source_query_param": {
+      "name": "mcp_source_query_param",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text_value": {
+          "name": "text_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_id": {
+          "name": "secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_prefix": {
+          "name": "secret_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "mcp_source_query_param_scope_id_idx": {
+          "name": "mcp_source_query_param_scope_id_idx",
+          "columns": [
+            "scope_id"
+          ],
+          "isUnique": false
+        },
+        "mcp_source_query_param_source_id_idx": {
+          "name": "mcp_source_query_param_source_id_idx",
+          "columns": [
+            "source_id"
+          ],
+          "isUnique": false
+        },
+        "mcp_source_query_param_secret_id_idx": {
+          "name": "mcp_source_query_param_secret_id_idx",
+          "columns": [
+            "secret_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "mcp_source_query_param_scope_id_id_pk": {
+          "columns": [
+            "scope_id",
+            "id"
+          ],
+          "name": "mcp_source_query_param_scope_id_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "google_discovery_source_credential_header": {
+      "name": "google_discovery_source_credential_header",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text_value": {
+          "name": "text_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_id": {
+          "name": "secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_prefix": {
+          "name": "secret_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "google_discovery_source_credential_header_scope_id_idx": {
+          "name": "google_discovery_source_credential_header_scope_id_idx",
+          "columns": [
+            "scope_id"
+          ],
+          "isUnique": false
+        },
+        "google_discovery_source_credential_header_source_id_idx": {
+          "name": "google_discovery_source_credential_header_source_id_idx",
+          "columns": [
+            "source_id"
+          ],
+          "isUnique": false
+        },
+        "google_discovery_source_credential_header_secret_id_idx": {
+          "name": "google_discovery_source_credential_header_secret_id_idx",
+          "columns": [
+            "secret_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "google_discovery_source_credential_header_scope_id_id_pk": {
+          "columns": [
+            "scope_id",
+            "id"
+          ],
+          "name": "google_discovery_source_credential_header_scope_id_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "google_discovery_source_credential_query_param": {
+      "name": "google_discovery_source_credential_query_param",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text_value": {
+          "name": "text_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_id": {
+          "name": "secret_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "secret_prefix": {
+          "name": "secret_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "google_discovery_source_credential_query_param_scope_id_idx": {
+          "name": "google_discovery_source_credential_query_param_scope_id_idx",
+          "columns": [
+            "scope_id"
+          ],
+          "isUnique": false
+        },
+        "google_discovery_source_credential_query_param_source_id_idx": {
+          "name": "google_discovery_source_credential_query_param_source_id_idx",
+          "columns": [
+            "source_id"
+          ],
+          "isUnique": false
+        },
+        "google_discovery_source_credential_query_param_secret_id_idx": {
+          "name": "google_discovery_source_credential_query_param_secret_id_idx",
+          "columns": [
+            "secret_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "google_discovery_source_credential_query_param_scope_id_id_pk": {
+          "columns": [
+            "scope_id",
+            "id"
+          ],
+          "name": "google_discovery_source_credential_query_param_scope_id_id_pk"
         }
       },
       "uniqueConstraints": {},

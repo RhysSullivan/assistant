@@ -1,4 +1,5 @@
-// End-to-end test for `0010_normalize_google_discovery.sql`. Seeds a
+// End-to-end test for the google-discovery portion of
+// `0007_normalize_plugin_secret_refs.sql`. Seeds a
 // google_discovery_source row with the legacy json shape (config
 // containing auth/credentials), runs the migration, asserts the new
 // columns and child tables are populated.
@@ -11,50 +12,17 @@ import { tmpdir } from "node:os";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 
+import { PRE_0007_SQL, stampPriorMigrationsApplied } from "./__test-helpers__/pre-0007-schema";
+
 const MIGRATIONS_FOLDER = join(import.meta.dirname, "../../drizzle");
 
-const PRE_0010_SQL = `
-  CREATE TABLE __drizzle_migrations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    hash TEXT NOT NULL,
-    created_at NUMERIC
-  );
-
-  CREATE TABLE google_discovery_source (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    config TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE google_discovery_binding (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    binding TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-`;
-
-const STAMP_BEFORE = 1778100000002; // 0009_normalize_mcp.when
-
-const stampPriorMigrationsApplied = (db: Database) => {
-  db.prepare(
-    "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
-  ).run("pre-0010-marker", STAMP_BEFORE);
-};
-
-describe("0010_normalize_google_discovery backfill", () => {
+describe("0007_normalize_plugin_secret_refs (google-discovery)", () => {
   it("flattens oauth2 auth into columns", () => {
     const dir = mkdtempSync(join(tmpdir(), "gd-mig-"));
     const dbPath = join(dir, "test.sqlite");
     try {
       const db = new Database(dbPath);
-      db.exec(PRE_0010_SQL);
+      db.exec(PRE_0007_SQL);
       stampPriorMigrationsApplied(db);
 
       db.prepare(
@@ -113,7 +81,7 @@ describe("0010_normalize_google_discovery backfill", () => {
     const dbPath = join(dir, "test.sqlite");
     try {
       const db = new Database(dbPath);
-      db.exec(PRE_0010_SQL);
+      db.exec(PRE_0007_SQL);
       stampPriorMigrationsApplied(db);
 
       db.prepare(
@@ -185,7 +153,7 @@ describe("0010_normalize_google_discovery backfill", () => {
     const dbPath = join(dir, "test.sqlite");
     try {
       const db = new Database(dbPath);
-      db.exec(PRE_0010_SQL);
+      db.exec(PRE_0007_SQL);
       stampPriorMigrationsApplied(db);
 
       db.prepare(

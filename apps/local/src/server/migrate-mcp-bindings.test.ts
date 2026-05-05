@@ -1,5 +1,6 @@
-// End-to-end test for `0009_normalize_mcp.sql`. Seeds an mcp_source
-// row with the legacy json shape (config containing auth/headers/
+// End-to-end test for the mcp portion of
+// `0007_normalize_plugin_secret_refs.sql`. Seeds an mcp_source row
+// with the legacy json shape (config containing auth/headers/
 // queryParams), runs the migration runner, asserts the auth columns
 // are populated and the child tables hold the secret-backed entries.
 
@@ -11,68 +12,17 @@ import { tmpdir } from "node:os";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 
+import { PRE_0007_SQL, stampPriorMigrationsApplied } from "./__test-helpers__/pre-0007-schema";
+
 const MIGRATIONS_FOLDER = join(import.meta.dirname, "../../drizzle");
 
-const PRE_0009_SQL = `
-  CREATE TABLE __drizzle_migrations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    hash TEXT NOT NULL,
-    created_at NUMERIC
-  );
-
-  CREATE TABLE mcp_source (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    config TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE mcp_binding (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    binding TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE google_discovery_source (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    config TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE google_discovery_binding (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    binding TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-`;
-
-const STAMP_BEFORE = 1778100000001; // 0008_normalize_openapi.when
-
-const stampPriorMigrationsApplied = (db: Database) => {
-  db.prepare(
-    "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
-  ).run("pre-0009-marker", STAMP_BEFORE);
-};
-
-describe("0009_normalize_mcp backfill", () => {
+describe("0007_normalize_plugin_secret_refs (mcp)", () => {
   it("flattens header auth into auth_kind/auth_secret_id columns", () => {
     const dir = mkdtempSync(join(tmpdir(), "mcp-mig-"));
     const dbPath = join(dir, "test.sqlite");
     try {
       const db = new Database(dbPath);
-      db.exec(PRE_0009_SQL);
+      db.exec(PRE_0007_SQL);
       stampPriorMigrationsApplied(db);
 
       db.prepare(
@@ -130,7 +80,7 @@ describe("0009_normalize_mcp backfill", () => {
     const dbPath = join(dir, "test.sqlite");
     try {
       const db = new Database(dbPath);
-      db.exec(PRE_0009_SQL);
+      db.exec(PRE_0007_SQL);
       stampPriorMigrationsApplied(db);
 
       db.prepare(
@@ -209,7 +159,7 @@ describe("0009_normalize_mcp backfill", () => {
     const dbPath = join(dir, "test.sqlite");
     try {
       const db = new Database(dbPath);
-      db.exec(PRE_0009_SQL);
+      db.exec(PRE_0007_SQL);
       stampPriorMigrationsApplied(db);
 
       db.prepare(

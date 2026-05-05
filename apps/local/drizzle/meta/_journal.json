@@ -55,28 +55,7 @@
       "idx": 7,
       "version": "6",
       "when": 1778100000000,
-      "tag": "0007_normalize_graphql",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1778100000001,
-      "tag": "0008_normalize_openapi",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1778100000002,
-      "tag": "0009_normalize_mcp",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "6",
-      "when": 1778100000003,
-      "tag": "0010_normalize_google_discovery",
+      "tag": "0007_normalize_plugin_secret_refs",
       "breakpoints": true
     }
   ]

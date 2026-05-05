@@ -1,4 +1,5 @@
-// End-to-end test for `0007_normalize_graphql.sql`: seed a DB at the
+// End-to-end test for the graphql portion of
+// `0007_normalize_plugin_secret_refs.sql`: seed a DB at the
 // pre-migration (0006) shape with json-blob headers/query_params/auth,
 // run the migration, assert that the JSON unpacks into the new
 // normalized columns / child tables and that the JSON columns are gone.
@@ -11,116 +12,11 @@ import { tmpdir } from "node:os";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 
+import { PRE_0007_SQL, stampPriorMigrationsApplied } from "./__test-helpers__/pre-0007-schema";
+
 const MIGRATIONS_FOLDER = join(import.meta.dirname, "../../drizzle");
 
-// Minimal pre-migration shape — the graphql tables we care about,
-// plus the openapi tables that 0008 (which also runs after our stamp)
-// needs to touch, plus the drizzle bookkeeping `__drizzle_migrations`
-// table that the runner uses to skip already-applied migrations. Both
-// 0007 and 0008 will run sequentially against this DB; the test only
-// asserts on the graphql side.
-const PRE_0007_SQL = `
-  CREATE TABLE __drizzle_migrations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    hash TEXT NOT NULL,
-    created_at NUMERIC
-  );
-
-  CREATE TABLE graphql_source (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    endpoint TEXT NOT NULL,
-    headers TEXT,
-    query_params TEXT,
-    auth TEXT,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE graphql_operation (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    binding TEXT NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE openapi_source (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    spec TEXT NOT NULL,
-    source_url TEXT,
-    base_url TEXT,
-    headers TEXT,
-    query_params TEXT,
-    oauth2 TEXT,
-    invocation_config TEXT NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE openapi_source_binding (
-    id TEXT PRIMARY KEY NOT NULL,
-    source_id TEXT NOT NULL,
-    source_scope_id TEXT NOT NULL,
-    target_scope_id TEXT NOT NULL,
-    slot TEXT NOT NULL,
-    value TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  );
-
-  CREATE TABLE mcp_source (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    config TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE mcp_binding (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    binding TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE google_discovery_source (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    config TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE google_discovery_binding (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    binding TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-`;
-
-// drizzle's sqlite migrator picks the latest `created_at` from
-// __drizzle_migrations and skips any migration whose folderMillis (from
-// the journal) is <= that timestamp. Stamping a row with 0006's
-// folderMillis lets the runner skip 0000..0006 and only execute 0007.
-const STAMP_BEFORE = 1777850000001; // 0006_neat_terror.when
-
-const stampPriorMigrationsApplied = (db: Database) => {
-  db.prepare(
-    "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
-  ).run("pre-0007-marker", STAMP_BEFORE);
-};
-
-describe("0007_normalize_graphql backfill", () => {
+describe("0007_normalize_plugin_secret_refs (graphql)", () => {
   it("flattens auth json into auth_kind/auth_connection_id columns", () => {
     const dir = mkdtempSync(join(tmpdir(), "graphql-mig-"));
     const dbPath = join(dir, "test.sqlite");

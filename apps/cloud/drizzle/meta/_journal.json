@@ -62,21 +62,7 @@
       "idx": 8,
       "version": "7",
       "when": 1778004191000,
-      "tag": "0008_normalize_graphql",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1778004434001,
-      "tag": "0009_normalize_openapi",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1778004547002,
-      "tag": "0010_normalize_mcp",
+      "tag": "0008_normalize_plugin_secret_refs",
       "breakpoints": true
     }
   ]

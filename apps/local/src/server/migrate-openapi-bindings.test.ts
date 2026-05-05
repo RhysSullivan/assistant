@@ -1,5 +1,6 @@
-// End-to-end test for `0008_normalize_openapi.sql`. Seeds the
-// pre-migration shape (json blobs on openapi_source.query_params,
+// End-to-end test for the openapi portion of
+// `0007_normalize_plugin_secret_refs.sql`. Seeds the pre-migration
+// shape (json blobs on openapi_source.query_params,
 // openapi_source.invocation_config.specFetchCredentials.*, and
 // openapi_source_binding.value), runs the migration runner, asserts
 // the new flat columns + child tables match.
@@ -12,106 +13,17 @@ import { tmpdir } from "node:os";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 
+import { PRE_0007_SQL, stampPriorMigrationsApplied } from "./__test-helpers__/pre-0007-schema";
+
 const MIGRATIONS_FOLDER = join(import.meta.dirname, "../../drizzle");
 
-// Pre-0008 shape — only the openapi tables we touch, plus the drizzle
-// bookkeeping table so the runner can stamp earlier migrations as
-// applied and only run 0008.
-const PRE_0008_SQL = `
-  CREATE TABLE __drizzle_migrations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    hash TEXT NOT NULL,
-    created_at NUMERIC
-  );
-
-  CREATE TABLE openapi_source (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    spec TEXT NOT NULL,
-    source_url TEXT,
-    base_url TEXT,
-    headers TEXT,
-    query_params TEXT,
-    oauth2 TEXT,
-    invocation_config TEXT NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE openapi_operation (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    binding TEXT NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE openapi_source_binding (
-    id TEXT PRIMARY KEY NOT NULL,
-    source_id TEXT NOT NULL,
-    source_scope_id TEXT NOT NULL,
-    target_scope_id TEXT NOT NULL,
-    slot TEXT NOT NULL,
-    value TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  );
-
-  CREATE TABLE mcp_source (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    config TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE mcp_binding (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    binding TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE google_discovery_source (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    config TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-
-  CREATE TABLE google_discovery_binding (
-    id TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    binding TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (scope_id, id)
-  );
-`;
-
-// Stamp 0007's folderMillis from the journal so drizzle's runner skips
-// 0000..0007 and only executes 0008+ against this hand-seeded DB.
-const STAMP_BEFORE = 1778100000000; // 0007_normalize_graphql.when
-
-const stampPriorMigrationsApplied = (db: Database) => {
-  db.prepare(
-    "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
-  ).run("pre-0008-marker", STAMP_BEFORE);
-};
-
-describe("0008_normalize_openapi backfill", () => {
+describe("0007_normalize_plugin_secret_refs (openapi)", () => {
   it("flattens openapi_source_binding.value into kind/secret_id/connection_id/text_value", () => {
     const dir = mkdtempSync(join(tmpdir(), "openapi-mig-"));
     const dbPath = join(dir, "test.sqlite");
     try {
       const db = new Database(dbPath);
-      db.exec(PRE_0008_SQL);
+      db.exec(PRE_0007_SQL);
       stampPriorMigrationsApplied(db);
 
       // Seed three bindings, one per kind.
@@ -212,7 +124,7 @@ describe("0008_normalize_openapi backfill", () => {
     const dbPath = join(dir, "test.sqlite");
     try {
       const db = new Database(dbPath);
-      db.exec(PRE_0008_SQL);
+      db.exec(PRE_0007_SQL);
       stampPriorMigrationsApplied(db);
 
       const queryParams = {
@@ -310,7 +222,7 @@ describe("0008_normalize_openapi backfill", () => {
     const dbPath = join(dir, "test.sqlite");
     try {
       const db = new Database(dbPath);
-      db.exec(PRE_0008_SQL);
+      db.exec(PRE_0007_SQL);
       stampPriorMigrationsApplied(db);
 
       // Source with empty invocation_config and no query_params.
