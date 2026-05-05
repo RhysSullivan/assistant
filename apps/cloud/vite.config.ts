@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
@@ -44,9 +45,19 @@ const loadWranglerPublicVars = () => {
   );
 };
 
+let generatedAnalyticsPath: string | undefined;
+const getGeneratedAnalyticsPath = () => {
+  generatedAnalyticsPath ??= randomUUID().slice(0, 8);
+  return generatedAnalyticsPath;
+};
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const publicEnv = { ...loadWranglerPublicVars(), ...env };
+  const publicEnv = {
+    ...loadWranglerPublicVars(),
+    VITE_PUBLIC_ANALYTICS_PATH: getGeneratedAnalyticsPath(),
+    ...env,
+  };
 
   return {
     define: Object.fromEntries(
