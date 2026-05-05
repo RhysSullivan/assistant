@@ -250,21 +250,32 @@ type OpenApiRow = {
 
 const migrateOpenApi = async (sqlite: Database): Promise<void> => {
   if (!tableExists(sqlite, "openapi_source")) return;
-  // After 0008 normalized openapi, the legacy `invocation_config` JSON
-  // column is gone (specFetchCredentials moved to child tables).
-  // There's nothing for this legacy backfill to do at that point; skip
-  // cleanly. `oauth2` stays JSON because it holds slot names, not refs.
-  if (!columnExists(sqlite, "openapi_source", "invocation_config")) return;
+  // After the plugin normalization migration, `invocation_config` is
+  // gone (specFetchCredentials moved to child tables). The `oauth2`
+  // column stays JSON — that's the canonical source for the OAuth
+  // pointer. Pre-migration, both columns mirror each other; post-
+  // migration, only `oauth2` is left. We read both when available and
+  // fall back to `oauth2` so legacy data isn't silently skipped.
+  const hasInvocationConfig = columnExists(
+    sqlite,
+    "openapi_source",
+    "invocation_config",
+  );
+  const selectCols = hasInvocationConfig
+    ? "scope_id, id, name, spec, invocation_config, oauth2"
+    : "scope_id, id, name, spec, NULL AS invocation_config, oauth2";
   const rows = sqlite
-    .prepare(
-      "SELECT scope_id, id, name, spec, invocation_config, oauth2 FROM openapi_source",
-    )
+    .prepare(`SELECT ${selectCols} FROM openapi_source`)
     .all() as ReadonlyArray<OpenApiRow>;
   if (rows.length === 0) return;
 
-  const updateSource = sqlite.prepare(
-    "UPDATE openapi_source SET oauth2 = ?, invocation_config = ? WHERE scope_id = ? AND id = ?",
-  );
+  const updateSource = hasInvocationConfig
+    ? sqlite.prepare(
+        "UPDATE openapi_source SET oauth2 = ?, invocation_config = ? WHERE scope_id = ? AND id = ?",
+      )
+    : sqlite.prepare(
+        "UPDATE openapi_source SET oauth2 = ? WHERE scope_id = ? AND id = ?",
+      );
 
   for (const row of rows) {
     let invocation: Record<string, unknown> = {};
@@ -345,13 +356,21 @@ const migrateOpenApi = async (sqlite: Database): Promise<void> => {
       });
       const err = rewireSecrets(sqlite, row.scope_id, connectionId, secretIds, secretNames);
       if (err) throw new Error(err);
-      const nextInvocation = { ...invocation, oauth2: oauth2Pointer };
-      updateSource.run(
-        JSON.stringify(oauth2Pointer),
-        JSON.stringify(nextInvocation),
-        row.scope_id,
-        row.id,
-      );
+      if (hasInvocationConfig) {
+        const nextInvocation = { ...invocation, oauth2: oauth2Pointer };
+        updateSource.run(
+          JSON.stringify(oauth2Pointer),
+          JSON.stringify(nextInvocation),
+          row.scope_id,
+          row.id,
+        );
+      } else {
+        updateSource.run(
+          JSON.stringify(oauth2Pointer),
+          row.scope_id,
+          row.id,
+        );
+      }
     });
     try {
       txn();

@@ -283,6 +283,16 @@ SELECT
 FROM `openapi_source` s, json_each(json_extract(s.`invocation_config`, '$.specFetchCredentials.queryParams')) q
 WHERE json_extract(s.`invocation_config`, '$.specFetchCredentials.queryParams') IS NOT NULL;--> statement-breakpoint
 
+-- Preserve any legacy OAuth payload from invocation_config.oauth2 into
+-- the still-existing oauth2 column before we drop invocation_config.
+-- migrateLegacyConnections runs after drizzle migrations and reads
+-- oauth2 to detect the legacy shape; without this, rows that only had
+-- their OAuth payload under invocation_config.oauth2 would lose it.
+UPDATE `openapi_source`
+SET `oauth2` = json_extract(`invocation_config`, '$.oauth2')
+WHERE `oauth2` IS NULL
+  AND json_extract(`invocation_config`, '$.oauth2') IS NOT NULL;--> statement-breakpoint
+
 -- Drop the legacy JSON columns now that everything is normalized.
 ALTER TABLE `openapi_source_binding` DROP COLUMN `value`;--> statement-breakpoint
 ALTER TABLE `openapi_source` DROP COLUMN `query_params`;--> statement-breakpoint
