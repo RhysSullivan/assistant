@@ -201,12 +201,13 @@ describe("exchangeAuthorizationCode", () => {
     expect(body.has("client_secret")).toBe(false);
   });
 
-  it("validates ID tokens against an explicit issuer when token host differs", async () => {
+  it("strips id_tokens whose iss does not match AS metadata (PostHog-style OIDC backend behind plain OAuth 2.0 metadata)", async () => {
     captureFetch(
       jsonResponse(200, {
         ...validBody,
         id_token: unsignedJwt({
-          iss: "https://accounts.google.com",
+          // Upstream OP issuer — does NOT match issuerUrl below
+          iss: "https://us.posthog.com",
           aud: "cid",
           sub: "user-1",
           exp: Math.floor(Date.now() / 1000) + 3600,
@@ -216,8 +217,8 @@ describe("exchangeAuthorizationCode", () => {
     );
     const result = await Effect.runPromise(
       exchangeAuthorizationCode({
-        tokenUrl: "https://oauth2.googleapis.com/token",
-        issuerUrl: "https://accounts.google.com",
+        tokenUrl: "https://oauth.posthog.com/oauth/token",
+        issuerUrl: "https://oauth.posthog.com",
         clientId: "cid",
         redirectUrl: "https://app.example.com/cb",
         codeVerifier: "verifier",
@@ -225,41 +226,77 @@ describe("exchangeAuthorizationCode", () => {
       }),
     );
     expect(result.access_token).toBe("tok");
+    expect(result.refresh_token).toBe("rtok");
   });
 
-  it("accepts ID token signing algorithms advertised by authorization server metadata", async () => {
+  it("strips id_tokens whose aud does not match the client_id", async () => {
     captureFetch(
       jsonResponse(200, {
         ...validBody,
-        id_token: unsignedJwt(
-          {
-            iss: "https://railway.com",
-            aud: "cid",
-            sub: "user-1",
-            exp: Math.floor(Date.now() / 1000) + 3600,
-            iat: Math.floor(Date.now() / 1000),
-          },
-          "ES256",
-        ),
+        id_token: unsignedJwt({
+          iss: "https://example.com",
+          // aud belongs to some other client
+          aud: "another-client",
+          sub: "user-1",
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          iat: Math.floor(Date.now() / 1000),
+        }),
       }),
     );
-
     const result = await Effect.runPromise(
       exchangeAuthorizationCode({
-        tokenUrl: "https://backboard.railway.com/oauth/token",
-        issuerUrl: "https://railway.com",
+        tokenUrl: "https://example.com/token",
+        issuerUrl: "https://example.com",
         clientId: "cid",
         redirectUrl: "https://app.example.com/cb",
         codeVerifier: "verifier",
         code: "abc",
-        idTokenSigningAlgValuesSupported: ["ES256"],
       }),
     );
-
     expect(result.access_token).toBe("tok");
   });
 
-  it("ignores unusable ID tokens when the access-token response is otherwise valid", async () => {
+  it("happy path: token endpoint with no id_token still parses normally", async () => {
+    captureFetch(jsonResponse(200, validBody));
+    const result = await Effect.runPromise(
+      exchangeAuthorizationCode({
+        tokenUrl: "https://example.com/token",
+        clientId: "cid",
+        redirectUrl: "https://app.example.com/cb",
+        codeVerifier: "verifier",
+        code: "abc",
+      }),
+    );
+    expect(result.access_token).toBe("tok");
+    expect(result.refresh_token).toBe("rtok");
+    expect(result.expires_in).toBe(3600);
+  });
+
+  it("still surfaces RFC 6749 §5.2 error envelopes after the id_token strip", async () => {
+    captureFetch(
+      jsonResponse(400, {
+        error: "invalid_grant",
+        error_description: "authorization code expired",
+      }),
+    );
+    const exit = await Effect.runPromiseExit(
+      exchangeAuthorizationCode({
+        tokenUrl: "https://example.com/token",
+        clientId: "cid",
+        redirectUrl: "https://app.example.com/cb",
+        codeVerifier: "verifier",
+        code: "abc",
+      }),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const failure = JSON.stringify(exit.cause);
+    expect(failure).toContain("OAuth2Error");
+    expect(failure).toContain("invalid_grant");
+    expect(failure).toContain("authorization code expired");
+  });
+
+  it("strips id_tokens with algorithms not advertised in AS metadata (e.g. ES256 without supported list)", async () => {
     captureFetch(
       jsonResponse(200, {
         ...validBody,
@@ -420,12 +457,12 @@ describe("refreshAccessToken", () => {
     expect(body.has("scope")).toBe(false);
   });
 
-  it("validates refreshed ID tokens against an explicit issuer", async () => {
+  it("strips refreshed id_tokens whose iss does not match AS metadata", async () => {
     captureFetch(
       jsonResponse(200, {
         ...validBody,
         id_token: unsignedJwt({
-          iss: "https://accounts.google.com",
+          iss: "https://us.posthog.com",
           aud: "cid",
           sub: "user-1",
           exp: Math.floor(Date.now() / 1000) + 3600,
@@ -435,8 +472,8 @@ describe("refreshAccessToken", () => {
     );
     const result = await Effect.runPromise(
       refreshAccessToken({
-        tokenUrl: "https://oauth2.googleapis.com/token",
-        issuerUrl: "https://accounts.google.com",
+        tokenUrl: "https://oauth.posthog.com/oauth/token",
+        issuerUrl: "https://oauth.posthog.com",
         clientId: "cid",
         refreshToken: "old",
       }),
@@ -444,37 +481,7 @@ describe("refreshAccessToken", () => {
     expect(result.access_token).toBe("tok2");
   });
 
-  it("accepts refreshed ID token signing algorithms advertised by authorization server metadata", async () => {
-    captureFetch(
-      jsonResponse(200, {
-        ...validBody,
-        id_token: unsignedJwt(
-          {
-            iss: "https://railway.com",
-            aud: "cid",
-            sub: "user-1",
-            exp: Math.floor(Date.now() / 1000) + 3600,
-            iat: Math.floor(Date.now() / 1000),
-          },
-          "ES256",
-        ),
-      }),
-    );
-
-    const result = await Effect.runPromise(
-      refreshAccessToken({
-        tokenUrl: "https://backboard.railway.com/oauth/token",
-        issuerUrl: "https://railway.com",
-        clientId: "cid",
-        refreshToken: "old",
-        idTokenSigningAlgValuesSupported: ["ES256"],
-      }),
-    );
-
-    expect(result.access_token).toBe("tok2");
-  });
-
-  it("ignores unusable refreshed ID tokens when the access-token response is otherwise valid", async () => {
+  it("strips refreshed id_tokens with algorithms not advertised in AS metadata", async () => {
     captureFetch(
       jsonResponse(200, {
         ...validBody,
@@ -501,6 +508,19 @@ describe("refreshAccessToken", () => {
     );
 
     expect(result.access_token).toBe("tok2");
+  });
+
+  it("happy path: refresh response with no id_token parses normally", async () => {
+    captureFetch(jsonResponse(200, validBody));
+    const result = await Effect.runPromise(
+      refreshAccessToken({
+        tokenUrl: "https://example.com/token",
+        clientId: "cid",
+        refreshToken: "old",
+      }),
+    );
+    expect(result.access_token).toBe("tok2");
+    expect(result.expires_in).toBe(3600);
   });
 });
 

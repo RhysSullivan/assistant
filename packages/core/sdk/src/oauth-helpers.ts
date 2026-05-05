@@ -224,59 +224,43 @@ const tokenResponseFrom = (
   scope: r.scope,
 });
 
-const isUnexpectedIdTokenAlg = (cause: unknown): boolean =>
-  cause instanceof Error &&
-  cause.message.includes('unexpected JWT "alg" header parameter');
-
-const looseTokenResponseFrom = (body: unknown): OAuth2TokenResponse => {
-  if (typeof body !== "object" || body === null) {
-    throw new Error("token endpoint response body is not an object");
+// MCP source connections are pure OAuth 2.0 — we never request `openid` and
+// never consume `id_token`. Some providers (PostHog, etc.) front an OIDC
+// backend and emit an `id_token` anyway; oauth4webapi then strict-validates
+// its claims against the AS metadata and rejects mismatches we don't care
+// about. Strip the field before delegation.
+const stripIdToken = async (response: Response): Promise<Response> => {
+  const body = await response
+    .clone()
+    .json()
+    .catch(() => null);
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("id_token" in (body as Record<string, unknown>))
+  ) {
+    return response;
   }
-  const record = body as Record<string, unknown>;
-  if (typeof record.access_token !== "string" || !record.access_token) {
-    throw new Error('token endpoint response is missing "access_token"');
-  }
-  const expiresIn =
-    typeof record.expires_in === "number"
-      ? record.expires_in
-      : typeof record.expires_in === "string"
-        ? Number.parseFloat(record.expires_in)
-        : undefined;
-  if (expiresIn !== undefined && !Number.isFinite(expiresIn)) {
-    throw new Error('token endpoint response has invalid "expires_in"');
-  }
-  return {
-    access_token: record.access_token,
-    token_type:
-      typeof record.token_type === "string" ? record.token_type : undefined,
-    refresh_token:
-      typeof record.refresh_token === "string"
-        ? record.refresh_token
-        : undefined,
-    expires_in: expiresIn,
-    scope: typeof record.scope === "string" ? record.scope : undefined,
-  };
+  const { id_token: _ignored, ...rest } = body as Record<string, unknown>;
+  return new Response(JSON.stringify(rest), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 };
 
 const processTokenEndpointResponse = async (
   as: oauth.AuthorizationServer,
   client: oauth.Client,
   response: Response,
-): Promise<OAuth2TokenResponse> => {
-  const fallback = response.clone();
-  try {
-    return tokenResponseFrom(
-      await oauth.processGenericTokenEndpointResponse(as, client, response),
-    );
-  } catch (cause) {
-    if (!isUnexpectedIdTokenAlg(cause)) throw cause;
-    // Some OAuth-only providers include an ID token even when their metadata
-    // does not advertise enough OIDC signing metadata for strict validation.
-    // Executor stores only access/refresh tokens for source auth, so tolerate
-    // an unusable ID token after the access token response itself is valid.
-    return looseTokenResponseFrom(await fallback.json());
-  }
-};
+): Promise<OAuth2TokenResponse> =>
+  tokenResponseFrom(
+    await oauth.processGenericTokenEndpointResponse(
+      as,
+      client,
+      await stripIdToken(response),
+    ),
+  );
 
 // ---------------------------------------------------------------------------
 // Exchange authorization code → tokens
@@ -425,18 +409,12 @@ export const refreshAccessToken = (
           additionalParameters,
         },
       );
-      const fallback = response.clone();
-      try {
-        const result = await oauth.processRefreshTokenResponse(
-          as,
-          client,
-          response,
-        );
-        return tokenResponseFrom(result);
-      } catch (cause) {
-        if (!isUnexpectedIdTokenAlg(cause)) throw cause;
-        return looseTokenResponseFrom(await fallback.json());
-      }
+      const result = await oauth.processRefreshTokenResponse(
+        as,
+        client,
+        await stripIdToken(response),
+      );
+      return tokenResponseFrom(result);
     },
     catch: toOAuth2Error,
   });
