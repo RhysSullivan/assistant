@@ -154,6 +154,26 @@ export const updatePolicy = ExecutorApiClient.mutation("policies", "update");
 export const removePolicy = ExecutorApiClient.mutation("policies", "remove");
 
 // ---------------------------------------------------------------------------
+// Secrets — optimistic removals.
+// ---------------------------------------------------------------------------
+
+export const secretsOptimisticAtom = Atom.family((scopeId: ScopeId) =>
+  Atom.optimistic(secretsAtom(scopeId)),
+);
+
+export const removeSecretOptimistic = Atom.family((scopeId: ScopeId) =>
+  secretsOptimisticAtom(scopeId).pipe(
+    Atom.optimisticFn({
+      reducer: (current, arg) =>
+        AsyncResult.map(current, (rows) =>
+          rows.filter((secret) => secret.id !== arg.params.secretId),
+        ),
+      fn: removeSecret,
+    }),
+  ),
+);
+
+// ---------------------------------------------------------------------------
 // Policies — optimistic surface. Reads go through `policiesOptimisticAtom`
 // (which layers in-flight transitions on top of `policiesAtom`), and writes
 // go through the matching `*PolicyOptimistic` mutation atoms. Each mutation

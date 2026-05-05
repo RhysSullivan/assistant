@@ -1,10 +1,17 @@
 import { useMemo, useState, Suspense } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { secretsAtom, secretUsagesAtom, removeSecret } from "../api/atoms";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
+import { toast } from "sonner";
+import {
+  removeSecretOptimistic,
+  secretsOptimisticAtom,
+  secretUsagesAtom,
+} from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import { useSecretProviderPlugins } from "@executor-js/sdk/client";
-import { SecretId, type ScopeId } from "@executor-js/sdk";
+import { SecretId, SecretInUseError, type ScopeId } from "@executor-js/sdk";
 import { SecretForm } from "../plugins/secret-form";
 import { useScope } from "../hooks/use-scope";
 import {
@@ -234,7 +241,7 @@ export function SecretsPage(props: {
   const secretProviderPlugins = useSecretProviderPlugins();
   const [addOpen, setAddOpen] = useState(false);
   const scopeId = useScope();
-  const secrets = useAtomValue(secretsAtom(scopeId));
+  const secrets = useAtomValue(secretsOptimisticAtom(scopeId));
   const existingSecretIds = useMemo(
     () =>
       AsyncResult.match(secrets, {
@@ -244,19 +251,28 @@ export function SecretsPage(props: {
       }),
     [secrets],
   );
-  const doRemove = useAtomSet(removeSecret, { mode: "promise" });
+  const doRemove = useAtomSet(removeSecretOptimistic(scopeId), {
+    mode: "promiseExit",
+  });
 
   const handleRemove = async (secretId: string) => {
-    try {
-      await doRemove({
-        params: {
-          scopeId,
-          secretId: SecretId.make(secretId),
-        },
-        reactivityKeys: secretWriteKeys,
-      });
-    } catch {
-      // TODO: toast
+    const exit = await doRemove({
+      params: {
+        scopeId,
+        secretId: SecretId.make(secretId),
+      },
+      reactivityKeys: secretWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
+      const error = Exit.findErrorOption(exit);
+      if (Option.isSome(error) && error.value instanceof SecretInUseError) {
+        const count = error.value.usageCount;
+        toast.error(
+          `Secret is used by ${count} ${count === 1 ? "source" : "sources"}. Detach it before removing it.`,
+        );
+      } else {
+        toast.error("Failed to remove secret");
+      }
     }
   };
 

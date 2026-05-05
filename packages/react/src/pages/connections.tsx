@@ -1,7 +1,9 @@
 import { Suspense } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { ConnectionId, type ScopeId } from "@executor-js/sdk";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
+import { ConnectionId, ConnectionInUseError, type ScopeId } from "@executor-js/sdk";
 import { toast } from "sonner";
 
 import { connectionUsagesAtom, removeConnection } from "../api/atoms";
@@ -161,18 +163,25 @@ export function ConnectionsPage() {
   const scopeStack = useScopeStack();
   const connections = useConnectionsWithPendingRemovals(scopeId);
   const { beginRemove } = usePendingConnectionRemovals();
-  const doRemove = useAtomSet(removeConnection, { mode: "promise" });
+  const doRemove = useAtomSet(removeConnection, { mode: "promiseExit" });
 
   const handleRemove = async (connectionId: string) => {
     const pending = beginRemove(connectionId);
-    try {
-      await doRemove({
-        params: { scopeId, connectionId: ConnectionId.make(connectionId) },
-        reactivityKeys: connectionWriteKeys,
-      });
-    } catch (e) {
+    const exit = await doRemove({
+      params: { scopeId, connectionId: ConnectionId.make(connectionId) },
+      reactivityKeys: connectionWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
       pending.undo();
-      toast.error(e instanceof Error ? e.message : "Failed to remove connection");
+      const error = Exit.findErrorOption(exit);
+      if (Option.isSome(error) && error.value instanceof ConnectionInUseError) {
+        const count = error.value.usageCount;
+        toast.error(
+          `Connection is used by ${count} ${count === 1 ? "source" : "sources"}. Detach it before removing it.`,
+        );
+      } else {
+        toast.error("Failed to remove connection");
+      }
     }
   };
 
