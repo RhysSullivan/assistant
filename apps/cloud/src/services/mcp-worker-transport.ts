@@ -79,8 +79,22 @@ const extractJsonRpcRequestIdKeys = async (request: Request): Promise<ReadonlyAr
   }
 };
 
-class JsonRpcRequestIdQueue {
+// Hard ceiling on how long a same-id JSON-RPC request will wait for an
+// earlier in-flight one to finish. Stays well under the 180s upstream
+// client timeout that Claude / Cowork enforce, so a poisoned queue slot
+// can't block the next request long enough for the client to give up.
+// If a previous request hasn't released within the budget, we proceed
+// anyway — at worst the MCP SDK rejects the second reply for a duplicate
+// id, which is recoverable; a perma-stuck queue is not.
+export const PREVIOUS_REQUEST_TIMEOUT_MS = 60_000;
+
+export class JsonRpcRequestIdQueue {
   private readonly inFlight = new Map<string, Promise<void>>();
+  private readonly previousTimeoutMs: number;
+
+  constructor(options: { readonly previousTimeoutMs?: number } = {}) {
+    this.previousTimeoutMs = options.previousTimeoutMs ?? PREVIOUS_REQUEST_TIMEOUT_MS;
+  }
 
   async run<A>(request: Request, run: () => Promise<A>): Promise<A> {
     const ids = [...new Set(await extractJsonRpcRequestIdKeys(request))];
@@ -96,7 +110,18 @@ class JsonRpcRequestIdQueue {
     }
 
     try {
-      await Promise.all(previous.map((p) => p.catch(() => undefined)));
+      if (previous.length > 0) {
+        const settled = Promise.all(previous.map((p) => p.catch(() => undefined)));
+        const timeout = new Promise<"timeout">((resolve) =>
+          setTimeout(() => resolve("timeout"), this.previousTimeoutMs),
+        );
+        const outcome = await Promise.race([settled.then(() => "settled" as const), timeout]);
+        if (outcome === "timeout") {
+          console.warn(
+            `[mcp-worker-transport] previous in-flight request for ids=${JSON.stringify(ids)} did not release within ${this.previousTimeoutMs}ms; proceeding anyway`,
+          );
+        }
+      }
       return await run();
     } finally {
       for (const id of ids) {

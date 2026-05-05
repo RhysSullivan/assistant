@@ -1,5 +1,6 @@
 import {
   recoverExecutionBody,
+  stripTypeScript,
   type CodeExecutor,
   type ExecuteResult,
   type SandboxToolInvoker,
@@ -87,7 +88,11 @@ const normalizeExecutionError = (cause: unknown, deadlineMs: number, timeoutMs: 
 };
 
 const buildExecutionSource = (code: string): string => {
-  const body = recoverExecutionBody(code);
+  // QuickJS evaluates plain JavaScript only; strip any TS type syntax
+  // first. A parse failure here throws a SyntaxError which the outer
+  // `Effect.tryPromise` maps to `QuickJsExecutionError` with the
+  // sucrase-formatted message intact.
+  const body = stripTypeScript(recoverExecutionBody(code));
 
   return [
     '"use strict";',

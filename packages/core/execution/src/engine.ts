@@ -353,12 +353,20 @@ export const createExecutionEngine = <
    * Race a running fiber against a pause signal. Returns when either
    * the fiber completes or an elicitation handler fires (whichever
    * comes first). Re-used by both executeWithPause and resume.
+   *
+   * `Effect.raceFirst` (not `Effect.race`) — `race` has prefer-success
+   * semantics in Effect v4 ("first successful result"), which means a
+   * fiber failure waits indefinitely for the pause Deferred to succeed.
+   * For a fast `codeExecutor.execute` failure (e.g. a syntax error
+   * inside the dynamic worker) the pause signal never fires, so the
+   * outer Effect hangs until the upstream client gives up. `raceFirst`
+   * settles on whichever side completes first, success or failure.
    */
   const awaitCompletionOrPause = (
     fiber: Fiber.Fiber<ExecuteResult, E>,
     pauseSignal: Deferred.Deferred<InternalPausedExecution<E>>,
   ): Effect.Effect<ExecutionResult, E> =>
-    Effect.race(
+    Effect.raceFirst(
       Fiber.join(fiber).pipe(
         Effect.map((result): ExecutionResult => ({ status: "completed", result })),
       ),
