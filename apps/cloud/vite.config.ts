@@ -1,9 +1,11 @@
-import { defineConfig, type Plugin } from "vite";
+import { fileURLToPath } from "node:url";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import executorVitePlugin from "@executor-js/vite-plugin";
+import { unstable_readConfig } from "wrangler";
 
 // Dev-only: the cloudflare vite-plugin bridges outbound fetches (JWKS,
 // OAuth metadata proxy, etc.) through node undici in the host process. If
@@ -32,14 +34,34 @@ const devCrashGuard = (): Plugin => {
   };
 };
 
-export default defineConfig({
-  resolve: { tsconfigPaths: true },
-  plugins: [
-    devCrashGuard(),
-    tailwindcss(),
-    executorVitePlugin(),
-    cloudflare({ viteEnvironment: { name: "ssr" }, inspectorPort: false }),
-    tanstackStart(),
-    react(),
-  ],
+const loadWranglerPublicVars = () => {
+  const wranglerConfig = unstable_readConfig(
+    { config: fileURLToPath(new URL("./wrangler.jsonc", import.meta.url)) },
+    { hideWarnings: true },
+  );
+  return Object.fromEntries(
+    Object.entries(wranglerConfig.vars ?? {}).filter(([key]) => key.startsWith("VITE_PUBLIC_")),
+  );
+};
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const publicEnv = { ...loadWranglerPublicVars(), ...env };
+
+  return {
+    define: Object.fromEntries(
+      Object.entries(publicEnv)
+        .filter(([key]) => key.startsWith("VITE_PUBLIC_"))
+        .map(([key, value]) => [`import.meta.env.${key}`, JSON.stringify(value)]),
+    ),
+    resolve: { tsconfigPaths: true },
+    plugins: [
+      devCrashGuard(),
+      tailwindcss(),
+      executorVitePlugin(),
+      cloudflare({ viteEnvironment: { name: "ssr" }, inspectorPort: false }),
+      tanstackStart(),
+      react(),
+    ],
+  };
 });
