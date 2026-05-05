@@ -132,11 +132,16 @@ export default function executorVitePlugin(
     const jsoncPath = resolveJsoncPath();
     const fromDir = configPath ? dirname(configPath) : projectRoot;
 
-    // Collect packageNames in priority order: static config first,
+    // Collect plugin entries in priority order: static config first,
     // jsonc second. De-duplicate by package name — if both list the
     // same plugin, only one import is emitted. (Static wins for the
     // ordering of `plugins` array, which matters for nav order.)
-    const packageNames: string[] = [];
+    //
+    // `clientConfig` only flows in via the static config path: it
+    // lives on the runtime `PluginSpec` returned by
+    // `definePlugin(...)`, which is only available when we jiti-load
+    // the TS module. The jsonc path carries package names only.
+    const entries: Array<{ readonly pkg: string; readonly clientConfig?: unknown }> = [];
     const seen = new Set<string>();
 
     if (configPath) {
@@ -156,7 +161,11 @@ export default function executorVitePlugin(
         if (!spec.packageName) continue;
         if (seen.has(spec.packageName)) continue;
         seen.add(spec.packageName);
-        packageNames.push(spec.packageName);
+        const clientConfig = (spec as { clientConfig?: unknown }).clientConfig;
+        entries.push({
+          pkg: spec.packageName,
+          ...(clientConfig !== undefined ? { clientConfig } : {}),
+        });
       }
     }
 
@@ -164,15 +173,15 @@ export default function executorVitePlugin(
       for (const pkg of readJsoncPlugins(jsoncPath)) {
         if (seen.has(pkg)) continue;
         seen.add(pkg);
-        packageNames.push(pkg);
+        entries.push({ pkg });
       }
     }
 
     const lines: string[] = [];
-    const exportNames: string[] = [];
+    const exportExpressions: string[] = [];
 
-    for (const pkg of packageNames) {
-      const resolved = tryResolveClient(pkg, fromDir);
+    for (const entry of entries) {
+      const resolved = tryResolveClient(entry.pkg, fromDir);
       if (!resolved) {
         // package was listed but didn't resolve. Likely culprits:
         // a typo, a package that hasn't published `./client` in its
@@ -180,22 +189,31 @@ export default function executorVitePlugin(
         // loudly so the dev sees their plugin's UI is missing instead
         // of silently shipping a host without it.
         console.warn(
-          `[@executor-js/vite-plugin] plugin package "${pkg}" listed but ` +
-            `${pkg}/client could not be resolved from ${fromDir}. The ` +
+          `[@executor-js/vite-plugin] plugin package "${entry.pkg}" listed but ` +
+            `${entry.pkg}/client could not be resolved from ${fromDir}. The ` +
             `plugin's UI will not be bundled. Check that the package is ` +
             `installed and exports a \`./client\` subpath in its ` +
             `package.json.`,
         );
         continue;
       }
-      const ident = `__executor_plugin_${exportNames.length}`;
-      lines.push(`import ${ident} from ${JSON.stringify(`${pkg}/client`)};`);
-      exportNames.push(ident);
+      const ident = `__executor_plugin_${exportExpressions.length}`;
+      lines.push(`import ${ident} from ${JSON.stringify(`${entry.pkg}/client`)};`);
+      // Plugins that surface a `clientConfig` default-export a factory
+      // `(config?) => ClientPluginSpec`; everyone else default-exports
+      // a bare `ClientPluginSpec` value. We emit a call only when we
+      // have config to thread through, so existing plugins need no
+      // changes to keep working.
+      exportExpressions.push(
+        entry.clientConfig !== undefined
+          ? `${ident}(${JSON.stringify(entry.clientConfig)})`
+          : ident,
+      );
     }
 
     cachedSource =
       `${lines.join("\n")}\n` +
-      `export const plugins = [${exportNames.join(", ")}];\n`;
+      `export const plugins = [${exportExpressions.join(", ")}];\n`;
     return cachedSource;
   };
 

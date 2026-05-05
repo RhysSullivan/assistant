@@ -438,6 +438,12 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
   return {
     id: "mcp" as const,
     packageName: "@executor-js/plugin-mcp",
+    // Surfaced to the client bundle via the Vite plugin (see
+    // `@executor-js/vite-plugin`). The MCP `./client` factory reads
+    // `allowStdio` and gates the stdio tab + presets in AddMcpSource —
+    // so the server's `dangerouslyAllowStdioMCP` flag is the single
+    // source of truth for both runtime and UI.
+    clientConfig: { allowStdio },
     schema: mcpSchema,
     storage: (deps): McpBindingStore => makeMcpStore(deps),
 
