@@ -15,8 +15,6 @@ export class SlackError extends Data.TaggedError("SlackError")<{
 export type ISlackService = Readonly<{
   createConnectInvite: (input: {
     email: string;
-    name?: string;
-    note?: string;
     organization?: string;
   }) => Effect.Effect<
     {
@@ -27,8 +25,8 @@ export type ISlackService = Readonly<{
   >;
 }>;
 
-const slugifyEmail = (email: string): string =>
-  email
+const slugify = (s: string): string =>
+  s
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
@@ -79,13 +77,13 @@ const make = Effect.sync(() => {
 
   const createConnectInvite: ISlackService["createConnectInvite"] = ({
     email,
-    name,
-    note,
     organization,
   }) =>
     Effect.gen(function* () {
-      // Slack channel names: lowercase, no spaces, max 80 chars, unique per workspace.
-      const baseName = `shared-${slugifyEmail(email)}`.slice(0, 80);
+      // Slack channel names: lowercase, no spaces, max 80 chars, unique per
+      // workspace. Use the org name when available; fall back to the email
+      // local-part for unauthenticated submissions.
+      const baseName = slugify(organization ?? email).slice(0, 80) || "contact";
       const tryCreate = (n: string) =>
         call<SlackResponse & { channel: { id: string; name: string } }>(
           "conversations.create",
@@ -101,27 +99,18 @@ const make = Effect.sync(() => {
       );
       const channel = created.channel;
 
-      const helloLines = [
-        `:wave: New contact from pricing page: ${email}`,
-        name ? `Name: ${name}` : null,
-        organization ? `Org: ${organization}` : null,
-        note ? `Note: ${note}` : null,
-      ].filter(Boolean) as string[];
-
-      yield* call<SlackResponse>("chat.postMessage", {
-        channel: channel.id,
-        text: helloLines.join("\n"),
-      });
-
       const invite = yield* call<SlackResponse & { invite_id: string; url: string }>(
         "conversations.inviteShared",
         {
           channel: channel.id,
           emails: [email],
-          // `external_limited: true` scopes the guest to just this channel,
-          // which is what we want for a focused 1:1 support conversation.
-          external_limited: true,
         },
+      );
+
+      // Best-effort: leave the channel so the bot doesn't sit in every
+      // contact channel forever. Don't fail the request if leave errors.
+      yield* call<SlackResponse>("conversations.leave", { channel: channel.id }).pipe(
+        Effect.ignore,
       );
 
       return {

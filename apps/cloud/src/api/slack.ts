@@ -11,29 +11,6 @@ import {
 
 const isValidEmail = (s: string): boolean => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
 
-const verifyTurnstile = (token: string, remoteIp: string | null) =>
-  Effect.tryPromise({
-    try: async () => {
-      const secret = env.TURNSTILE_SECRET_KEY;
-      if (!secret) {
-        // Turnstile is unconfigured — fail closed in prod, but allow dev to
-        // boot without it. We treat empty secret as "skip" so the form works
-        // before secrets are wired; remove this branch once you've set the
-        // secret in every environment.
-        return { success: true, skipped: true };
-      }
-      const form = new URLSearchParams({ secret, response: token });
-      if (remoteIp) form.set("remoteip", remoteIp);
-      const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-        method: "POST",
-        body: form,
-      });
-      const json = (await res.json()) as { success: boolean; "error-codes"?: string[] };
-      return { success: json.success, errorCodes: json["error-codes"] ?? [] };
-    },
-    catch: (cause) => ({ success: false as const, fetchError: String(cause) }),
-  });
-
 const handler = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
 
@@ -57,20 +34,14 @@ const handler = Effect.gen(function* () {
       }),
   )) as {
     email?: unknown;
-    name?: unknown;
-    note?: unknown;
     organization?: unknown;
-    turnstileToken?: unknown;
   };
 
   const trimmed = (v: unknown, max: number): string | undefined =>
     typeof v === "string" && v.trim().length > 0 ? v.trim().slice(0, max) : undefined;
 
   const email = typeof body.email === "string" ? body.email.trim() : "";
-  const name = trimmed(body.name, 200);
-  const note = trimmed(body.note, 2000);
   const organization = trimmed(body.organization, 200);
-  const turnstileToken = typeof body.turnstileToken === "string" ? body.turnstileToken : "";
 
   if (!isValidEmail(email)) {
     return yield* Effect.fail(
@@ -82,32 +53,8 @@ const handler = Effect.gen(function* () {
     );
   }
 
-  if (!turnstileToken) {
-    return yield* Effect.fail(
-      new HttpResponseError({
-        status: 400,
-        code: "captcha_required",
-        message: "Captcha verification is required.",
-      }),
-    );
-  }
-
-  const remoteIp = request.headers["cf-connecting-ip"] ?? null;
-  const verification = yield* verifyTurnstile(turnstileToken, remoteIp);
-  if (!verification.success) {
-    console.error("[slack] turnstile verification failed:", verification);
-    return yield* Effect.fail(
-      new HttpResponseError({
-        status: 403,
-        code: "captcha_failed",
-        message: "Captcha verification failed. Please try again.",
-      }),
-    );
-  }
-
-  // Global daily channel-creation cap — bounds the worst case if Turnstile is
-  // bypassed somehow. Per-IP gating belongs at the edge (Cloudflare Rules);
-  // this binding is a single shared bucket keyed at "global".
+  // Global rate limit — single shared bucket keyed at "global". Per-IP gating
+  // belongs at the edge (Cloudflare Rules).
   const limit = yield* Effect.tryPromise({
     try: () => env.SLACK_INVITE_LIMITER.limit({ key: "global" }),
     catch: (cause) => ({ success: false as const, fetchError: String(cause) }),
@@ -124,7 +71,7 @@ const handler = Effect.gen(function* () {
   }
 
   const slack = yield* SlackService;
-  const { invite } = yield* slack.createConnectInvite({ email, name, note, organization }).pipe(
+  const { invite } = yield* slack.createConnectInvite({ email, organization }).pipe(
     Effect.tapError((err) =>
       Effect.sync(() => {
         console.error(`[slack] ${err.method} failed:`, err.error);
