@@ -26,8 +26,14 @@ if (typeof window !== "undefined" && import.meta.env.VITE_PUBLIC_SENTRY_DSN) {
 }
 
 if (typeof window !== "undefined" && import.meta.env.VITE_PUBLIC_POSTHOG_KEY) {
+  const analyticsPath = (import.meta.env.VITE_PUBLIC_ANALYTICS_PATH ?? "a").replace(
+    /^\/+|\/+$/g,
+    "",
+  );
+
   posthog.init(import.meta.env.VITE_PUBLIC_POSTHOG_KEY, {
-    api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST ?? `${window.location.origin}/ingest`,
+    api_host:
+      import.meta.env.VITE_PUBLIC_POSTHOG_HOST ?? `${window.location.origin}/api/${analyticsPath}`,
     ui_host: "https://us.posthog.com",
     defaults: "2025-05-24",
     person_profiles: "identified_only",
