@@ -1,4 +1,4 @@
-import { Effect, Match } from "effect";
+import { Effect, Match, Option, Schema } from "effect";
 import * as Cause from "effect/Cause";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {
@@ -112,6 +112,29 @@ type ElicitInputParams =
     }
   | { mode: "url"; message: string; url: string; elicitationId: string };
 
+type ElicitationRequestSnapshot = {
+  readonly requestTag: "FormElicitation" | "UrlElicitation";
+  readonly message: string;
+  readonly hasRequestedSchema: boolean;
+  readonly url?: string;
+};
+
+const elicitationRequestSnapshot: (request: ElicitationRequest) => ElicitationRequestSnapshot =
+  Match.type<ElicitationRequest>().pipe(
+    Match.tag("UrlElicitation", (req) => ({
+      requestTag: "UrlElicitation" as const,
+      message: req.message,
+      hasRequestedSchema: false,
+      url: req.url,
+    })),
+    Match.tag("FormElicitation", (req) => ({
+      requestTag: "FormElicitation" as const,
+      message: req.message,
+      hasRequestedSchema: Object.keys(req.requestedSchema).length > 0,
+    })),
+    Match.exhaustive,
+  );
+
 const elicitationRequestToParams: (request: ElicitationRequest) => ElicitInputParams =
   Match.type<ElicitationRequest>().pipe(
     Match.tag("UrlElicitation", (req) => ({
@@ -133,6 +156,41 @@ const elicitationRequestToParams: (request: ElicitationRequest) => ElicitInputPa
     Match.exhaustive,
   );
 
+const elicitationRequestFallbackParams: (
+  request: ElicitationRequest,
+  supportsUrl: boolean,
+) => ElicitInputParams = (request, supportsUrl) =>
+  Match.value(request).pipe(
+    Match.tag("UrlElicitation", (req) =>
+      supportsUrl
+        ? elicitationRequestToParams(req)
+        : {
+            message: `${req.message}\n\nPlease visit this URL:\n${req.url}\n\nClick accept once you have completed the flow.`,
+            requestedSchema: { type: "object" as const, properties: {} },
+          },
+    ),
+    Match.tag("FormElicitation", (req) => elicitationRequestToParams(req)),
+    Match.exhaustive,
+  );
+
+type BoundaryErrorLog = {
+  readonly name?: string;
+  readonly message: string;
+  readonly stack?: string;
+};
+
+const formatBoundaryError = (error: unknown): BoundaryErrorLog => {
+  // oxlint-disable-next-line executor/no-instanceof-error, executor/no-unknown-error-message, executor/no-unknown-error-stack, executor/no-unknown-error-name -- boundary: MCP SDK promise rejection is unknown and normalized into a stable debug/log payload
+  if (error instanceof Error)
+    // oxlint-disable-next-line executor/no-unknown-error-message, executor/no-unknown-error-stack, executor/no-unknown-error-name -- boundary: MCP SDK promise rejection is unknown and normalized into a stable debug/log payload
+    return { name: error.name, message: error.message, stack: error.stack };
+  // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: MCP SDK promise rejection is unknown and normalized into a stable debug/log payload
+  return { message: String(error) };
+};
+
+const interactionKind = (request: ElicitationRequest): ElicitationRequestSnapshot["requestTag"] =>
+  elicitationRequestSnapshot(request).requestTag;
+
 const makeMcpElicitationHandler =
   (
     server: McpServer,
@@ -140,36 +198,25 @@ const makeMcpElicitationHandler =
   ): ElicitationHandler =>
   (ctx: ElicitationContext): Effect.Effect<typeof ElicitationResponse.Type> => {
     const { url: supportsUrl } = getElicitationSupport(server);
+    const requestSnapshot = elicitationRequestSnapshot(ctx.request);
+    const params = elicitationRequestFallbackParams(ctx.request, supportsUrl);
 
-    // If client doesn't support url mode, fall back to a form asking the user
-    // to visit the URL manually and confirm when done.
-    const params =
-      ctx.request._tag === "UrlElicitation" && !supportsUrl
-        ? {
-            message: `${ctx.request.message}\n\nPlease visit this URL:\n${ctx.request.url}\n\nClick accept once you have completed the flow.`,
-            requestedSchema: { type: "object" as const, properties: {} },
-          }
-        : elicitationRequestToParams(ctx.request);
-
-    return Effect.promise(async (): Promise<typeof ElicitationResponse.Type> => {
-      debugLog?.("elicitation.request", {
-        requestTag: ctx.request._tag,
-        supportsUrl,
-        message: ctx.request.message,
-        hasRequestedSchema:
-          ctx.request._tag === "FormElicitation"
-            ? Object.keys(ctx.request.requestedSchema).length > 0
-            : false,
-        url: ctx.request._tag === "UrlElicitation" ? ctx.request.url : undefined,
-        clientCapabilities: server.server.getClientCapabilities() ?? null,
-      });
-      try {
+    return Effect.tryPromise({
+      try: async (): Promise<typeof ElicitationResponse.Type> => {
+        debugLog?.("elicitation.request", {
+          requestTag: requestSnapshot.requestTag,
+          supportsUrl,
+          message: requestSnapshot.message,
+          hasRequestedSchema: requestSnapshot.hasRequestedSchema,
+          url: requestSnapshot.url,
+          clientCapabilities: server.server.getClientCapabilities() ?? null,
+        });
         const response = await server.server.elicitInput(
           params as Parameters<typeof server.server.elicitInput>[0],
         );
 
         debugLog?.("elicitation.response", {
-          requestTag: ctx.request._tag,
+          requestTag: requestSnapshot.requestTag,
           action: response.action,
           hasContent:
             typeof response.content === "object" &&
@@ -181,26 +228,28 @@ const makeMcpElicitationHandler =
           action: response.action as typeof ElicitationResponse.Type.action,
           content: response.content,
         };
-      } catch (err) {
-        debugLog?.("elicitation.error", {
-          requestTag: ctx.request._tag,
-          error:
-            err instanceof Error
-              ? { name: err.name, message: err.message, stack: err.stack }
-              : { message: String(err) },
-          clientCapabilities: server.server.getClientCapabilities() ?? null,
-        });
-        console.error(
-          "[executor] elicitInput failed — falling back to cancel.",
-          JSON.stringify({
-            error: err instanceof Error ? err.message : String(err),
-            requestTag: ctx.request._tag,
-            ...capabilitySnapshot(server),
-          }),
-        );
-        return { action: "cancel" as const } as ElicitationResponse;
-      }
-    });
+      },
+      catch: formatBoundaryError,
+    }).pipe(
+      Effect.catch((boundaryLog: BoundaryErrorLog) =>
+        Effect.sync(() => {
+          debugLog?.("elicitation.error", {
+            requestTag: requestSnapshot.requestTag,
+            error: boundaryLog,
+            clientCapabilities: server.server.getClientCapabilities() ?? null,
+          });
+          console.error(
+            "[executor] elicitInput failed — falling back to cancel.",
+            JSON.stringify({
+              error: boundaryLog.message,
+              requestTag: requestSnapshot.requestTag,
+              ...capabilitySnapshot(server),
+            }),
+          );
+          return { action: "cancel" as const } as ElicitationResponse;
+        }),
+      ),
+    );
   };
 
 // ---------------------------------------------------------------------------
@@ -224,15 +273,16 @@ const toMcpPausedResult = (formatted: ReturnType<typeof formatPausedExecution>):
   structuredContent: formatted.structured,
 });
 
-const formatFailureMessage = (value: unknown): string | null => {
-  if (value instanceof Error) return value.message;
-  if (typeof value === "object" && value !== null && "message" in value) {
-    const message = (value as { readonly message?: unknown }).message;
-    if (typeof message === "string" && message.length > 0) return message;
-  }
-  if (typeof value === "string" && value.length > 0) return value;
-  return null;
-};
+const FailureMessageValue = Schema.Union([
+  Schema.NonEmptyString,
+  Schema.Struct({ message: Schema.NonEmptyString }),
+]);
+
+const formatFailureMessage = (value: unknown): string | null =>
+  Schema.decodeUnknownOption(FailureMessageValue)(value).pipe(
+    Option.map((parsed) => (typeof parsed === "string" ? parsed : parsed.message)),
+    Option.getOrNull,
+  );
 
 const toMcpFailureResult = (cause: Cause.Cause<unknown>): McpToolResult => {
   const failure = cause.reasons.find(Cause.isFailReason);
@@ -246,17 +296,15 @@ const toMcpFailureResult = (cause: Cause.Cause<unknown>): McpToolResult => {
   };
 };
 
+const JsonObjectContent = Schema.Record(Schema.String, Schema.Unknown);
+const decodeJsonObjectContent = Schema.decodeUnknownOption(JsonObjectContent);
+
 const parseJsonContent = (raw: string): Record<string, unknown> | undefined => {
   if (raw === "{}") return undefined;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : undefined;
+  return Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(raw).pipe(
+    Option.flatMap(decodeJsonObjectContent),
+    Option.getOrUndefined,
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -270,9 +318,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     const engine = "engine" in config ? config.engine : createExecutionEngine(config);
     const description =
       config.description ??
-      (yield* engine.getDescription.pipe(
-        Effect.withSpan("mcp.host.get_description"),
-      ));
+      (yield* engine.getDescription.pipe(Effect.withSpan("mcp.host.get_description")));
 
     // Captured at construction time. SDK callbacks fire later (often
     // deferred past the outer Effect's await), so we use the runtime to
@@ -281,6 +327,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     const debugEnabled = config.debug ?? readDebugDefault();
     const debugLog = (event: string, data: Record<string, unknown>) => {
       if (!debugEnabled) return;
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: debug logging must not fail MCP host callbacks if payload serialization throws
       try {
         console.error(`[executor:mcp] ${event} ${JSON.stringify(data)}`);
       } catch {
@@ -299,9 +346,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     const runToolEffect = <EffE>(effect: Effect.Effect<McpToolResult, EffE>) =>
       Effect.runPromiseWith(context)(
         anchor(effect).pipe(
-          Effect.catchCause((cause) =>
-            Effect.succeed(toMcpFailureResult(cause)),
-          ),
+          Effect.catchCause((cause) => Effect.succeed(toMcpFailureResult(cause))),
         ),
       );
 
@@ -336,7 +381,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           executionId: outcome.status === "paused" ? outcome.execution.id : undefined,
           interactionKind:
             outcome.status === "paused"
-              ? outcome.execution.elicitationContext.request._tag
+              ? interactionKind(outcome.execution.elicitationContext.request)
               : undefined,
         });
         return outcome.status === "completed"
@@ -367,9 +412,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         if (!outcome) {
           debugLog("resume.missing_execution", { executionId });
           return {
-            content: [
-              { type: "text" as const, text: `No paused execution: ${executionId}` },
-            ],
+            content: [{ type: "text" as const, text: `No paused execution: ${executionId}` }],
             isError: true,
           } satisfies McpToolResult;
         }
@@ -379,7 +422,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           nextExecutionId: outcome.status === "paused" ? outcome.execution.id : undefined,
           interactionKind:
             outcome.status === "paused"
-              ? outcome.execution.elicitationContext.request._tag
+              ? interactionKind(outcome.execution.elicitationContext.request)
               : undefined,
         });
         return outcome.status === "completed"
