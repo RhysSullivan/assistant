@@ -7,6 +7,7 @@ import { GraphqlExtensionService, GraphqlHandlers } from "../api/handlers";
 
 import {
   definePlugin,
+  type PluginCtx,
   ScopeId,
   SourceDetectionResult,
   Usage,
@@ -104,55 +105,14 @@ export type GraphqlExtensionFailure =
   | GraphqlExtractionError
   | StorageFailure;
 
-export interface GraphqlPluginExtension {
-  /** Add a GraphQL endpoint and register its operations as tools */
-  readonly addSource: (
-    config: GraphqlSourceConfig,
-  ) => Effect.Effect<
-    { readonly toolCount: number; readonly namespace: string },
-    GraphqlExtensionFailure
-  >;
-
-  /** Remove all tools from a previously added GraphQL source by namespace.
-   *  `scope` pins the cleanup to the exact row — without it a shadowed
-   *  outer-scope source with the same namespace could be wiped instead. */
-  readonly removeSource: (
-    namespace: string,
-    scope: string,
-  ) => Effect.Effect<void, StorageFailure>;
-
-  /** Fetch the full stored source by namespace (or null if missing).
-   *  `scope` returns the exact row at that scope. For fall-through
-   *  reads across the executor's scope stack, use `executor.sources.*`. */
-  readonly getSource: (
-    namespace: string,
-    scope: string,
-  ) => Effect.Effect<StoredGraphqlSource | null, StorageFailure>;
-
-  /** Update config (endpoint, headers) for an existing GraphQL source.
-   *  Does NOT re-introspect or re-register tools — just patches the
-   *  stored endpoint/headers used at invoke time. `scope` pins the
-   *  mutation to a single row so shadowed rows at other scopes are
-   *  untouched. */
-  readonly updateSource: (
-    namespace: string,
-    scope: string,
-    input: GraphqlUpdateSourceInput,
-  ) => Effect.Effect<void, StorageFailure>;
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /** Derive a namespace from an endpoint URL */
 const namespaceFromEndpoint = (endpoint: string): string => {
-  try {
-    const url = new URL(endpoint);
-    return url.hostname.replace(/[^a-z0-9]+/gi, "_").toLowerCase();
-  } catch {
-    return "graphql";
-  }
+  if (!URL.canParse(endpoint)) return "graphql";
+  return new URL(endpoint).hostname.replace(/[^a-z0-9]+/gi, "_").toLowerCase();
 };
 
 const formatTypeRef = (ref: IntrospectionTypeRef): string => {
@@ -300,6 +260,178 @@ const annotationsFor = (binding: OperationBinding): ToolAnnotations => {
   return {};
 };
 
+const makeGraphqlPluginExtension = (
+  ctx: PluginCtx<GraphqlStore>,
+  options: {
+    readonly httpClientLayer: Layer.Layer<HttpClient.HttpClient>;
+    readonly configFile?: ConfigFileSink;
+  },
+) => {
+  const httpClientLayer = options.httpClientLayer;
+  const configFile = options.configFile;
+
+  const resolveConfigValues = (
+    values: Record<string, HeaderValue> | undefined,
+  ) =>
+    Effect.gen(function* () {
+      if (!values) return undefined;
+      const resolved = yield* resolveHeaders(values, ctx.secrets);
+      return Object.keys(resolved).length > 0 ? resolved : undefined;
+    });
+
+  const resolveOAuthHeader = (auth: GraphqlSourceAuth | undefined) =>
+    Effect.gen(function* () {
+      if (!auth || auth.kind === "none") return undefined;
+      const accessToken = yield* ctx.connections
+        .accessToken(auth.connectionId)
+        .pipe(
+          Effect.mapError(
+            () =>
+              new GraphqlIntrospectionError({
+                message: `Failed to resolve OAuth connection "${auth.connectionId}"`,
+              }),
+          ),
+        );
+      return { Authorization: `Bearer ${accessToken}` };
+    });
+
+  const resolveRequestHeaders = (
+    headers: Record<string, HeaderValue> | undefined,
+    auth: GraphqlSourceAuth | undefined,
+  ) =>
+    Effect.gen(function* () {
+      const resolvedHeaders = yield* resolveConfigValues(headers);
+      const oauthHeader = yield* resolveOAuthHeader(auth);
+      return { ...(resolvedHeaders ?? {}), ...(oauthHeader ?? {}) };
+    });
+
+  const addSourceInternal = (config: GraphqlSourceConfig) =>
+    ctx.transaction(
+      Effect.gen(function* () {
+        let introspectionResult: IntrospectionResult;
+        if (config.introspectionJson) {
+          introspectionResult = yield* parseIntrospectionJson(
+            config.introspectionJson,
+          );
+        } else {
+          const resolvedHeaders = yield* resolveRequestHeaders(
+            config.headers,
+            config.auth,
+          );
+          const resolvedQueryParams = yield* resolveConfigValues(
+            config.queryParams,
+          );
+          introspectionResult = yield* introspect(
+            config.endpoint,
+            Object.keys(resolvedHeaders).length > 0
+              ? resolvedHeaders
+              : undefined,
+            resolvedQueryParams,
+          ).pipe(Effect.provide(httpClientLayer));
+        }
+
+        const { result, definitions } = yield* extract(introspectionResult);
+        const namespace =
+          config.namespace ?? namespaceFromEndpoint(config.endpoint);
+        const prepared = prepareOperations(result.fields, introspectionResult);
+
+        const displayName = config.name?.trim() || namespace;
+
+        // Persist the source + per-operation bindings first so any
+        // subsequent core-source register collision rolls back both.
+        const storedSource: StoredGraphqlSource = {
+          namespace,
+          scope: config.scope,
+          name: displayName,
+          endpoint: config.endpoint,
+          headers: config.headers ?? {},
+          queryParams: config.queryParams ?? {},
+          auth: config.auth ?? { kind: "none" },
+        };
+
+        const storedOps: StoredOperation[] = prepared.map((p) => ({
+          toolId: `${namespace}.${p.toolPath}`,
+          sourceId: namespace,
+          binding: p.binding,
+        }));
+
+        yield* ctx.storage.upsertSource(storedSource, storedOps);
+
+        yield* ctx.core.sources.register({
+          id: namespace,
+          scope: config.scope,
+          kind: "graphql",
+          name: displayName,
+          url: config.endpoint,
+          canRemove: true,
+          canRefresh: false,
+          canEdit: true,
+          tools: prepared.map((p) => ({
+            name: p.toolPath,
+            description: p.description,
+            inputSchema: p.inputSchema,
+          })),
+        });
+
+        if (Object.keys(definitions).length > 0) {
+          yield* ctx.core.definitions.register({
+            sourceId: namespace,
+            scope: config.scope,
+            definitions,
+          });
+        }
+
+        return { toolCount: prepared.length, namespace };
+      }),
+    );
+
+  return {
+    addSource: (config: GraphqlSourceConfig) =>
+      addSourceInternal(config).pipe(
+        Effect.tap((result) =>
+          configFile
+            ? configFile.upsertSource(
+                toGraphqlConfigEntry(result.namespace, config),
+              )
+            : Effect.void,
+        ),
+      ),
+
+    removeSource: (namespace: string, scope: string) =>
+      Effect.gen(function* () {
+        yield* ctx.transaction(
+          Effect.gen(function* () {
+            yield* ctx.storage.removeSource(namespace, scope);
+            yield* ctx.core.sources.unregister(namespace);
+          }),
+        );
+        if (configFile) {
+          yield* configFile.removeSource(namespace);
+        }
+      }),
+
+    getSource: (namespace: string, scope: string) =>
+      ctx.storage.getSource(namespace, scope),
+
+    updateSource: (
+      namespace: string,
+      scope: string,
+      input: GraphqlUpdateSourceInput,
+    ) =>
+      ctx.storage.updateSourceMeta(namespace, scope, {
+        name: input.name?.trim() || undefined,
+        endpoint: input.endpoint,
+        headers: input.headers,
+        queryParams: input.queryParams,
+        auth: input.auth,
+      }),
+  };
+};
+
+export type GraphqlPluginExtension = ReturnType<
+  typeof makeGraphqlPluginExtension
+>;
+
 // ---------------------------------------------------------------------------
 // Plugin factory
 // ---------------------------------------------------------------------------
@@ -331,169 +463,11 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
     schema: graphqlSchema,
     storage: (deps): GraphqlStore => makeDefaultGraphqlStore(deps),
 
-    extension: (ctx) => {
-      const resolveConfigValues = (
-        values: Record<string, HeaderValue> | undefined,
-      ) =>
-        Effect.gen(function* () {
-          if (!values) return undefined;
-          const resolved = yield* resolveHeaders(values, ctx.secrets);
-          return Object.keys(resolved).length > 0 ? resolved : undefined;
-        });
-
-      const resolveOAuthHeader = (auth: GraphqlSourceAuth | undefined) =>
-        Effect.gen(function* () {
-          if (!auth || auth.kind === "none") return undefined;
-          const accessToken = yield* ctx.connections
-            .accessToken(auth.connectionId)
-            .pipe(
-              Effect.mapError(
-                (err) =>
-                  new GraphqlIntrospectionError({
-                    message: `Failed to resolve OAuth connection "${auth.connectionId}": ${
-                      "message" in err
-                        ? (err as { message: string }).message
-                        : String(err)
-                    }`,
-                  }),
-              ),
-            );
-          return { Authorization: `Bearer ${accessToken}` };
-        });
-
-      const resolveRequestHeaders = (
-        headers: Record<string, HeaderValue> | undefined,
-        auth: GraphqlSourceAuth | undefined,
-      ) =>
-        Effect.gen(function* () {
-          const resolvedHeaders = yield* resolveConfigValues(headers);
-          const oauthHeader = yield* resolveOAuthHeader(auth);
-          return { ...(resolvedHeaders ?? {}), ...(oauthHeader ?? {}) };
-        });
-
-      const addSourceInternal = (config: GraphqlSourceConfig) =>
-        ctx.transaction(
-          Effect.gen(function* () {
-            let introspectionResult: IntrospectionResult;
-            if (config.introspectionJson) {
-              introspectionResult = yield* parseIntrospectionJson(
-                config.introspectionJson,
-              );
-            } else {
-              const resolvedHeaders = yield* resolveRequestHeaders(
-                config.headers,
-                config.auth,
-              );
-              const resolvedQueryParams = yield* resolveConfigValues(
-                config.queryParams,
-              );
-              introspectionResult = yield* introspect(
-                config.endpoint,
-                Object.keys(resolvedHeaders).length > 0
-                  ? resolvedHeaders
-                  : undefined,
-                resolvedQueryParams,
-              ).pipe(Effect.provide(httpClientLayer));
-            }
-
-            const { result, definitions } = yield* extract(introspectionResult);
-            const namespace =
-              config.namespace ?? namespaceFromEndpoint(config.endpoint);
-            const prepared = prepareOperations(
-              result.fields,
-              introspectionResult,
-            );
-
-            const displayName = config.name?.trim() || namespace;
-
-            // Persist the source + per-operation bindings first so any
-            // subsequent core-source register collision rolls back both.
-            const storedSource: StoredGraphqlSource = {
-              namespace,
-              scope: config.scope,
-              name: displayName,
-              endpoint: config.endpoint,
-              headers: config.headers ?? {},
-              queryParams: config.queryParams ?? {},
-              auth: config.auth ?? { kind: "none" },
-            };
-
-            const storedOps: StoredOperation[] = prepared.map((p) => ({
-              toolId: `${namespace}.${p.toolPath}`,
-              sourceId: namespace,
-              binding: p.binding,
-            }));
-
-            yield* ctx.storage.upsertSource(storedSource, storedOps);
-
-            yield* ctx.core.sources.register({
-              id: namespace,
-              scope: config.scope,
-              kind: "graphql",
-              name: displayName,
-              url: config.endpoint,
-              canRemove: true,
-              canRefresh: false,
-              canEdit: true,
-              tools: prepared.map((p) => ({
-                name: p.toolPath,
-                description: p.description,
-                inputSchema: p.inputSchema,
-              })),
-            });
-
-            if (Object.keys(definitions).length > 0) {
-              yield* ctx.core.definitions.register({
-                sourceId: namespace,
-                scope: config.scope,
-                definitions,
-              });
-            }
-
-            return { toolCount: prepared.length, namespace };
-          }),
-        );
-
-      const configFile = options?.configFile;
-
-      return {
-        addSource: (config) =>
-          addSourceInternal(config).pipe(
-            Effect.tap((result) =>
-              configFile
-                ? configFile.upsertSource(
-                    toGraphqlConfigEntry(result.namespace, config),
-                  )
-                : Effect.void,
-            ),
-          ),
-
-        removeSource: (namespace, scope) =>
-          Effect.gen(function* () {
-            yield* ctx.transaction(
-              Effect.gen(function* () {
-                yield* ctx.storage.removeSource(namespace, scope);
-                yield* ctx.core.sources.unregister(namespace);
-              }),
-            );
-            if (configFile) {
-              yield* configFile.removeSource(namespace);
-            }
-          }),
-
-        getSource: (namespace, scope) =>
-          ctx.storage.getSource(namespace, scope),
-
-        updateSource: (namespace, scope, input) =>
-          ctx.storage.updateSourceMeta(namespace, scope, {
-            name: input.name?.trim() || undefined,
-            endpoint: input.endpoint,
-            headers: input.headers,
-            queryParams: input.queryParams,
-            auth: input.auth,
-          }),
-      } satisfies GraphqlPluginExtension;
-    },
+    extension: (ctx) =>
+      makeGraphqlPluginExtension(ctx, {
+        httpClientLayer,
+        configFile: options?.configFile,
+      }),
 
     staticSources: (self) => [
       {
@@ -533,7 +507,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
             handler: ({ ctx, args }) =>
               self.addSource({
                 ...(args as Omit<GraphqlSourceConfig, "scope">),
-                scope: ctx.scopes.at(-1)!.id as string,
+                scope: String(ctx.scopes.at(-1)!.id),
               }),
           },
         ],
@@ -547,21 +521,21 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
         // graphql_operation + graphql_source rows live at the same
         // scope, so pin every store lookup to it instead of relying
         // on the scoped adapter's stack-wide fall-through.
-        const toolScope = toolRow.scope_id as string;
+        const toolScope = String(toolRow.scope_id);
         const op = yield* ctx.storage.getOperationByToolId(
           toolRow.id,
           toolScope,
         );
         if (!op) {
-          return yield* Effect.fail(
-            new Error(`No GraphQL operation found for tool "${toolRow.id}"`),
-          );
+          return yield* new GraphqlIntrospectionError({
+            message: `No GraphQL operation found for tool "${toolRow.id}"`,
+          });
         }
         const source = yield* ctx.storage.getSource(op.sourceId, toolScope);
         if (!source) {
-          return yield* Effect.fail(
-            new Error(`No GraphQL source found for "${op.sourceId}"`),
-          );
+          return yield* new GraphqlIntrospectionError({
+            message: `No GraphQL source found for "${op.sourceId}"`,
+          });
         }
 
         const resolvedHeaders = yield* resolveHeaders(
@@ -601,7 +575,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
         // and we don't fall through to the wrong scope's bindings.
         const scopes = new Set<string>();
         for (const row of toolRows as readonly ToolRow[]) {
-          scopes.add(row.scope_id as string);
+          scopes.add(String(row.scope_id));
         }
         // One listOperationsBySource per scope is independent storage
         // work; run them in parallel so a shadowed source doesn't
@@ -625,7 +599,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
 
         const out: Record<string, ToolAnnotations> = {};
         for (const row of toolRows as readonly ToolRow[]) {
-          const binding = byScope.get(row.scope_id as string)?.get(row.id);
+          const binding = byScope.get(String(row.scope_id))?.get(row.id);
           if (binding) out[row.id] = annotationsFor(binding);
         }
         return out;
