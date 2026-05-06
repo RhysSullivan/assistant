@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Predicate, Schema } from "effect";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -27,11 +27,9 @@ export const xdgDataHome = (): string => {
   return path.join(process.env.HOME || "~", ".local", "share");
 };
 
-const authDir = (overrideDir?: string): string =>
-  overrideDir ?? path.join(xdgDataHome(), APP_NAME);
+const authDir = (overrideDir?: string): string => overrideDir ?? path.join(xdgDataHome(), APP_NAME);
 
-const authFilePath = (overrideDir?: string): string =>
-  path.join(authDir(overrideDir), "auth.json");
+const authFilePath = (overrideDir?: string): string => path.join(authDir(overrideDir), "auth.json");
 
 // ---------------------------------------------------------------------------
 // Schema for the auth file
@@ -40,60 +38,83 @@ const authFilePath = (overrideDir?: string): string =>
 //   { "web-a1b2c3d4": { "github-token": "ghp_xxx" } }
 // ---------------------------------------------------------------------------
 
-const ScopedAuthFile = Schema.Record(
-  Schema.String,
-  Schema.Record(Schema.String, Schema.String),
-);
-const decodeScopedAuthFile = Schema.decodeUnknownSync(ScopedAuthFile);
+const ScopedAuthFile = Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.String));
+const decodeScopedAuthFileJson = Schema.decodeUnknownEffect(Schema.fromJsonString(ScopedAuthFile));
 
 // ---------------------------------------------------------------------------
 // File I/O with restricted permissions
 //
-// These helpers throw on real I/O or decode failures — the provider wraps
-// every call in `Effect.try` so those throws surface as typed
-// `StorageError` on the Effect error channel. Previously `readFullFile`
-// used a blanket `try { ... } catch { return {}; }` which masked JSON
-// parse errors, schema decode failures, and permission errors as
-// "empty file", making misconfigured installs silently return null from
-// every `get`.
+// These helpers keep I/O and auth.json parsing in the Effect error channel.
+// Missing files are still treated as an empty auth file, but JSON parse
+// errors, schema decode failures, and permission errors surface as typed
+// `StorageError`s instead of silently returning null from every `get`.
 // ---------------------------------------------------------------------------
 
-const readFullFile = (filePath: string): Record<string, Record<string, string>> => {
-  if (!fs.existsSync(filePath)) return {};
-  let raw: string;
-  try {
-    raw = fs.readFileSync(filePath, "utf-8");
-  } catch (cause) {
-    // Treat "file disappeared between existsSync and readFileSync" as
-    // absence — anything else (EACCES, EISDIR, …) propagates.
-    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return {};
-    throw cause;
-  }
-  return decodeScopedAuthFile(JSON.parse(raw));
+const isEnoent = (cause: unknown): boolean =>
+  Predicate.hasProperty(cause, "code") && cause.code === "ENOENT";
+
+const readFullFile = (
+  filePath: string,
+): Effect.Effect<Record<string, Record<string, string>>, StorageError> => {
+  if (!fs.existsSync(filePath)) return Effect.succeed({});
+
+  return Effect.try({
+    try: () => fs.readFileSync(filePath, "utf-8"),
+    catch: (cause) => new StorageError({ message: "Failed to read file secrets auth file", cause }),
+  }).pipe(
+    Effect.catchIf(
+      (error) => isEnoent(error.cause),
+      () => Effect.succeed(""),
+    ),
+    Effect.flatMap((raw) =>
+      raw
+        ? decodeScopedAuthFileJson(raw).pipe(
+            Effect.mapError(
+              (cause) =>
+                new StorageError({ message: "Failed to parse file secrets auth file", cause }),
+            ),
+          )
+        : Effect.succeed({}),
+    ),
+  );
 };
 
-const readScopeSecrets = (filePath: string, scopeId: string): Record<string, string> =>
-  readFullFile(filePath)[scopeId] ?? {};
+const readScopeSecrets = (
+  filePath: string,
+  scopeId: string,
+): Effect.Effect<Record<string, string>, StorageError> =>
+  Effect.map(readFullFile(filePath), (file) => file[scopeId] ?? {});
 
 const writeScopeSecrets = (
   filePath: string,
   scopeId: string,
   secrets: Record<string, string>,
-): void => {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  }
-  const full = readFullFile(filePath);
-  if (Object.keys(secrets).length === 0) {
-    delete full[scopeId];
-  } else {
-    full[scopeId] = secrets;
-  }
-  const tmp = `${filePath}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(full, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, filePath);
-};
+): Effect.Effect<void, StorageError> =>
+  Effect.gen(function* () {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      yield* Effect.try({
+        try: () => fs.mkdirSync(dir, { recursive: true, mode: 0o700 }),
+        catch: (cause) =>
+          new StorageError({ message: "Failed to create file secrets directory", cause }),
+      });
+    }
+    const full = yield* readFullFile(filePath);
+    if (Object.keys(secrets).length === 0) {
+      delete full[scopeId];
+    } else {
+      full[scopeId] = secrets;
+    }
+    const tmp = `${filePath}.tmp`;
+    yield* Effect.try({
+      try: () => {
+        fs.writeFileSync(tmp, JSON.stringify(full, null, 2), { mode: 0o600 });
+        fs.renameSync(tmp, filePath);
+      },
+      catch: (cause) =>
+        new StorageError({ message: "Failed to write file secrets auth file", cause }),
+    });
+  });
 
 // ---------------------------------------------------------------------------
 // Plugin config
@@ -117,12 +138,6 @@ export interface FileSecretsExtension {
 // Provider factory (internal)
 // ---------------------------------------------------------------------------
 
-const toStorageError = (cause: unknown) =>
-  new StorageError({
-    message: cause instanceof Error ? cause.message : String(cause),
-    cause,
-  });
-
 // Scope arg is honored at every call: the auth.json is partitioned by
 // scope id, so read/write/delete route to `file[scope][secretId]`. The
 // provider is a singleton per executor; scope routing happens via the
@@ -133,61 +148,36 @@ const toStorageError = (cause: unknown) =>
 // the SecretProvider.list signature is scope-agnostic. That's fine for
 // the current use: `list` feeds `secrets.list()` which already walks
 // the stack at the caller layer. Innermost-first is the display default.
-const makeScopedProvider = (
-  filePath: string,
-  listScope: string,
-): SecretProvider => ({
+const makeScopedProvider = (filePath: string, listScope: string): SecretProvider => ({
   key: "file",
   writable: true,
 
   get: (secretId, scope) =>
-    Effect.try({
-      try: () => {
-        const data = readScopeSecrets(filePath, scope);
-        return data[secretId] ?? null;
-      },
-      catch: toStorageError,
-    }),
+    Effect.map(readScopeSecrets(filePath, scope), (data) => data[secretId] ?? null),
 
   has: (secretId, scope) =>
-    Effect.try({
-      try: () => {
-        const data = readScopeSecrets(filePath, scope);
-        return secretId in data;
-      },
-      catch: toStorageError,
-    }),
+    Effect.map(readScopeSecrets(filePath, scope), (data) => secretId in data),
 
   set: (secretId, value, scope) =>
-    Effect.try({
-      try: () => {
-        const data = readScopeSecrets(filePath, scope);
-        data[secretId] = value;
-        writeScopeSecrets(filePath, scope, data);
-      },
-      catch: toStorageError,
+    Effect.gen(function* () {
+      const data = yield* readScopeSecrets(filePath, scope);
+      data[secretId] = value;
+      yield* writeScopeSecrets(filePath, scope, data);
     }),
 
   delete: (secretId, scope) =>
-    Effect.try({
-      try: () => {
-        const data = readScopeSecrets(filePath, scope);
-        const had = secretId in data;
-        delete data[secretId];
-        if (had) writeScopeSecrets(filePath, scope, data);
-        return had;
-      },
-      catch: toStorageError,
+    Effect.gen(function* () {
+      const data = yield* readScopeSecrets(filePath, scope);
+      const had = secretId in data;
+      delete data[secretId];
+      if (had) yield* writeScopeSecrets(filePath, scope, data);
+      return had;
     }),
 
   list: () =>
-    Effect.try({
-      try: () => {
-        const data = readScopeSecrets(filePath, listScope);
-        return Object.keys(data).map((k) => ({ id: k, name: k }));
-      },
-      catch: toStorageError,
-    }),
+    Effect.map(readScopeSecrets(filePath, listScope), (data) =>
+      Object.keys(data).map((k) => ({ id: k, name: k })),
+    ),
 });
 
 // ---------------------------------------------------------------------------
@@ -201,19 +191,17 @@ const makeScopedProvider = (
 const resolveFilePath = (config: FileSecretsPluginConfig | undefined): string =>
   authFilePath(config?.directory);
 
-export const fileSecretsPlugin = definePlugin(
-  (options?: FileSecretsPluginConfig) => ({
-    id: "fileSecrets" as const,
-    storage: () => ({}),
+export const fileSecretsPlugin = definePlugin((options?: FileSecretsPluginConfig) => ({
+  id: "fileSecrets" as const,
+  storage: () => ({}),
 
-    extension: (_ctx): FileSecretsExtension => ({
-      filePath: resolveFilePath(options),
-    }),
-
-    secretProviders: (ctx: PluginCtx<unknown>) => [
-      // list() falls back to the innermost scope for display; per-call
-      // get/set/delete honor the scope arg threaded from the secrets facade.
-      makeScopedProvider(resolveFilePath(options), ctx.scopes[0]!.id as string),
-    ],
+  extension: (_ctx): FileSecretsExtension => ({
+    filePath: resolveFilePath(options),
   }),
-);
+
+  secretProviders: (ctx: PluginCtx<unknown>) => [
+    // list() falls back to the innermost scope for display; per-call
+    // get/set/delete honor the scope arg threaded from the secrets facade.
+    makeScopedProvider(resolveFilePath(options), ctx.scopes[0]!.id),
+  ],
+}));
