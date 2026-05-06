@@ -12,6 +12,10 @@ import { HttpMethod, ServerInfo, type ExtractionResult } from "./types";
 
 /** Scopes declared by a flow: `{ scopeName: description }` */
 const OAuth2Scopes = Schema.Record(Schema.String, Schema.String);
+const SecuritySchemeType = Schema.Literals(["http", "apiKey", "oauth2", "openIdConnect"]);
+type SecuritySchemeType = typeof SecuritySchemeType.Type;
+
+const decodeSecuritySchemeType = Schema.decodeUnknownOption(SecuritySchemeType);
 
 export class OAuth2AuthorizationCodeFlow extends Schema.Class<OAuth2AuthorizationCodeFlow>(
   "OAuth2AuthorizationCodeFlow",
@@ -43,7 +47,7 @@ export class SecurityScheme extends Schema.Class<SecurityScheme>("SecurityScheme
   /** Key name in components.securitySchemes (e.g. "api_token") */
   name: Schema.String,
   /** OpenAPI security scheme type */
-  type: Schema.Literals(["http", "apiKey", "oauth2", "openIdConnect"]),
+  type: SecuritySchemeType,
   /** For type: "http" — e.g. "bearer", "basic" */
   scheme: Schema.OptionFromOptional(Schema.String),
   /** For type: "http" with scheme "bearer" — e.g. "JWT" */
@@ -215,19 +219,20 @@ const extractSecuritySchemes = (
     if (!resolved || typeof resolved !== "object") return [];
     const scheme = resolved;
 
-    const type = scheme.type as string;
-    if (!["http", "apiKey", "oauth2", "openIdConnect"].includes(type)) return [];
+    const type = decodeSecuritySchemeType(scheme.type);
+    if (Option.isNone(type)) return [];
+    const schemeType = type.value;
 
     return [
       new SecurityScheme({
         name,
-        type: type as "http" | "apiKey" | "oauth2" | "openIdConnect",
+        type: schemeType,
         scheme: Option.fromNullishOr(scheme.scheme as string | undefined),
         bearerFormat: Option.fromNullishOr(scheme.bearerFormat as string | undefined),
         in: Option.fromNullishOr(scheme.in as "header" | "query" | "cookie" | undefined),
         headerName: Option.fromNullishOr(scheme.name as string | undefined),
         description: Option.fromNullishOr(scheme.description as string | undefined),
-        flows: type === "oauth2" ? extractFlows(scheme.flows) : Option.none(),
+        flows: schemeType === "oauth2" ? extractFlows(scheme.flows) : Option.none(),
         openIdConnectUrl: Option.fromNullishOr(
           scheme.openIdConnectUrl as string | undefined,
         ),
