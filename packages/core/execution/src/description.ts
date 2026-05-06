@@ -12,7 +12,11 @@ export const buildExecuteDescription = (executor: Executor): Effect.Effect<strin
   Effect.gen(function* () {
     const sources: readonly Source[] = yield* executor.sources
       .list()
-      .pipe(Effect.orDie, Effect.withSpan("executor.sources.list"));
+      .pipe(
+        // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: ExecutionEngine.getDescription currently exposes no error channel; engine typed-error widening is covered separately
+        Effect.orDie,
+        Effect.withSpan("executor.sources.list"),
+      );
 
     const description = yield* Effect.sync(() => formatDescription(sources)).pipe(
       Effect.withSpan("schema.compile.description", {
