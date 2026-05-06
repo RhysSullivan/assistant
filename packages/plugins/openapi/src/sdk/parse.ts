@@ -1,5 +1,5 @@
-import type { OpenAPI, OpenAPIV3, OpenAPIV3_1 } from "openapi-types";
-import { Duration, Effect } from "effect";
+import type { OpenAPIV3, OpenAPIV3_1 } from "openapi-types";
+import { Duration, Effect, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import YAML from "yaml";
 
@@ -40,9 +40,9 @@ export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (
   const response = yield* client.execute(request).pipe(
     Effect.timeout(Duration.seconds(20)),
     Effect.mapError(
-      (cause) =>
+      (_cause) =>
         new OpenApiParseError({
-          message: `Failed to fetch OpenAPI document: ${cause instanceof Error ? cause.message : String(cause)}`,
+          message: "Failed to fetch OpenAPI document",
         }),
     ),
   );
@@ -53,9 +53,9 @@ export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (
   }
   return yield* response.text.pipe(
     Effect.mapError(
-      (cause) =>
+      (_cause) =>
         new OpenApiParseError({
-          message: `Failed to read OpenAPI document body: ${cause instanceof Error ? cause.message : String(cause)}`,
+          message: "Failed to read OpenAPI document body",
         }),
     ),
   );
@@ -79,13 +79,7 @@ export const resolveSpecText = (input: string, credentials?: SpecFetchCredential
  * the 128MB Cloudflare Workers memory cap.
  */
 export const parse = Effect.fn("OpenApi.parse")(function* (text: string) {
-  const api = yield* Effect.try({
-    try: () => parseTextToObject(text),
-    catch: (error) =>
-      new OpenApiParseError({
-        message: `Failed to parse OpenAPI document: ${error instanceof Error ? error.message : String(error)}`,
-      }),
-  });
+  const api = yield* parseTextToObject(text);
 
   if (!isOpenApi3(api)) {
     return yield* new OpenApiExtractionErrorFromParse({
@@ -101,23 +95,40 @@ export const parse = Effect.fn("OpenApi.parse")(function* (text: string) {
 // Internals
 // ---------------------------------------------------------------------------
 
-const isOpenApi3 = (doc: OpenAPI.Document): doc is OpenAPIV3.Document | OpenAPIV3_1.Document =>
-  "openapi" in doc && typeof doc.openapi === "string" && doc.openapi.startsWith("3.");
+const OpenApiDocumentObject = Schema.Record(Schema.String, Schema.Unknown);
 
-const parseTextToObject = (text: string): OpenAPI.Document => {
+const JsonOpenApiDocumentObject = Schema.fromJsonString(OpenApiDocumentObject);
+
+const decodeOpenApiDocumentObject = (value: unknown) =>
+  Schema.decodeUnknownEffect(OpenApiDocumentObject)(value).pipe(
+    Effect.mapError(
+      () => new OpenApiParseError({ message: "OpenAPI document must parse to an object" }),
+    ),
+  );
+
+const isOpenApi3 = (doc: unknown): doc is OpenAPIV3.Document | OpenAPIV3_1.Document =>
+  typeof doc === "object" &&
+  doc !== null &&
+  "openapi" in doc &&
+  typeof doc.openapi === "string" &&
+  doc.openapi.startsWith("3.");
+
+const parseYamlText = (text: string) =>
+  Effect.try({
+    try: () => YAML.parse(text) as unknown,
+    catch: () => new OpenApiParseError({ message: "Failed to parse OpenAPI document" }),
+  }).pipe(Effect.flatMap(decodeOpenApiDocumentObject));
+
+const parseTextToObject = (
+  text: string,
+): Effect.Effect<Readonly<Record<string, unknown>>, OpenApiParseError> => {
   const trimmed = text.trim();
-  if (trimmed.length === 0) throw new Error("OpenAPI document is empty");
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    parsed = YAML.parse(trimmed);
+  if (trimmed.length === 0) {
+    return Effect.fail(new OpenApiParseError({ message: "OpenAPI document is empty" }));
   }
 
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("OpenAPI document must parse to an object");
-  }
-
-  return parsed as OpenAPI.Document;
+  return Schema.decodeUnknownEffect(JsonOpenApiDocumentObject)(trimmed).pipe(
+    Effect.mapError(() => new OpenApiParseError({ message: "Failed to parse OpenAPI document" })),
+    Effect.catch(() => parseYamlText(trimmed)),
+  );
 };
