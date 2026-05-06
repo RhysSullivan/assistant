@@ -30,10 +30,11 @@ const isString = (v: unknown): v is string => typeof v === "string";
 const JsonObject = Schema.Record(Schema.String, Schema.Unknown);
 const JsonObjectFromString = Schema.fromJsonString(JsonObject);
 
-const decodeUnknownOptionAs =
-  <A>(schema: Schema.Decoder<A>) =>
-  (input: unknown): Option.Option<A> =>
-    Schema.decodeUnknownOption(schema)(input);
+const decodeUnknownOptionAs = <A>(schema: Schema.Decoder<A>) => {
+  // oxlint-disable-next-line executor/no-inline-schema-compile -- schema bound by parameter; compiler hoisted into closure
+  const decode = Schema.decodeUnknownOption(schema);
+  return (input: unknown): Option.Option<A> => decode(input);
+};
 
 const decodeJsonObjectString = Schema.decodeUnknownOption(JsonObjectFromString);
 

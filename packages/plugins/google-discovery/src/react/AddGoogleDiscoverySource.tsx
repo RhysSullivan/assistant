@@ -51,15 +51,13 @@ import { GOOGLE_DISCOVERY_OAUTH_POPUP_NAME, googleDiscoveryOAuthStrategy } from 
 import { googleDiscoveryPresets, type GoogleDiscoveryPreset } from "../sdk/presets";
 
 const ErrorMessage = Schema.Struct({ message: Schema.String });
+const decodeErrorMessage = Schema.decodeUnknownOption(ErrorMessage);
 
 const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
-  Option.match(
-    Option.flatMap(Exit.findErrorOption(exit), Schema.decodeUnknownOption(ErrorMessage)),
-    {
-      onNone: () => fallback,
-      onSome: ({ message }) => message,
-    },
-  );
+  Option.match(Option.flatMap(Exit.findErrorOption(exit), decodeErrorMessage), {
+    onNone: () => fallback,
+    onSome: ({ message }) => message,
+  });
 
 type GoogleAuthKind = "none" | "oauth2";
 

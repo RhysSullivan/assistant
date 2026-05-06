@@ -15,9 +15,10 @@ export class McpJwtVerificationError extends Data.TaggedError("McpJwtVerificatio
 }> {}
 
 const JoseErrorCode = Schema.Struct({ code: Schema.String });
+const isJoseErrorCodeShape = Schema.is(JoseErrorCode);
 
 const getJoseErrorCode = (cause: unknown): string | null =>
-  Schema.is(JoseErrorCode)(cause) ? cause.code : null;
+  isJoseErrorCodeShape(cause) ? cause.code : null;
 
 const isJoseErrorCode = (code: string): boolean => code.startsWith("ERR_J");
 

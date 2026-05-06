@@ -61,8 +61,11 @@ const JsonWebKeySetPayload = Schema.Struct({
 });
 const decodeJsonWebKeySetPayload = Schema.decodeUnknownPromise(JsonWebKeySetPayload);
 
+const ErrorWithCode = Schema.Struct({ code: Schema.String });
+const isErrorWithCode = Schema.is(ErrorWithCode);
+
 const isJwksNoMatchingKey = (cause: unknown): boolean =>
-  Schema.is(Schema.Struct({ code: Schema.String }))(cause) && cause.code === JWKSNoMatchingKey.code;
+  isErrorWithCode(cause) && cause.code === JWKSNoMatchingKey.code;
 
 interface CacheEntry {
   jwks: JSONWebKeySet;

@@ -110,11 +110,17 @@ export interface StoredOperation {
   readonly binding: OperationBinding;
 }
 
+const OperationBindingFromJsonString = Schema.fromJsonString(OperationBinding);
+const decodeOperationBindingFromJsonString = Schema.decodeUnknownSync(
+  OperationBindingFromJsonString,
+);
+const decodeOperationBinding = Schema.decodeUnknownSync(OperationBinding);
+
 const decodeBinding = (value: unknown): OperationBinding => {
   if (typeof value === "string") {
-    return Schema.decodeUnknownSync(Schema.fromJsonString(OperationBinding))(value);
+    return decodeOperationBindingFromJsonString(value);
   }
-  return Schema.decodeUnknownSync(OperationBinding)(value);
+  return decodeOperationBinding(value);
 };
 
 const encodeBinding = Schema.encodeSync(OperationBinding);

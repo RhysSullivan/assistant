@@ -177,6 +177,9 @@ const GraphqlRequestSchema = Schema.Struct({
   variables: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 });
 
+const GraphqlRequestFromJson = Schema.fromJsonString(GraphqlRequestSchema);
+const decodeGraphqlRequest = Schema.decodeUnknownPromise(GraphqlRequestFromJson);
+
 const startGraphqlServer = () => {
   const requests: Array<{ readonly query: string; readonly variables: unknown }> = [];
   const server = http.createServer(async (req, res) => {
@@ -186,9 +189,7 @@ const startGraphqlServer = () => {
       return;
     }
 
-    const parsed = await Schema.decodeUnknownPromise(Schema.fromJsonString(GraphqlRequestSchema))(
-      await readBody(req),
-    );
+    const parsed = await decodeGraphqlRequest(await readBody(req));
     const query = parsed.query ?? "";
     requests.push({ query, variables: parsed.variables ?? null });
 

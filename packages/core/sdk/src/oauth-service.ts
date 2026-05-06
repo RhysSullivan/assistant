@@ -137,11 +137,15 @@ type OAuthSessionPayload = typeof OAuthSessionPayload.Type;
 const decodeSessionPayload = Schema.decodeUnknownSync(OAuthSessionPayload);
 const encodeSessionPayload = Schema.encodeSync(OAuthSessionPayload);
 
+const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown);
+const decodeUnknownJsonOption = Schema.decodeUnknownOption(UnknownFromJsonString);
+
+const decodeProviderStateSync = Schema.decodeUnknownSync(OAuthProviderStateSchema);
+const encodeProviderStateSync = Schema.encodeSync(OAuthProviderStateSchema);
+
 const coerceJson = (value: unknown): unknown => {
   if (typeof value !== "string") return value;
-  return Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))(value).pipe(
-    Option.getOrElse(() => value),
-  );
+  return decodeUnknownJsonOption(value).pipe(Option.getOrElse(() => value));
 };
 
 const stringArray = (value: unknown): readonly string[] =>
@@ -167,7 +171,7 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
   if (record && !("kind" in record) && "flow" in record && "tokenUrl" in record) {
     const flow = record.flow;
     if (flow === "authorizationCode") {
-      return Schema.decodeUnknownSync(OAuthProviderStateSchema)({
+      return decodeProviderStateSync({
         kind: "authorization-code",
         tokenEndpoint: record.tokenUrl,
         issuerUrl: originOrNull(record.authorizationEndpoint),
@@ -178,7 +182,7 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
       });
     }
     if (flow === "clientCredentials") {
-      return Schema.decodeUnknownSync(OAuthProviderStateSchema)({
+      return decodeProviderStateSync({
         kind: "client-credentials",
         tokenEndpoint: record.tokenUrl,
         clientIdSecretId: record.clientIdSecretId,
@@ -192,7 +196,7 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
 
   if (record && !("kind" in record) && "clientIdSecretId" in record && "scopes" in record) {
     const scopes = stringArray(record.scopes);
-    return Schema.decodeUnknownSync(OAuthProviderStateSchema)({
+    return decodeProviderStateSync({
       kind: "authorization-code",
       tokenEndpoint: "https://oauth2.googleapis.com/token",
       issuerUrl: "https://accounts.google.com",
@@ -208,7 +212,7 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
     const authorizationServerMetadata = isRecord(record.authorizationServerMetadata)
       ? record.authorizationServerMetadata
       : null;
-    return Schema.decodeUnknownSync(OAuthProviderStateSchema)({
+    return decodeProviderStateSync({
       kind: "dynamic-dcr",
       tokenEndpoint:
         typeof record.tokenEndpoint === "string"
@@ -233,7 +237,7 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
     });
   }
 
-  return Schema.decodeUnknownSync(OAuthProviderStateSchema)(raw);
+  return decodeProviderStateSync(raw);
 };
 
 // ---------------------------------------------------------------------------
@@ -605,10 +609,7 @@ export const makeOAuth2Service = (
             refreshToken: null,
             expiresAt,
             oauthScope: tokens.scope ?? null,
-            providerState: Schema.encodeSync(OAuthProviderStateSchema)(providerState) as Record<
-              string,
-              unknown
-            >,
+            providerState: encodeProviderStateSync(providerState) as Record<string, unknown>,
           }),
         )
         .pipe(
@@ -847,10 +848,7 @@ export const makeOAuth2Service = (
               : null,
             expiresAt: connectionExpiresAt,
             oauthScope: exchangeResult.tokens.scope ?? null,
-            providerState: Schema.encodeSync(OAuthProviderStateSchema)(providerState) as Record<
-              string,
-              unknown
-            >,
+            providerState: encodeProviderStateSync(providerState) as Record<string, unknown>,
           }),
         )
         .pipe(
@@ -1219,7 +1217,7 @@ export const makeOAuth2Service = (
           refreshToken: tokens.refresh_token,
           expiresAt,
           oauthScope: tokens.scope ?? input.oauthScope,
-          providerState: Schema.encodeSync(OAuthProviderStateSchema)({
+          providerState: encodeProviderStateSync({
             ...state,
             tokenEndpoint,
             scope: tokens.scope ?? state.scope,

@@ -287,8 +287,10 @@ const SourceNameStorageRow = Schema.Struct({
 });
 const decodeSourceNameStorageRow = Schema.decodeUnknownSync(SourceNameStorageRow);
 
+const decodeStorageString = Schema.decodeUnknownSync(Schema.String);
+
 const decodeStorageDate = (value: unknown): Date =>
-  value instanceof Date ? value : new Date(Schema.decodeUnknownSync(Schema.String)(value));
+  value instanceof Date ? value : new Date(decodeStorageString(value));
 
 interface ChildRow {
   readonly id: string;

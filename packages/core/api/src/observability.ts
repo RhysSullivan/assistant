@@ -115,12 +115,14 @@ export const capture = <A, E, R>(
  * widened `YieldableError` channel on `ExecutionEngineService` is
  * narrowed to `InternalError` before leaving the handler body.
  */
+const isInternalError = Schema.is(InternalError);
+
 export const captureEngineError = <A, R>(
   eff: Effect.Effect<A, Cause.YieldableError, R>,
 ): Effect.Effect<A, InternalError, R> =>
   eff.pipe(
     Effect.catch((err) =>
-      Schema.is(InternalError)(err)
+      isInternalError(err)
         ? Effect.fail(err)
         : resolveCapture.pipe(
             Effect.flatMap((c) => c.captureException(Cause.fail(err))),

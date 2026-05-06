@@ -53,6 +53,13 @@ const CountRow = Schema.Struct({
   n: Schema.Number,
 });
 
+const decodeBindingRows = Schema.decodeUnknownSync(Schema.Array(BindingRow));
+const decodeQueryParamRows = Schema.decodeUnknownSync(Schema.Array(QueryParamRow));
+const decodeFetchHeaderRows = Schema.decodeUnknownSync(Schema.Array(FetchHeaderRow));
+const decodeFetchQueryParamRows = Schema.decodeUnknownSync(Schema.Array(FetchQueryParamRow));
+const decodeTableInfoRows = Schema.decodeUnknownSync(Schema.Array(TableInfoRow));
+const decodeCountRow = Schema.decodeUnknownSync(CountRow);
+
 describe("0007_normalize_plugin_secret_refs (openapi)", () => {
   let dir: string;
   let dbPath: string;
@@ -139,7 +146,7 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
     closeDatabase(drizzleSqlite);
 
     const after = openDatabase(dbPath, { readonly: true });
-    const rows = Schema.decodeUnknownSync(Schema.Array(BindingRow))(
+    const rows = decodeBindingRows(
       after
         .prepare(
           "SELECT id, kind, secret_id, connection_id, text_value FROM openapi_source_binding ORDER BY id",
@@ -169,7 +176,7 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
       text_value: "literal",
     });
     // value json column dropped.
-    const cols = Schema.decodeUnknownSync(Schema.Array(TableInfoRow))(
+    const cols = decodeTableInfoRows(
       after.prepare("PRAGMA table_info('openapi_source_binding')").all(),
     );
     expect(cols.some((c) => c.name === "value")).toBe(false);
@@ -213,7 +220,7 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
 
     const after = openDatabase(dbPath, { readonly: true });
 
-    const qpRows = Schema.decodeUnknownSync(Schema.Array(QueryParamRow))(
+    const qpRows = decodeQueryParamRows(
       after
         .prepare(
           "SELECT name, kind, text_value, secret_id FROM openapi_source_query_param WHERE source_id = ? ORDER BY name",
@@ -231,7 +238,7 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
       text_value: "true",
     });
 
-    const fetchHeaders = Schema.decodeUnknownSync(Schema.Array(FetchHeaderRow))(
+    const fetchHeaders = decodeFetchHeaderRows(
       after
         .prepare(
           "SELECT name, kind, secret_id, secret_prefix FROM openapi_source_spec_fetch_header WHERE source_id = ?",
@@ -246,7 +253,7 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
       secret_prefix: "Bearer ",
     });
 
-    const fetchQp = Schema.decodeUnknownSync(Schema.Array(FetchQueryParamRow))(
+    const fetchQp = decodeFetchQueryParamRows(
       after
         .prepare(
           "SELECT name, secret_id FROM openapi_source_spec_fetch_query_param WHERE source_id = ?",
@@ -257,9 +264,7 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
     expect(fetchQp[0]).toMatchObject({ name: "token", secret_id: "fetch-qp" });
 
     // Old json columns dropped.
-    const cols = Schema.decodeUnknownSync(Schema.Array(TableInfoRow))(
-      after.prepare("PRAGMA table_info('openapi_source')").all(),
-    );
+    const cols = decodeTableInfoRows(after.prepare("PRAGMA table_info('openapi_source')").all());
     expect(cols.some((c) => c.name === "query_params")).toBe(false);
     expect(cols.some((c) => c.name === "invocation_config")).toBe(false);
   });
@@ -281,7 +286,7 @@ describe("0007_normalize_plugin_secret_refs (openapi)", () => {
     closeDatabase(drizzleSqlite);
 
     const after = openDatabase(dbPath, { readonly: true });
-    const qpCount = Schema.decodeUnknownSync(CountRow)(
+    const qpCount = decodeCountRow(
       after
         .prepare("SELECT count(*) as n FROM openapi_source_query_param WHERE source_id = ?")
         .get("bare"),
