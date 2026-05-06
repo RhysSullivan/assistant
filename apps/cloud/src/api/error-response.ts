@@ -1,8 +1,5 @@
-import { Cause, Data, Effect, Result } from "effect";
-import {
-  HttpServerRespondable,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { Cause, Data, Effect, Predicate, Result } from "effect";
+import { HttpServerRespondable, HttpServerResponse } from "effect/unstable/http";
 
 import { captureCause } from "../observability";
 
@@ -38,9 +35,18 @@ const unwrapCause = (error: unknown): unknown => {
   return error;
 };
 
+const isHttpResponseError = (value: unknown): value is HttpResponseError =>
+  Predicate.isTagged(value, "HttpResponseError") &&
+  Predicate.hasProperty(value, "status") &&
+  typeof value.status === "number" &&
+  Predicate.hasProperty(value, "code") &&
+  typeof value.code === "string" &&
+  Predicate.hasProperty(value, "message") &&
+  typeof value.message === "string";
+
 const toHttpResponseError = (error: unknown): HttpResponseError => {
   const unwrapped = unwrapCause(error);
-  return unwrapped instanceof HttpResponseError
+  return isHttpResponseError(unwrapped)
     ? unwrapped
     : new HttpResponseError({
         status: 500,
@@ -62,7 +68,7 @@ export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpSe
   if (mapped.status >= 500) {
     console.error(
       "[api] toErrorServerResponse error:",
-      Cause.isCause(error) ? Cause.pretty(error) : error instanceof Error ? error.stack : error,
+      Cause.isCause(error) ? Cause.pretty(error) : error,
     );
     captureCause(error);
   }
