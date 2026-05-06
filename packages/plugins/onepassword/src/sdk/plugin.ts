@@ -100,14 +100,14 @@ export interface OnePasswordStore {
   readonly deleteConfig: () => Effect.Effect<void, StorageError>;
 }
 
-const decodeConfig = Schema.decodeUnknownSync(OnePasswordConfig);
+const decodeConfig = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(OnePasswordConfig),
+);
 
 const blobStorageError = (operation: string) =>
   (cause: unknown): StorageError =>
     new StorageError({
-      message: `onepassword blob ${operation}: ${
-        cause instanceof Error ? cause.message : String(cause)
-      }`,
+      message: `onepassword blob ${operation} failed`,
       cause,
     });
 
@@ -123,14 +123,15 @@ export const makeOnePasswordStore = (
       Effect.mapError(blobStorageError("read")),
       Effect.flatMap((raw) => {
         if (raw === null) return Effect.succeed(null);
-        return Effect.try({
-          try: () => decodeConfig(JSON.parse(raw)),
-          catch: (cause) =>
-            new OnePasswordError({
-              operation: "config decode",
-              message: cause instanceof Error ? cause.message : String(cause),
-            }),
-        });
+        return decodeConfig(raw).pipe(
+          Effect.mapError(
+            () =>
+              new OnePasswordError({
+                operation: "config decode",
+                message: "Stored 1Password configuration is invalid",
+              }),
+          ),
+        );
       }),
     ),
 
@@ -168,13 +169,13 @@ const resolveAuth = (
     });
   }
   return ctx.secrets.get(auth.tokenSecretId).pipe(
-    Effect.mapError((err) =>
-      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
-        ? new OnePasswordError({
-            operation: "auth resolution",
-            message: `Service account token secret "${auth.tokenSecretId}" not found`,
-          })
-        : err,
+    Effect.catchTag("SecretOwnedByConnectionError", () =>
+      Effect.fail(
+        new OnePasswordError({
+          operation: "auth resolution",
+          message: `Service account token secret "${auth.tokenSecretId}" not found`,
+        }),
+      ),
     ),
     Effect.flatMap((token) => {
       if (token === null) {
@@ -279,8 +280,9 @@ export const onepasswordPlugin = definePlugin(
       id: "onepassword" as const,
       packageName: "@executor-js/plugin-onepassword",
       storage: ({ blobs, scopes }) =>
-        makeOnePasswordStore(blobs, scopes.at(-1)!.id as string),
+        makeOnePasswordStore(blobs, scopes.at(-1)!.id),
 
+      // oxlint-disable-next-line executor/prefer-value-inferred-extension-types -- public extension interface is kept explicit for this focused lint fix
       extension: (ctx) => {
         return {
           configure: (config) => ctx.storage.saveConfig(config),
@@ -329,12 +331,10 @@ export const onepasswordPlugin = definePlugin(
             Effect.gen(function* () {
               const config = yield* ctx.storage.getConfig();
               if (!config) {
-                return yield* Effect.fail(
-                  new OnePasswordError({
-                    operation: "resolve",
-                    message: "1Password is not configured",
-                  }),
-                );
+                return yield* new OnePasswordError({
+                  operation: "resolve",
+                  message: "1Password is not configured",
+                });
               }
               const svc = yield* getServiceFromConfig(
                 config,
