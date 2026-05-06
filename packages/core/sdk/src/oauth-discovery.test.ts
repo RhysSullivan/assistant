@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "@effect/vitest";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Schema } from "effect";
 
 import {
   OAuthDiscoveryError,
@@ -10,6 +10,14 @@ import {
 } from "./oauth-discovery";
 
 type Handler = (url: string, init: RequestInit) => Response | Promise<Response>;
+
+const DcrRequestBody = Schema.Struct({
+  redirect_uris: Schema.Array(Schema.String),
+  token_endpoint_auth_method: Schema.String,
+});
+const decodeDcrRequestBody = Schema.decodeUnknownSync(
+  Schema.fromJsonString(DcrRequestBody),
+);
 
 const installFetchRouter = (
   handlers: readonly { match: (url: string) => boolean; handle: Handler }[],
@@ -196,7 +204,7 @@ describe("registerDynamicClient", () => {
 
     const call = calls[0]!;
     expect(call.init.method).toBe("POST");
-    const body = JSON.parse(call.init.body as string);
+    const body = decodeDcrRequestBody(call.init.body);
     expect(body.redirect_uris).toEqual(["https://app.example.com/cb"]);
     expect(body.token_endpoint_auth_method).toBe("none");
   });
@@ -251,11 +259,12 @@ describe("registerDynamicClient", () => {
     expect(Exit.isFailure(exit)).toBe(true);
     if (!Exit.isFailure(exit)) return;
     const reason = exit.cause.reasons.find(Cause.isFailReason);
-    if (!(reason?.error instanceof OAuthDiscoveryError)) {
-      throw new Error("expected OAuthDiscoveryError");
-    }
-    expect(reason.error.status).toBe(400);
-    expect(reason.error.message).toMatch(/invalid_client_metadata/);
+    const error = reason?.error;
+    expect(error).toEqual(expect.objectContaining({
+      _tag: "OAuthDiscoveryError",
+      status: 400,
+      message: expect.stringMatching(/invalid_client_metadata/),
+    }));
   });
 });
 
