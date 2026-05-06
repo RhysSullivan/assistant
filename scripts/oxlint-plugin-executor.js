@@ -12,6 +12,7 @@ import noPromiseCatch from "./oxlint-plugin-executor/rules/no-promise-catch.js";
 import noPromiseClientSurface from "./oxlint-plugin-executor/rules/no-promise-client-surface.js";
 import noPromiseReject from "./oxlint-plugin-executor/rules/no-promise-reject.js";
 import noRawErrorThrow from "./oxlint-plugin-executor/rules/no-raw-error-throw.js";
+import noRedundantPrimitiveCast from "./oxlint-plugin-executor/rules/no-redundant-primitive-cast.js";
 import noRedundantErrorFactory from "./oxlint-plugin-executor/rules/no-redundant-error-factory.js";
 import noTsNocheck from "./oxlint-plugin-executor/rules/no-ts-nocheck.js";
 import noTryCatchOrThrow from "./oxlint-plugin-executor/rules/no-try-catch-or-throw.js";
@@ -45,6 +46,7 @@ export default {
     "no-promise-client-surface": noPromiseClientSurface,
     "no-promise-reject": noPromiseReject,
     "no-raw-error-throw": noRawErrorThrow,
+    "no-redundant-primitive-cast": noRedundantPrimitiveCast,
     "no-redundant-error-factory": noRedundantErrorFactory,
     "no-try-catch-or-throw": noTryCatchOrThrow,
     "no-unknown-error-message": noUnknownErrorMessage,

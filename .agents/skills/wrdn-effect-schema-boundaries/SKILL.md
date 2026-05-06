@@ -12,7 +12,7 @@ You fix one pattern: domain code is asserting or probing an unknown shape instea
 - Prefer `Schema.decodeUnknownEffect(Schema.fromJsonString(MySchema))(text)` or
   `Schema.decodeUnknownOption(Schema.parseJson())(text)` for JSON strings.
 - Keep domain code typed after the decode; do not keep `unknown` and probe it repeatedly.
-- Replace `JSON.parse`, `as unknown as X`, `as Record<string, unknown>`, inline object assertions, `"field" in value`, and `Reflect.get` with a schema, typed adapter, or named guard.
+- Replace `JSON.parse`, `value as string`, `as unknown as X`, `as Record<string, unknown>`, inline object assertions, `"field" in value`, and `Reflect.get` with a schema, typed adapter, or named guard.
 - A named guard is acceptable only when parsing is not the right abstraction and the guard has a precise return type.
 
 ## Good
@@ -37,4 +37,8 @@ const config = raw as unknown as { endpoint: string };
 
 ```ts
 const config = JSON.parse(rawText) as { endpoint: string };
+```
+
+```ts
+const pattern = updated.pattern as string;
 ```

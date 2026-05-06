@@ -16,6 +16,7 @@
     "executor/no-manual-tag-check": "error",
     "executor/no-promise-catch": "error",
     "executor/no-promise-reject": "error",
+    "executor/no-redundant-primitive-cast": "error",
     "executor/no-redundant-error-factory": "error",
     "executor/no-ts-nocheck": "error",
     "executor/no-try-catch-or-throw": "error",
