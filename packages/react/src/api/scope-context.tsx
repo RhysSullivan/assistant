@@ -41,6 +41,7 @@ export function ScopeProvider(props: React.PropsWithChildren<{ fallback?: React.
 export function useScope(): ScopeId {
   const scope = React.useContext(ScopeContext);
   if (scope === null) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: React hook invariant
     throw new Error("useScope must be used inside a ScopeProvider");
   }
   return scope.id;
@@ -53,6 +54,7 @@ export function useScope(): ScopeId {
 export function useScopeInfo(): ScopeInfo {
   const scope = React.useContext(ScopeContext);
   if (scope === null) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: React hook invariant
     throw new Error("useScopeInfo must be used inside a ScopeProvider");
   }
   return scope;
@@ -66,6 +68,7 @@ export function useUserScope(): ScopeId {
   const stack = useScopeStack();
   const innermost = stack[0];
   if (!innermost) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: React hook invariant
     throw new Error("useUserScope requires a non-empty scope stack");
   }
   return innermost.id;
