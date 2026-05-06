@@ -285,6 +285,7 @@ export function ExecutorPluginsProvider(
 const usePluginsCtx = (hookName: string): ExecutorPluginsContextValue => {
   const ctx = useContext(ExecutorPluginsContext);
   if (!ctx) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: React hook invariant
     throw new Error(
       `${hookName} must be called inside an <ExecutorPluginsProvider>.`,
     );
