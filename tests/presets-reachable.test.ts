@@ -62,10 +62,11 @@ describe("graphql presets are reachable endpoints", () => {
           const result = yield* introspect(preset.url).pipe(
             Effect.provide(FetchHttpClient.layer),
             Effect.map((r) => ({ ok: true as const, schema: r })),
-            Effect.catch((err) =>
+            Effect.catchTag("GraphqlIntrospectionError", (err) =>
               Effect.succeed({
                 ok: false as const,
-                message: String(err),
+                // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: catchTag narrows to GraphqlIntrospectionError whose public contract includes message
+                message: err.message,
               }),
             ),
           );
