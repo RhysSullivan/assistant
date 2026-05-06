@@ -10,8 +10,8 @@
     "preview": "astro preview",
     "deploy": "astro build && npx wrangler deploy --config dist/server/wrangler.json",
     "astro": "astro",
-    "typecheck": "astro sync && tsgo --noEmit",
-    "typecheck:slow": "astro sync && tsc --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.0.0",

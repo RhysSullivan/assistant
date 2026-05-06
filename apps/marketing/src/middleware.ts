@@ -1,4 +1,4 @@
-import { defineMiddleware } from "astro:middleware";
+import type { MiddlewareHandler } from "astro";
 
 // PostHog reverse proxy — the browser SDK targets a build-randomized
 // first-party path and we forward to PostHog's ingest + asset hosts. Keeps
@@ -12,7 +12,7 @@ const POSTHOG_PROXY_PATH = `/api/${(import.meta.env.PUBLIC_ANALYTICS_PATH ?? "a"
   "",
 )}`;
 
-export const onRequest = defineMiddleware(async (context, next) => {
+export const onRequest: MiddlewareHandler = async (context, next) => {
   const { pathname } = new URL(context.request.url);
   if (pathname !== POSTHOG_PROXY_PATH && !pathname.startsWith(`${POSTHOG_PROXY_PATH}/`)) {
     return next();
@@ -29,4 +29,4 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const upstream = new Request(url, context.request);
   upstream.headers.delete("cookie");
   return fetch(upstream);
-});
+};
