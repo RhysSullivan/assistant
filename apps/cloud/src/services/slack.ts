@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { env } from "cloudflare:workers";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer, Schema } from "effect";
 
 export class SlackError extends Data.TaggedError("SlackError")<{
   method: string;
@@ -40,41 +40,82 @@ const randomSuffix = (): string => {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 };
 
-type SlackResponse = { ok: boolean; error?: string } & Record<string, unknown>;
+const SlackErrorResponse = Schema.Struct({
+  ok: Schema.Literal(false),
+  error: Schema.optional(Schema.String),
+});
+
+const SlackChannel = Schema.Struct({ id: Schema.String, name: Schema.String });
+
+const SlackPostMessageResponse = Schema.Struct({ ok: Schema.Literal(true) });
+
+const SlackCreateChannelResponse = Schema.Struct({
+  ok: Schema.Literal(true),
+  channel: SlackChannel,
+});
+
+const SlackSharedInviteResponse = Schema.Struct({
+  ok: Schema.Literal(true),
+  invite_id: Schema.String,
+  url: Schema.String,
+});
 
 const make = Effect.sync(() => {
   const token = env.SLACK_BOT_TOKEN;
 
   if (!token) {
     const notConfigured = (method: string) =>
-      Effect.fail(
-        new SlackError({ method, error: "SLACK_BOT_TOKEN is not configured" }),
-      );
+      Effect.fail(new SlackError({ method, error: "SLACK_BOT_TOKEN is not configured" }));
     return {
       createConnectInvite: () => notConfigured("createConnectInvite"),
     } satisfies ISlackService;
   }
 
-  const call = <A extends SlackResponse>(method: string, body: Record<string, unknown>) =>
-    Effect.tryPromise({
-      try: async (): Promise<A> => {
-        const res = await fetch(`https://slack.com/api/${method}`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json; charset=utf-8",
-            authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(body),
-        });
-        const json = (await res.json()) as A;
-        if (!json.ok) throw new Error(json.error ?? "unknown_slack_error");
-        return json;
-      },
-      catch: (cause) =>
-        new SlackError({
+  const call = <A extends { ok: true }>(
+    method: string,
+    body: Record<string, unknown>,
+    successSchema: Schema.Decoder<A>,
+  ) =>
+    Effect.gen(function* () {
+      const json = yield* Effect.tryPromise({
+        try: async (): Promise<unknown> => {
+          const res = await fetch(`https://slack.com/api/${method}`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json; charset=utf-8",
+              authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(body),
+          });
+          return res.json();
+        },
+        catch: () =>
+          new SlackError({
+            method,
+            error: "Failed to read Slack API response",
+          }),
+      });
+
+      const response = yield* Schema.decodeUnknownEffect(
+        Schema.Union([successSchema, SlackErrorResponse]),
+      )(json).pipe(
+        Effect.mapError(
+          () =>
+            new SlackError({
+              method,
+              error: "Unexpected Slack API response",
+            }),
+        ),
+      );
+
+      if (!response.ok) {
+        return yield* new SlackError({
           method,
-          error: cause instanceof Error ? cause.message : String(cause),
-        }),
+          error: response.error ?? "unknown_slack_error",
+        });
+      }
+
+      return response;
     }).pipe(Effect.withSpan(`slack.${method}`));
 
   const createConnectInvite: ISlackService["createConnectInvite"] = ({
@@ -87,10 +128,7 @@ const make = Effect.sync(() => {
       // Slack channel names: lowercase, no spaces, max 80 chars, unique per workspace.
       const baseName = `shared-${slugifyEmail(email)}`.slice(0, 80);
       const tryCreate = (n: string) =>
-        call<SlackResponse & { channel: { id: string; name: string } }>(
-          "conversations.create",
-          { name: n, is_private: false },
-        );
+        call("conversations.create", { name: n, is_private: false }, SlackCreateChannelResponse);
 
       const created = yield* tryCreate(baseName).pipe(
         Effect.catchTag("SlackError", (err) =>
@@ -108,12 +146,16 @@ const make = Effect.sync(() => {
         note ? `Note: ${note}` : null,
       ].filter(Boolean) as string[];
 
-      yield* call<SlackResponse>("chat.postMessage", {
-        channel: channel.id,
-        text: helloLines.join("\n"),
-      });
+      yield* call(
+        "chat.postMessage",
+        {
+          channel: channel.id,
+          text: helloLines.join("\n"),
+        },
+        SlackPostMessageResponse,
+      );
 
-      const invite = yield* call<SlackResponse & { invite_id: string; url: string }>(
+      const invite = yield* call(
         "conversations.inviteShared",
         {
           channel: channel.id,
@@ -122,15 +164,14 @@ const make = Effect.sync(() => {
           // which is what we want for a focused 1:1 support conversation.
           external_limited: true,
         },
+        SlackSharedInviteResponse,
       );
 
       return {
         channel: { id: channel.id, name: channel.name },
         invite: { invite_id: invite.invite_id, url: invite.url },
       };
-    }).pipe(
-      Effect.withSpan("slack.createConnectInvite", { attributes: { "slack.email": email } }),
-    );
+    }).pipe(Effect.withSpan("slack.createConnectInvite", { attributes: { "slack.email": email } }));
 
   return { createConnectInvite } satisfies ISlackService;
 });
