@@ -145,6 +145,7 @@ const makeDbHandle = (options: {
   return {
     sql,
     db: drizzle(sql, { schema: combinedSchema }) as DrizzleDb,
+    // oxlint-disable-next-line executor/no-promise-catch -- boundary: postgres.js close is best-effort during DO/runtime cleanup
     end: () => sql.end({ timeout: 0 }).catch(() => undefined),
   };
 };
@@ -268,9 +269,13 @@ export class McpSessionDO extends DurableObject {
       this.transportJsonResponseMode = null;
 
       await Promise.all([
+        // oxlint-disable-next-line executor/no-promise-catch -- boundary: Durable Object storage cleanup is best-effort after session invalidation
         this.ctx.storage.delete(TRANSPORT_STATE_KEY).catch(() => false),
+        // oxlint-disable-next-line executor/no-promise-catch -- boundary: Durable Object storage cleanup is best-effort after session invalidation
         this.ctx.storage.delete(SESSION_META_KEY).catch(() => false),
+        // oxlint-disable-next-line executor/no-promise-catch -- boundary: Durable Object storage cleanup is best-effort after session invalidation
         this.ctx.storage.delete(LAST_ACTIVITY_KEY).catch(() => false),
+        // oxlint-disable-next-line executor/no-promise-catch -- boundary: Durable Object alarm cleanup is best-effort after session invalidation
         this.ctx.storage.deleteAlarm().catch(() => undefined),
       ]);
     }).pipe(Effect.withSpan("mcp.session.clear_state"));
@@ -322,6 +327,7 @@ export class McpSessionDO extends DurableObject {
       }
       if (self.mcpServer) {
         const mcpServer = self.mcpServer;
+        // oxlint-disable-next-line executor/no-promise-catch -- boundary: MCP SDK close failure is ignored during best-effort runtime teardown
         yield* Effect.promise(() => mcpServer.close().catch(() => undefined));
         self.mcpServer = null;
       }
@@ -332,7 +338,10 @@ export class McpSessionDO extends DurableObject {
       }
       self.initialized = false;
       self.transportJsonResponseMode = null;
-    }).pipe(Effect.orDie);
+    }).pipe(
+      // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: DO cleanup has no typed failure surface
+      Effect.orDie,
+    );
   }
 
   private installRuntime(
@@ -388,6 +397,7 @@ export class McpSessionDO extends DurableObject {
           "mcp.request.session_id_present": !!request.headers.get("mcp-session-id"),
         },
       }),
+      // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: cold DO restore is re-entered from Promise-only Durable Object method
       Effect.orDie,
     );
   }
@@ -409,7 +419,11 @@ export class McpSessionDO extends DurableObject {
       yield* Effect.annotateCurrentSpan({
         "mcp.session.transport_upgraded_json_response": true,
       });
-    }).pipe(Effect.withSpan("McpSessionDO.ensureJsonResponseTransportForPost"), Effect.orDie);
+    }).pipe(
+      Effect.withSpan("McpSessionDO.ensureJsonResponseTransportForPost"),
+      // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: transport rebuild is internal DO runtime state
+      Effect.orDie,
+    );
   }
 
   private validateSessionOwner(request: Request): Effect.Effect<Response | null> {
@@ -435,17 +449,15 @@ export class McpSessionDO extends DurableObject {
     const self = this;
     return Effect.gen(function* () {
       const dbHandle = makeEphemeralDb();
-      try {
-        const sessionMeta = yield* resolveSessionMeta(token.organizationId, token.userId).pipe(
-          Effect.provide(makeResolveOrganizationServices(dbHandle)),
-        );
-        yield* Effect.promise(() => self.saveSessionMeta(sessionMeta)).pipe(
-          Effect.withSpan("mcp.session.save_meta"),
-        );
-        return sessionMeta;
-      } finally {
-        yield* Effect.promise(() => dbHandle.end());
-      }
+      return yield* resolveSessionMeta(token.organizationId, token.userId).pipe(
+        Effect.provide(makeResolveOrganizationServices(dbHandle)),
+        Effect.tap((sessionMeta) =>
+          Effect.promise(() => self.saveSessionMeta(sessionMeta)).pipe(
+            Effect.withSpan("mcp.session.save_meta"),
+          ),
+        ),
+        Effect.ensuring(Effect.promise(() => dbHandle.end())),
+      );
     }).pipe(Effect.withSpan("mcp.session.resolve_and_store_meta"));
   }
 
@@ -463,6 +475,7 @@ export class McpSessionDO extends DurableObject {
         }),
         (eff) => withIncomingParent(incoming, eff),
         Effect.provide(DoTelemetryLive),
+        // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: Durable Object init method can only reject its Promise
         Effect.orDie,
       ),
     );
@@ -511,6 +524,7 @@ export class McpSessionDO extends DurableObject {
           return yield* Effect.failCause(cause);
         }),
       ),
+      // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: doInit is called only from Promise-only Durable Object init
       Effect.orDie,
     );
   }

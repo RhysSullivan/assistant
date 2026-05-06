@@ -1,23 +1,57 @@
 import * as Sentry from "@sentry/cloudflare";
-import { Effect } from "effect";
+import { Cause, Data, Effect, Exit, Option, Schema } from "effect";
 
 import { jsonRpcWebResponse } from "./responses";
 
 const SSE_PEEK_TIMEOUT_MS = 10_000;
 
-type SandboxOutcome = {
-  readonly status?: string;
-  readonly error?: { readonly kind?: string; readonly message?: string };
-};
+class ResponseBodyTimeoutError extends Data.TaggedError("ResponseBodyTimeoutError")<{
+  readonly timeoutMs: number;
+}> {}
 
-type JsonRpcResponseBody = {
-  readonly jsonrpc?: string;
-  readonly error?: { readonly code?: number; readonly message?: string };
-  readonly result?: {
-    readonly isError?: boolean;
-    readonly structuredContent?: SandboxOutcome;
-  };
-};
+class ResponseBodyReadError extends Data.TaggedError("ResponseBodyReadError") {}
+
+class McpInternalJsonRpcError extends Data.TaggedError("McpInternalJsonRpcError")<{
+  readonly message: string;
+}> {}
+
+const ResponseBodyTimeoutErrorData = Schema.Struct({
+  _tag: Schema.Literal("ResponseBodyTimeoutError"),
+  timeoutMs: Schema.Number,
+});
+const decodeResponseBodyTimeoutError = Schema.decodeUnknownOption(ResponseBodyTimeoutErrorData);
+
+const SandboxOutcomeSchema = Schema.Struct({
+  status: Schema.optional(Schema.String),
+  error: Schema.optional(
+    Schema.Struct({
+      kind: Schema.optional(Schema.String),
+      message: Schema.optional(Schema.String),
+    }),
+  ),
+});
+
+const JsonRpcResponseBodySchema = Schema.Struct({
+  jsonrpc: Schema.optional(Schema.String),
+  error: Schema.optional(
+    Schema.Struct({
+      code: Schema.optional(Schema.Number),
+      message: Schema.optional(Schema.String),
+    }),
+  ),
+  result: Schema.optional(
+    Schema.Struct({
+      isError: Schema.optional(Schema.Boolean),
+      structuredContent: Schema.optional(SandboxOutcomeSchema),
+    }),
+  ),
+});
+
+const decodeJsonRpcResponseBody = Schema.decodeUnknownOption(
+  Schema.fromJsonString(JsonRpcResponseBodySchema),
+);
+
+type JsonRpcResponseBody = typeof JsonRpcResponseBodySchema.Type;
 
 const responseBodyShape = (body: string): string => {
   const trimmed = body.trimStart();
@@ -31,18 +65,18 @@ const responseBodyShape = (body: string): string => {
 
 const parseFirstJsonRpc = (contentType: string, body: string): JsonRpcResponseBody | null => {
   if (!body) return null;
-  try {
-    if (contentType.includes("text/event-stream")) {
-      for (const line of body.split(/\r?\n/)) {
-        if (line.startsWith("data:")) return JSON.parse(line.slice(5).trimStart());
+  if (contentType.includes("text/event-stream")) {
+    for (const line of body.split(/\r?\n/)) {
+      if (line.startsWith("data:")) {
+        return Option.getOrNull(decodeJsonRpcResponseBody(line.slice(5).trimStart()));
       }
-      return null;
     }
-    if (contentType.includes("application/json")) return JSON.parse(body);
-    return null;
-  } catch {
     return null;
   }
+  if (contentType.includes("application/json")) {
+    return Option.getOrNull(decodeJsonRpcResponseBody(body));
+  }
+  return null;
 };
 
 const jsonRpcResponseAttrs = (payload: JsonRpcResponseBody | null): Record<string, unknown> => {
@@ -52,8 +86,10 @@ const jsonRpcResponseAttrs = (payload: JsonRpcResponseBody | null): Record<strin
   if (err && typeof err === "object") {
     attrs["mcp.rpc.is_error"] = true;
     if (typeof err.code === "number") attrs["mcp.rpc.error.code"] = err.code;
-    if (typeof err.message === "string") {
-      attrs["mcp.rpc.error.message"] = err.message.slice(0, 500);
+    // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: schema-decoded JSON-RPC error message is protocol telemetry
+    const { message } = err;
+    if (typeof message === "string") {
+      attrs["mcp.rpc.error.message"] = message.slice(0, 500);
     }
   }
   if (payload.result?.isError === true) attrs["mcp.tool.result.is_error"] = true;
@@ -61,19 +97,13 @@ const jsonRpcResponseAttrs = (payload: JsonRpcResponseBody | null): Record<strin
   if (structured && typeof structured.status === "string") {
     attrs["mcp.tool.sandbox.status"] = structured.status;
     if (structured.error?.kind) attrs["mcp.tool.sandbox.error.kind"] = structured.error.kind;
-    if (typeof structured.error?.message === "string") {
-      attrs["mcp.tool.sandbox.error.message"] = structured.error.message.slice(0, 500);
+    const message = structured.error?.["message"];
+    if (typeof message === "string") {
+      attrs["mcp.tool.sandbox.error.message"] = message.slice(0, 500);
     }
   }
   return attrs;
 };
-
-class ResponseBodyTimeoutError extends Error {
-  constructor(readonly timeoutMs: number) {
-    super(`Timed out waiting for MCP response body after ${timeoutMs}ms`);
-    this.name = "ResponseBodyTimeoutError";
-  }
-}
 
 const readResponseText = async (response: Response, timeoutMs: number | null): Promise<string> => {
   if (timeoutMs === null) return await response.text();
@@ -85,11 +115,14 @@ const readResponseText = async (response: Response, timeoutMs: number | null): P
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
+      // oxlint-disable-next-line executor/no-promise-catch -- boundary: best-effort stream cancellation inside timeout callback
       void reader.cancel().catch(() => undefined);
-      reject(new ResponseBodyTimeoutError(timeoutMs));
+      // oxlint-disable-next-line executor/no-promise-reject -- boundary: Promise.race timeout adapter for Web ReadableStream
+      reject(new ResponseBodyTimeoutError({ timeoutMs }));
     }, timeoutMs);
   });
   const readPromise = (async () => {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Web stream reader cleanup must clear host timeout after success or failure
     try {
       let text = "";
       for (;;) {
@@ -125,9 +158,18 @@ const withoutBodyHeaders = (response: Response) => {
   });
 };
 
+const isResponseBodyTimeoutError = (error: unknown) =>
+  Option.isSome(decodeResponseBodyTimeoutError(error));
+
+const responsePeekError = (error: unknown): ResponseBodyTimeoutError | ResponseBodyReadError =>
+  Option.match(decodeResponseBodyTimeoutError(error), {
+    onNone: () => new ResponseBodyReadError(),
+    onSome: ({ timeoutMs }) => new ResponseBodyTimeoutError({ timeoutMs }),
+  });
+
 const responseReadFailure = (error: unknown) =>
   Effect.gen(function* () {
-    const timedOut = error instanceof ResponseBodyTimeoutError;
+    const timedOut = isResponseBodyTimeoutError(error);
     yield* Effect.annotateCurrentSpan({
       "mcp.response.status_code": timedOut ? 504 : 500,
       "mcp.response.content_type": "application/json",
@@ -135,7 +177,7 @@ const responseReadFailure = (error: unknown) =>
       "mcp.response.body.length": 0,
       "mcp.response.jsonrpc.detected": true,
       "mcp.peek_response.timed_out": timedOut,
-      "mcp.peek_response.error": String(error),
+      "mcp.peek_response.error": timedOut ? "ResponseBodyTimeoutError" : "ResponseBodyReadError",
     });
     return jsonRpcWebResponse(
       timedOut ? 504 : 500,
@@ -149,8 +191,8 @@ const responseReadFailure = (error: unknown) =>
 const reportInternalJsonRpcError = (payload: JsonRpcResponseBody | null) =>
   Effect.sync(() => {
     if (payload?.error?.code !== -32603) return;
-    const msg = payload.error.message ?? "unknown";
-    Sentry.captureException(new Error(`MCP internal error (-32603): ${msg}`));
+    const message = payload.error["message"] ?? "unknown";
+    Sentry.captureException(new McpInternalJsonRpcError({ message }));
   });
 
 export const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
@@ -167,21 +209,29 @@ export const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
 
     const isSseResponse = contentType.includes("text/event-stream");
     const timeoutMs = isSseResponse ? SSE_PEEK_TIMEOUT_MS : null;
-    const textResult = yield* Effect.result(Effect.tryPromise({
-      try: () => readResponseText(response, timeoutMs),
-      catch: (error) => error,
-    }).pipe(
-      Effect.withSpan("mcp.peek_response", {
-        attributes: {
-          "http.response.content_type": contentType,
-          "http.response.status_code": response.status,
-          "mcp.peek_response.timeout_ms": timeoutMs ?? 0,
-        },
-      }),
-    ));
-    if (textResult._tag === "Failure") return yield* responseReadFailure(textResult.failure);
+    const textExit = yield* Effect.exit(
+      Effect.tryPromise({
+        try: () => readResponseText(response, timeoutMs),
+        catch: responsePeekError,
+      }).pipe(
+        Effect.withSpan("mcp.peek_response", {
+          attributes: {
+            "http.response.content_type": contentType,
+            "http.response.status_code": response.status,
+            "mcp.peek_response.timeout_ms": timeoutMs ?? 0,
+          },
+        }),
+      ),
+    );
+    if (Exit.isFailure(textExit)) {
+      const error = Option.getOrElse(
+        Cause.findErrorOption(textExit.cause),
+        () => new ResponseBodyReadError(),
+      );
+      return yield* responseReadFailure(error);
+    }
 
-    const text = textResult.success;
+    const text = textExit.value;
     const payload = parseFirstJsonRpc(contentType, text);
     yield* Effect.annotateCurrentSpan({
       "mcp.response.status_code": response.status,
