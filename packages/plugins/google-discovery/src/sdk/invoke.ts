@@ -42,24 +42,33 @@ const stringValuesFromParameter = (value: unknown, repeated: boolean): string[] 
   return [JSON.stringify(value)];
 };
 
-const replacePathParameters = (input: {
+const replacePathParameters = Effect.fn("GoogleDiscovery.replacePathParameters")(function* (input: {
   pathTemplate: string;
   args: Record<string, unknown>;
   parameters: readonly GoogleDiscoveryParameter[];
-}): string =>
-  input.pathTemplate.replaceAll(/\{([^}]+)\}/g, (_, name: string) => {
+}) {
+  let resolved = input.pathTemplate;
+  for (const match of input.pathTemplate.matchAll(/\{([^}]+)\}/g)) {
+    const placeholder = match[0];
+    const name = match[1]!;
     const parameter = input.parameters.find(
       (entry) => entry.location === "path" && entry.name === name,
     );
     const values = stringValuesFromParameter(input.args[name], false);
     if (values.length === 0) {
       if (parameter?.required) {
-        throw new Error(`Missing required path parameter: ${name}`);
+        return yield* new GoogleDiscoveryInvocationError({
+          message: `Missing required path parameter: ${name}`,
+          statusCode: Option.none(),
+        });
       }
-      return "";
+      resolved = resolved.replaceAll(placeholder, "");
+    } else {
+      resolved = resolved.replaceAll(placeholder, encodeURIComponent(values[0]!));
     }
-    return encodeURIComponent(values[0]!);
-  });
+  }
+  return resolved;
+});
 
 const resolveBaseUrl = (source: GoogleDiscoveryStoredSourceData): string =>
   new URL(source.servicePath || "", source.rootUrl).toString();
@@ -87,7 +96,7 @@ const performRequest = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
 }) {
   const client = yield* HttpClient.HttpClient;
 
-  const resolvedPath = replacePathParameters({
+  const resolvedPath = yield* replacePathParameters({
     pathTemplate: input.pathTemplate,
     args: input.args,
     parameters: input.parameters,
@@ -138,7 +147,7 @@ const performRequest = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
     Effect.mapError(
       (err) =>
         new GoogleDiscoveryInvocationError({
-          message: `HTTP request failed: ${err.message}`,
+          message: "HTTP request failed",
           statusCode: Option.none(),
           cause: err,
         }),
@@ -147,9 +156,9 @@ const performRequest = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
 
   const contentType = response.headers["content-type"] ?? null;
   const mapBodyError = Effect.mapError(
-    (err: { readonly message?: string }) =>
+    (err) =>
       new GoogleDiscoveryInvocationError({
-        message: `Failed to read response body: ${err.message ?? String(err)}`,
+        message: "Failed to read response body",
         statusCode: Option.some(response.status),
         cause: err,
       }),
@@ -191,21 +200,17 @@ export const invokeGoogleDiscoveryTool = (input: {
   Effect.gen(function* () {
     const entry = yield* input.ctx.storage.getBinding(input.toolId, input.toolScope);
     if (!entry) {
-      return yield* Effect.fail(
-        new GoogleDiscoveryInvocationError({
-          message: `No Google Discovery operation found for tool "${input.toolId}"`,
-          statusCode: Option.none(),
-        }),
-      );
+      return yield* new GoogleDiscoveryInvocationError({
+        message: `No Google Discovery operation found for tool "${input.toolId}"`,
+        statusCode: Option.none(),
+      });
     }
     const stored = yield* input.ctx.storage.getSource(entry.namespace, input.toolScope);
     if (!stored) {
-      return yield* Effect.fail(
-        new GoogleDiscoveryInvocationError({
-          message: `No Google Discovery source found for "${entry.namespace}"`,
-          statusCode: Option.none(),
-        }),
-      );
+      return yield* new GoogleDiscoveryInvocationError({
+        message: `No Google Discovery source found for "${entry.namespace}"`,
+        statusCode: Option.none(),
+      });
     }
     const source = stored.config;
 
@@ -213,9 +218,9 @@ export const invokeGoogleDiscoveryTool = (input: {
       source.auth.kind === "oauth2"
         ? `Bearer ${yield* input.ctx.connections.accessToken(source.auth.connectionId).pipe(
             Effect.mapError(
-              (err) =>
+              () =>
                 new GoogleDiscoveryOAuthError({
-                  message: "message" in err ? (err as { message: string }).message : String(err),
+                  message: "Failed to resolve Google Discovery OAuth access token",
                 }),
             ),
           )}`
