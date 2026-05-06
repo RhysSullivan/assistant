@@ -30,7 +30,8 @@
 // round-trip, no DCR — every non-MCP endpoint exits here.
 // ---------------------------------------------------------------------------
 
-import { Data, Effect, Option, Schema } from "effect";
+import { Data, Duration, Effect, Option, Schema } from "effect";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 /** MCP initialize request body used as the shape probe. Any real MCP
  *  server either answers it (unauth-OK server) or returns the spec-
@@ -52,11 +53,11 @@ const INITIALIZE_BODY = JSON.stringify({
 /** Header-name lookup is case-insensitive per RFC 7230. `fetch`'s
  *  `Response.headers` already lower-cases, but we normalise explicitly
  *  to stay robust against test mocks that construct `Headers` loosely. */
-const readHeader = (headers: Headers, name: string): string | null => {
-  const direct = headers.get(name);
-  if (direct !== null) return direct;
+const readHeader = (headers: Readonly<Record<string, string>>, name: string): string | null => {
+  const direct = headers[name];
+  if (direct !== undefined) return direct;
   const lower = name.toLowerCase();
-  for (const [k, v] of headers) {
+  for (const [k, v] of Object.entries(headers)) {
     if (k.toLowerCase() === lower) return v;
   }
   return null;
@@ -94,8 +95,6 @@ export type McpShapeProbeResult =
   | { readonly kind: "unreachable"; readonly reason: string };
 
 export interface ProbeOptions {
-  /** Injected for tests. Defaults to the global `fetch`. */
-  readonly fetch?: typeof fetch;
   /** Abort the request after this many ms. Default 8000. */
   readonly timeoutMs?: number;
   readonly headers?: Record<string, string>;
@@ -118,83 +117,88 @@ export const probeMcpEndpointShape = (
   options: ProbeOptions = {},
 ): Effect.Effect<McpShapeProbeResult> =>
   Effect.gen(function* () {
-    const fetchImpl = options.fetch ?? globalThis.fetch;
     const timeoutMs = options.timeoutMs ?? 8_000;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-    const outcome = yield* Effect.tryPromise({
-      try: async (): Promise<McpShapeProbeResult> => {
-        const classify = (response: Response, method: "GET" | "POST") => {
-          if (response.status === 401) {
-            const wwwAuth = readHeader(response.headers, "www-authenticate");
-            if (wwwAuth && /^\s*bearer\b/i.test(wwwAuth)) {
-              return { kind: "mcp", requiresAuth: true } as const;
-            }
-            return {
-              kind: "not-mcp",
-              reason: "401 without Bearer WWW-Authenticate — not an MCP auth challenge",
-            } as const;
+    const outcome = yield* Effect.gen(function* () {
+      const client = yield* HttpClient.HttpClient;
+      const classify = (
+        response: { readonly status: number; readonly headers: Readonly<Record<string, string>> },
+        method: "GET" | "POST",
+      ) => {
+        if (response.status === 401) {
+          const wwwAuth = readHeader(response.headers, "www-authenticate");
+          if (wwwAuth && /^\s*bearer\b/i.test(wwwAuth)) {
+            return { kind: "mcp", requiresAuth: true } as const;
           }
-
-          if (response.status >= 200 && response.status < 300) {
-            if (method === "GET") {
-              const contentType = readHeader(response.headers, "content-type") ?? "";
-              if (!/^\s*text\/event-stream\b/i.test(contentType)) {
-                return {
-                  kind: "not-mcp",
-                  reason: "GET response is not an SSE stream",
-                } as const;
-              }
-            }
-            return { kind: "mcp", requiresAuth: false } as const;
-          }
-
-          return null;
-        };
-
-        const url = new URL(endpoint);
-        for (const [key, value] of Object.entries(options.queryParams ?? {})) {
-          url.searchParams.set(key, value);
-        }
-        const authHeaders = options.headers ?? {};
-
-        const postResponse = await fetchImpl(url, {
-          method: "POST",
-          headers: {
-            ...authHeaders,
-            "content-type": "application/json",
-            accept: "application/json, text/event-stream",
-          },
-          body: INITIALIZE_BODY,
-          signal: controller.signal,
-        });
-
-        const postResult = classify(postResponse, "POST");
-        if (postResult) return postResult;
-
-        if ([404, 405, 406, 415].includes(postResponse.status)) {
-          const getResponse = await fetchImpl(url, {
-            method: "GET",
-            headers: { ...authHeaders, accept: "text/event-stream" },
-            signal: controller.signal,
-          });
-          const getResult = classify(getResponse, "GET");
-          if (getResult) return getResult;
+          return {
+            kind: "not-mcp",
+            reason: "401 without Bearer WWW-Authenticate — not an MCP auth challenge",
+          } as const;
         }
 
-        return {
-          kind: "not-mcp",
-          reason: `unexpected status ${postResponse.status} for initialize`,
-        };
-      },
-      catch: (cause) =>
-        new ProbeTransportError({
-          reason: reasonFromBoundaryCause(cause),
-          cause,
-        }),
+        if (response.status >= 200 && response.status < 300) {
+          if (method === "GET") {
+            const contentType = readHeader(response.headers, "content-type") ?? "";
+            if (!/^\s*text\/event-stream\b/i.test(contentType)) {
+              return {
+                kind: "not-mcp",
+                reason: "GET response is not an SSE stream",
+              } as const;
+            }
+          }
+          return { kind: "mcp", requiresAuth: false } as const;
+        }
+
+        return null;
+      };
+
+      const url = new URL(endpoint);
+      for (const [key, value] of Object.entries(options.queryParams ?? {})) {
+        url.searchParams.set(key, value);
+      }
+
+      let postRequest = HttpClientRequest.post(url.toString()).pipe(
+        HttpClientRequest.setHeader("content-type", "application/json"),
+        HttpClientRequest.setHeader("accept", "application/json, text/event-stream"),
+        HttpClientRequest.bodyText(INITIALIZE_BODY, "application/json"),
+      );
+      for (const [name, value] of Object.entries(options.headers ?? {})) {
+        postRequest = HttpClientRequest.setHeader(postRequest, name, value);
+      }
+
+      const postResponse = yield* client
+        .execute(postRequest)
+        .pipe(Effect.timeout(Duration.millis(timeoutMs)));
+
+      const postResult = classify(postResponse, "POST");
+      if (postResult) return postResult;
+
+      if ([404, 405, 406, 415].includes(postResponse.status)) {
+        let getRequest = HttpClientRequest.get(url.toString()).pipe(
+          HttpClientRequest.setHeader("accept", "text/event-stream"),
+        );
+        for (const [name, value] of Object.entries(options.headers ?? {})) {
+          getRequest = HttpClientRequest.setHeader(getRequest, name, value);
+        }
+        const getResponse = yield* client
+          .execute(getRequest)
+          .pipe(Effect.timeout(Duration.millis(timeoutMs)));
+        const getResult = classify(getResponse, "GET");
+        if (getResult) return getResult;
+      }
+
+      return {
+        kind: "not-mcp",
+        reason: `unexpected status ${postResponse.status} for initialize`,
+      } as const;
     }).pipe(
-      Effect.ensuring(Effect.sync(() => clearTimeout(timer))),
+      Effect.provide(FetchHttpClient.layer),
+      Effect.mapError(
+        (cause) =>
+          new ProbeTransportError({
+            reason: reasonFromBoundaryCause(cause),
+            cause,
+          }),
+      ),
       Effect.catch((cause) =>
         Effect.succeed<McpShapeProbeResult>({
           kind: "unreachable",

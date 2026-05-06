@@ -12,8 +12,8 @@
 //      `ConnectionReauthRequiredError` so the UI can prompt sign-in.
 // ---------------------------------------------------------------------------
 
-import { afterEach, expect, layer } from "@effect/vitest";
-import { Effect, Layer, Predicate, Schema } from "effect";
+import { expect, layer } from "@effect/vitest";
+import { Effect, Layer, Predicate, Ref, Schema } from "effect";
 import {
   HttpApi,
   HttpApiBuilder,
@@ -21,7 +21,13 @@ import {
   HttpApiGroup,
   OpenApi,
 } from "effect/unstable/httpapi";
-import { FetchHttpClient, HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http";
+import {
+  FetchHttpClient,
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 
 import {
@@ -39,6 +45,7 @@ import {
   type InvokeOptions,
   type SecretProvider,
 } from "@executor-js/sdk";
+import { serveTestHttpApp } from "@executor-js/sdk/testing";
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import { openApiPlugin } from "./plugin";
@@ -85,42 +92,31 @@ const TestLayer = HttpRouter.serve(ApiLive, { disableListenLog: true, disableLog
 // response or an error envelope. `calls` records every hit for assertions.
 // ---------------------------------------------------------------------------
 
-const originalFetch = globalThis.fetch;
-
 type TokenCall = {
   readonly body: URLSearchParams;
 };
 
-const mockTokenFetch = (
-  handler: (body: URLSearchParams) => Effect.Effect<Response, never, never> | Promise<Response>,
-) => {
-  const calls: TokenCall[] = [];
-  globalThis.fetch = Object.assign(
-    async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof _input === "string" ? _input : _input.toString();
-      if (!url.includes("token.example.com")) {
-        return originalFetch(_input, init);
-      }
-      const bodyText =
-        init?.body instanceof URLSearchParams
-          ? init.body.toString()
-          : typeof init?.body === "string"
-            ? init.body
-            : "";
-      const body = new URLSearchParams(bodyText);
-      calls.push({ body });
-      const out = handler(body);
-      if (Effect.isEffect(out)) return await Effect.runPromise(out);
-      return await out;
-    },
-    { preconnect: originalFetch.preconnect },
-  );
-  return { calls };
-};
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
+const serveTokenEndpoint = (
+  handler: (body: URLSearchParams) => HttpServerResponse.HttpServerResponse,
+) =>
+  Effect.gen(function* () {
+    const calls = yield* Ref.make<readonly TokenCall[]>([]);
+    const server = yield* serveTestHttpApp((request) =>
+      Effect.gen(function* () {
+        const body = new URLSearchParams(yield* request.text);
+        yield* Ref.update(calls, (all) => [...all, { body }]);
+        return handler(body);
+      }).pipe(
+        Effect.catch(() =>
+          Effect.succeed(HttpServerResponse.text("token fixture request failed", { status: 500 })),
+        ),
+      ),
+    );
+    return {
+      tokenUrl: server.url("/token"),
+      calls: Ref.get(calls),
+    } as const;
+  });
 
 // ---------------------------------------------------------------------------
 // Fixture builder. Wires up a single-scope executor with an in-memory
@@ -207,7 +203,12 @@ type ExecutorValue = EffectSuccess<ReturnType<typeof makeExecutor>>["executor"];
 // Seed an authorizationCode Connection with an already-expired access
 // token and a stored refresh token. The test's mock token endpoint
 // decides what comes back on `grant_type=refresh_token`.
-const seedExpiredConnection = (executor: ExecutorValue, scopeId: ScopeId, connectionId: string) =>
+const seedExpiredConnection = (
+  executor: ExecutorValue,
+  scopeId: ScopeId,
+  connectionId: string,
+  tokenUrl: string,
+) =>
   Effect.gen(function* () {
     yield* executor.connections.create(
       new CreateConnectionInput({
@@ -229,7 +230,7 @@ const seedExpiredConnection = (executor: ExecutorValue, scopeId: ScopeId, connec
         oauthScope: "read",
         providerState: {
           flow: "authorizationCode",
-          tokenUrl: "https://token.example.com/token",
+          tokenUrl,
           clientIdSecretId: "client_id",
           clientSecretSecretId: "client_secret",
           scopes: ["read"],
@@ -241,7 +242,7 @@ const seedExpiredConnection = (executor: ExecutorValue, scopeId: ScopeId, connec
       connectionId,
       securitySchemeName: "oauth2",
       flow: "authorizationCode",
-      tokenUrl: "https://token.example.com/token",
+      tokenUrl,
       authorizationUrl: "https://auth.example.com/authorize",
       clientIdSecretId: "client_id",
       clientSecretSecretId: "client_secret",
@@ -257,21 +258,21 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
   it.effect("expired access_token is refreshed via grant_type=refresh_token before invoke", () =>
     Effect.gen(function* () {
       const { executor, scopeId, baseUrl } = yield* makeExecutor();
-      const { calls } = mockTokenFetch(() =>
-        Effect.succeed(
-          new Response(
-            JSON.stringify({
-              access_token: "fresh-access-v2",
-              token_type: "Bearer",
-              refresh_token: "refresh-v2",
-              expires_in: 3600,
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
-        ),
+      const tokenEndpoint = yield* serveTokenEndpoint(() =>
+        HttpServerResponse.jsonUnsafe({
+          access_token: "fresh-access-v2",
+          token_type: "Bearer",
+          refresh_token: "refresh-v2",
+          expires_in: 3600,
+        }),
       );
 
-      const auth = yield* seedExpiredConnection(executor, scopeId, "conn-refresh-ok");
+      const auth = yield* seedExpiredConnection(
+        executor,
+        scopeId,
+        "conn-refresh-ok",
+        tokenEndpoint.tokenUrl,
+      );
 
       yield* executor.openapi.addSpec({
         spec: specJson,
@@ -291,6 +292,7 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
       // Proves the refresh landed: invoke carried the fresh token,
       // not the expired one we seeded.
       expect(result.data?.authorization).toBe("Bearer fresh-access-v2");
+      const calls = yield* tokenEndpoint.calls;
       expect(calls).toHaveLength(1);
       expect(calls[0]!.body.get("grant_type")).toBe("refresh_token");
       expect(calls[0]!.body.get("refresh_token")).toBe("refresh-v1");
@@ -307,21 +309,21 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
   it.effect("concurrent invokes with an expired token issue exactly one refresh", () =>
     Effect.gen(function* () {
       const { executor, scopeId, baseUrl } = yield* makeExecutor();
-      const { calls } = mockTokenFetch(() =>
-        Effect.succeed(
-          new Response(
-            JSON.stringify({
-              access_token: "fresh-access-v2",
-              token_type: "Bearer",
-              refresh_token: "refresh-v2",
-              expires_in: 3600,
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
-        ),
+      const tokenEndpoint = yield* serveTokenEndpoint(() =>
+        HttpServerResponse.jsonUnsafe({
+          access_token: "fresh-access-v2",
+          token_type: "Bearer",
+          refresh_token: "refresh-v2",
+          expires_in: 3600,
+        }),
       );
 
-      const auth = yield* seedExpiredConnection(executor, scopeId, "conn-refresh-concurrent");
+      const auth = yield* seedExpiredConnection(
+        executor,
+        scopeId,
+        "conn-refresh-concurrent",
+        tokenEndpoint.tokenUrl,
+      );
 
       yield* executor.openapi.addSpec({
         spec: specJson,
@@ -349,6 +351,7 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
       // Critical assertion: the SDK's dedup collapses every parallel
       // invoke into one call to the token endpoint. Anything more
       // means we're hammering the AS under load.
+      const calls = yield* tokenEndpoint.calls;
       expect(calls).toHaveLength(1);
     }),
   );
@@ -356,19 +359,22 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
   it.effect("invalid_grant from refresh surfaces as ConnectionReauthRequiredError", () =>
     Effect.gen(function* () {
       const { executor, scopeId, baseUrl } = yield* makeExecutor();
-      mockTokenFetch(() =>
-        Effect.succeed(
-          new Response(
-            JSON.stringify({
-              error: "invalid_grant",
-              error_description: "Refresh token revoked",
-            }),
-            { status: 400, headers: { "content-type": "application/json" } },
-          ),
+      const tokenEndpoint = yield* serveTokenEndpoint(() =>
+        HttpServerResponse.jsonUnsafe(
+          {
+            error: "invalid_grant",
+            error_description: "Refresh token revoked",
+          },
+          { status: 400 },
         ),
       );
 
-      const auth = yield* seedExpiredConnection(executor, scopeId, "conn-refresh-dead");
+      const auth = yield* seedExpiredConnection(
+        executor,
+        scopeId,
+        "conn-refresh-dead",
+        tokenEndpoint.tokenUrl,
+      );
 
       yield* executor.openapi.addSpec({
         spec: specJson,

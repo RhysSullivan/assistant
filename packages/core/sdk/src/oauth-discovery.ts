@@ -12,14 +12,14 @@
 //     with OIDC /.well-known/openid-configuration as fallback)
 //   - RFC 7591 Dynamic Client Registration (POST `registration_endpoint`)
 //
-// `oauth4webapi` covers (2) and (3); (1) is MCP-spec-only and not yet in
-// the library, so we keep a 30-line hand-rolled probe. A convenience
-// `beginDynamicAuthorization` chains all three into the single call
-// callers actually need.
+// The discovery path uses Effect HttpClient throughout so tests can provide
+// realistic local HTTP services without patching `globalThis.fetch`. A
+// convenience `beginDynamicAuthorization` chains all three into the single
+// call callers actually need.
 // ---------------------------------------------------------------------------
 
-import { Data, Effect, Option, Predicate, Result, Schema } from "effect";
-import * as oauth from "oauth4webapi";
+import { Data, Duration, Effect, Layer, Option, Predicate, Result, Schema } from "effect";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import {
   OAUTH2_DEFAULT_TIMEOUT_MS,
@@ -122,8 +122,8 @@ const decodeClientInformationJson = Schema.decodeUnknownEffect(
 );
 
 export interface DiscoveryRequestOptions {
-  /** Injected for tests. Defaults to the global `fetch`. */
-  readonly fetch?: typeof fetch;
+  /** Injected for tests. Defaults to the platform fetch-backed HttpClient. */
+  readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
   /** Abort the request after this many ms. Default 20000. */
   readonly timeoutMs?: number;
   /** Send `MCP-Protocol-Version: <value>` on every request. Harmless
@@ -156,28 +156,55 @@ const isLoopbackHttpUrl = (value: string): boolean => {
   }
 };
 
-const oauth4webapiOptions = (
+const provideHttpClient = <A, E>(
+  effect: Effect.Effect<A, E, HttpClient.HttpClient>,
   options: DiscoveryRequestOptions,
-  targetUrl?: string,
-): Record<string, unknown> => {
-  const out: Record<string, unknown> = {};
-  if (options.fetch) (out as { [customFetch]?: typeof fetch })[customFetch] = options.fetch;
-  if (targetUrl && isLoopbackHttpUrl(targetUrl)) {
-    (out as { [oauth.allowInsecureRequests]?: boolean })[oauth.allowInsecureRequests] = true;
-  }
-  const signal = AbortSignal.timeout(options.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS);
-  out.signal = signal;
-  if (options.mcpProtocolVersion) {
-    out.headers = new Headers({
-      [MCP_PROTOCOL_VERSION_HEADER]: options.mcpProtocolVersion,
-    });
-  }
-  return out;
-};
+): Effect.Effect<A, E> =>
+  effect.pipe(Effect.provide(options.httpClientLayer ?? FetchHttpClient.layer));
 
-// oauth4webapi's custom-fetch symbol — imported lazily so dropping the
-// library (unlikely but fine) doesn't leave a dangling symbol reference.
-const customFetch = Symbol.for("oauth4webapi.customFetch");
+const executeText = (
+  request: HttpClientRequest.HttpClientRequest,
+  options: DiscoveryRequestOptions,
+  errorMessage: string,
+): Effect.Effect<{ readonly status: number; readonly body: string }, OAuthDiscoveryError> =>
+  provideHttpClient(
+    Effect.gen(function* () {
+      const client = yield* HttpClient.HttpClient;
+      const response = yield* client.execute(request).pipe(
+        Effect.timeoutOrElse({
+          duration: Duration.millis(options.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS),
+          orElse: () =>
+            Effect.fail(
+              new OAuthDiscoveryError({
+                message: errorMessage,
+                cause: "timeout",
+              }),
+            ),
+        }),
+        Effect.mapError((cause) =>
+          Predicate.isTagged(cause, "OAuthDiscoveryError")
+            ? cause
+            : new OAuthDiscoveryError({
+                message: errorMessage,
+                cause,
+              }),
+        ),
+      );
+      const body = yield* response.text.pipe(
+        Effect.catch(() => Effect.succeed("")),
+        Effect.mapError(
+          (cause) =>
+            new OAuthDiscoveryError({
+              message: `${errorMessage}: response body could not be read`,
+              status: response.status,
+              cause,
+            }),
+        ),
+      );
+      return { status: response.status, body };
+    }),
+    options,
+  );
 
 // ---------------------------------------------------------------------------
 // RFC 9728 — Protected Resource Metadata
@@ -218,40 +245,29 @@ export const discoverProtectedResourceMetadata = (
   OAuthDiscoveryError
 > =>
   Effect.gen(function* () {
-    const fetchImpl = options.fetch ?? globalThis.fetch;
-    const timeoutMs = options.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS;
     for (const url of buildResourceMetadataUrls(resourceUrl)) {
-      const result = yield* Effect.tryPromise({
-        try: async () => {
-          const requestUrl = withResourceQueryParams(url, options.resourceQueryParams);
-          const headers: Record<string, string> = {
-            ...options.resourceHeaders,
-            accept: "application/json",
-          };
-          if (options.mcpProtocolVersion) {
-            headers[MCP_PROTOCOL_VERSION_HEADER] = options.mcpProtocolVersion;
-          }
-          const response = await fetchImpl(requestUrl, {
-            method: "GET",
-            headers,
-            signal: AbortSignal.timeout(timeoutMs),
-          });
-          if (response.status === 404 || response.status === 405) return "skip" as const;
-          if (response.status < 200 || response.status >= 300) {
-            return { status: response.status } as const;
-          }
-          const text = await response.text();
-          if (text.length === 0) return "skip" as const;
-          return { status: response.status, body: text } as const;
-        },
-        catch: (cause) =>
-          new OAuthDiscoveryError({
-            message: `Failed to fetch protected resource metadata from ${url}`,
-            cause,
-          }),
-      });
-      if (result === "skip") continue;
-      if (!("body" in result)) {
+      const requestUrl = withResourceQueryParams(url, options.resourceQueryParams);
+      let request = HttpClientRequest.get(requestUrl).pipe(
+        HttpClientRequest.setHeader("accept", "application/json"),
+      );
+      for (const [name, value] of Object.entries(options.resourceHeaders ?? {})) {
+        request = HttpClientRequest.setHeader(request, name, value);
+      }
+      if (options.mcpProtocolVersion) {
+        request = HttpClientRequest.setHeader(
+          request,
+          MCP_PROTOCOL_VERSION_HEADER,
+          options.mcpProtocolVersion,
+        );
+      }
+
+      const result = yield* executeText(
+        request,
+        options,
+        `Failed to fetch protected resource metadata from ${url}`,
+      );
+      if (result.status === 404 || result.status === 405 || result.body.length === 0) continue;
+      if (result.status < 200 || result.status >= 300) {
         return yield* new OAuthDiscoveryError({
           message: `Protected resource metadata returned status ${result.status}`,
           status: result.status,
@@ -274,9 +290,9 @@ export const discoverProtectedResourceMetadata = (
 // ---------------------------------------------------------------------------
 // RFC 8414 + OIDC Discovery — Authorization Server Metadata
 //
-// Delegates to `oauth4webapi.discoveryRequest` + `processDiscoveryResponse`.
-// The library only probes one `.well-known` variant per call; we try
-// RFC 8414 (`oauth2`) first and fall back to OIDC Discovery.
+// Try RFC 8414 (`oauth2`) first and fall back to OIDC Discovery. Keep the
+// probing in this module so the whole discovery stack shares the same Effect
+// HttpClient boundary and timeout behavior.
 // ---------------------------------------------------------------------------
 
 const wellKnownUrlFor = (
@@ -308,40 +324,39 @@ export const discoverAuthorizationServerMetadata = (
     const issuerPath = issuerUrl.pathname.replace(/\/+$/, "");
 
     for (const algorithm of ["oauth2", "oidc"] as const) {
-      const result = yield* Effect.tryPromise({
-        try: async () => {
-          const response = await oauth.discoveryRequest(issuerUrl, {
-            algorithm,
-            ...oauth4webapiOptions(options, issuer),
-          });
-          if (response.status === 404 || response.status === 405) {
-            return null;
-          }
-          const as = await oauth.processDiscoveryResponse(issuerUrl, response);
-          return {
-            metadataUrl: wellKnownUrlFor(issuerOrigin, algorithm, issuerPath),
-            raw: as,
-          };
-        },
-        catch: (cause) => {
-          if (Predicate.isTagged(cause, "OAuthDiscoveryError")) {
-            return cause as OAuthDiscoveryError;
-          }
-          return new OAuthDiscoveryError({
-            message: `Discovery (${algorithm}) failed for ${issuer}`,
-            cause,
-          });
-        },
-      }).pipe(
+      const metadataUrl = wellKnownUrlFor(issuerOrigin, algorithm, issuerPath);
+      let request = HttpClientRequest.get(metadataUrl).pipe(
+        HttpClientRequest.setHeader("accept", "application/json"),
+      );
+      if (options.mcpProtocolVersion) {
+        request = HttpClientRequest.setHeader(
+          request,
+          MCP_PROTOCOL_VERSION_HEADER,
+          options.mcpProtocolVersion,
+        );
+      }
+      const result = yield* executeText(
+        request,
+        options,
+        `Discovery (${algorithm}) failed for ${issuer}`,
+      ).pipe(
+        Effect.map((response) => {
+          if (response.status === 404 || response.status === 405) return null;
+          return response;
+        }),
         // If one algorithm fails mid-roundtrip (network, parse, issuer
         // mismatch) we still want to try the other before giving up.
         Effect.result,
       );
 
       if (Result.isFailure(result)) continue;
-      if (result.success === null) continue;
+      const response = result.success;
+      if (response === null) continue;
+      if (response.status < 200 || response.status >= 300) continue;
 
-      const metadata = yield* decodeAuthServerMetadata(result.success.raw).pipe(
+      const raw = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(
+        response.body,
+      ).pipe(
         Effect.mapError(
           (err) =>
             new OAuthDiscoveryError({
@@ -350,7 +365,16 @@ export const discoverAuthorizationServerMetadata = (
             }),
         ),
       );
-      return { metadataUrl: result.success.metadataUrl, metadata };
+      const metadata = yield* decodeAuthServerMetadata(raw).pipe(
+        Effect.mapError(
+          (err) =>
+            new OAuthDiscoveryError({
+              message: "Authorization server metadata is malformed",
+              cause: err,
+            }),
+        ),
+      );
+      return { metadataUrl, metadata };
     }
     return null;
   });
@@ -465,47 +489,34 @@ export const registerDynamicClient = (
       headers.authorization = `Bearer ${input.initialAccessToken}`;
     }
 
-    const fetchImpl = options.fetch ?? globalThis.fetch;
-    const timeoutMs = options.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS;
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        fetchImpl(input.registrationEndpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(buildDcrBody(input.metadata)),
-          signal: AbortSignal.timeout(timeoutMs),
-        }),
-      catch: (cause) =>
-        new DcrTransport({
-          detail: "Dynamic Client Registration request failed",
-          cause,
-        }),
-    });
+    let request = HttpClientRequest.post(input.registrationEndpoint).pipe(
+      HttpClientRequest.bodyJsonUnsafe(buildDcrBody(input.metadata)),
+    );
+    for (const [name, value] of Object.entries(headers)) {
+      request = HttpClientRequest.setHeader(request, name, value);
+    }
+
+    const response = yield* executeText(
+      request,
+      options,
+      "Dynamic Client Registration request failed",
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new DcrTransport({
+            detail: "Dynamic Client Registration request failed",
+            cause,
+          }),
+      ),
+    );
 
     // Accept both 200 and 201 as success — RFC 7591 mandates 201, but
     // Todoist (and others) return 200 OK with the client information body.
     if (response.status !== 200 && response.status !== 201) {
-      const text = yield* Effect.tryPromise({
-        try: () => response.text(),
-        catch: () =>
-          new DcrTransport({
-            detail: "Dynamic Client Registration error response could not be read",
-            status: response.status,
-          }),
-      }).pipe(Effect.catchTag("DcrTransport", () => Effect.succeed("")));
-      return yield* interpretDcrFailure(response.status, text);
+      return yield* interpretDcrFailure(response.status, response.body);
     }
 
-    const text = yield* Effect.tryPromise({
-      try: () => response.text(),
-      catch: (cause) =>
-        new DcrTransport({
-          detail: "Dynamic Client Registration response could not be read",
-          status: response.status,
-          cause,
-        }),
-    });
-    return yield* decodeClientInformationJson(text).pipe(
+    return yield* decodeClientInformationJson(response.body).pipe(
       Effect.mapError(
         (err) =>
           new OAuthDiscoveryError({

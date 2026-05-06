@@ -1,8 +1,17 @@
-import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
-
-import { Context, Data, Effect, Layer, Ref, Schema as EffectSchema, Scope } from "effect";
+import {
+  Context,
+  Data,
+  Effect,
+  Layer,
+  Predicate,
+  Ref,
+  Schema as EffectSchema,
+  Scope,
+} from "effect";
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { GraphQLNonNull, GraphQLObjectType, GraphQLSchema, GraphQLString } from "graphql";
 import { createYoga, type GraphQLParams, type YogaInitialContext } from "graphql-yoga";
+import { serveTestHttpApp } from "@executor-js/sdk/testing";
 
 const GraphqlRequestPayload = EffectSchema.Struct({
   query: EffectSchema.optional(EffectSchema.String),
@@ -40,23 +49,12 @@ class GraphqlTestServerAddressError extends Data.TaggedError("GraphqlTestServerA
   readonly address: unknown;
 }> {}
 
-class GraphqlTestServerListenError extends Data.TaggedError("GraphqlTestServerListenError")<{
+class GraphqlTestServerHandlerError extends Data.TaggedError("GraphqlTestServerHandlerError")<{
   readonly cause: unknown;
 }> {}
 
-const headersFromRequest = (
-  headers: Headers | IncomingHttpHeaders,
-): Readonly<Record<string, string>> => {
-  if ("entries" in headers && typeof headers.entries === "function") {
-    return Object.fromEntries(headers.entries());
-  }
-  return Object.fromEntries(
-    Object.entries(headers).flatMap(([name, value]) => {
-      if (value === undefined) return [];
-      return [[name, Array.isArray(value) ? value.join(", ") : value]];
-    }),
-  );
-};
+const headersFromRequest = (headers: Headers): Readonly<Record<string, string>> =>
+  Object.fromEntries(headers.entries());
 
 const payloadFromParams = (params: GraphQLParams): GraphqlRequestPayload => ({
   query: params.query,
@@ -84,16 +82,11 @@ const captureRequest = (
   );
 };
 
-const closeServer = (server: Server): Effect.Effect<void> =>
-  Effect.callback<void>((resume) => {
-    server.close(() => resume(Effect.void));
-  });
-
 export const serveGraphqlTestServer = (
   options: GraphqlTestServerOptions,
 ): Effect.Effect<
   GraphqlTestServerShape,
-  GraphqlTestServerAddressError | GraphqlTestServerListenError,
+  GraphqlTestServerAddressError | GraphqlTestServerHandlerError,
   Scope.Scope
 > =>
   Effect.gen(function* () {
@@ -112,30 +105,32 @@ export const serveGraphqlTestServer = (
           request,
         })),
     });
-    const server = createServer(yoga);
 
-    const port = yield* Effect.acquireRelease(
-      Effect.callback<number, GraphqlTestServerAddressError | GraphqlTestServerListenError>(
-        (resume) => {
-          const onError = (cause: unknown) =>
-            resume(Effect.fail(new GraphqlTestServerListenError({ cause })));
-          server.once("error", onError);
-          server.listen(0, "127.0.0.1", () => {
-            server.off("error", onError);
-            const address = server.address();
-            if (!address || typeof address === "string") {
-              resume(Effect.fail(new GraphqlTestServerAddressError({ address })));
-              return;
-            }
-            resume(Effect.succeed(address.port));
-          });
-        },
+    const server = yield* serveTestHttpApp((request) =>
+      Effect.gen(function* () {
+        const webRequest = yield* HttpServerRequest.toWeb(request);
+        const response = yield* Effect.promise(() => Promise.resolve(yoga.handle(webRequest, {})));
+        return HttpServerResponse.fromWeb(response);
+      }).pipe(
+        Effect.catch(() =>
+          Effect.succeed(
+            HttpServerResponse.text("GraphQL test server failed", {
+              status: 500,
+              contentType: "text/plain",
+            }),
+          ),
+        ),
       ),
-      () => closeServer(server),
+    ).pipe(
+      Effect.mapError((error) =>
+        Predicate.isTagged(error, "TestHttpServerAddressError")
+          ? new GraphqlTestServerAddressError({ address: error.address })
+          : new GraphqlTestServerHandlerError({ cause: error.cause }),
+      ),
     );
 
     return {
-      endpoint: `http://127.0.0.1:${port}${path}`,
+      endpoint: server.url(path),
       schema: options.schema,
       requests: Ref.get(requests),
       clearRequests: Ref.set(requests, []),

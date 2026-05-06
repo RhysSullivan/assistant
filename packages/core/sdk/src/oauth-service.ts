@@ -35,7 +35,8 @@
 // every strategy because refresh semantics are strategy-independent.
 // ---------------------------------------------------------------------------
 
-import { Effect, Option, Schema } from "effect";
+import { Duration, Effect, Option, Schema } from "effect";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import type { DBAdapter, StorageFailure, TypedAdapter } from "@executor-js/storage-core";
 
@@ -354,40 +355,38 @@ export const makeOAuth2Service = (
       // endpoints (Railway/GraphQL endpoints respond 200 or 400 with
       // protocol-specific bodies that we simply read as "not a bearer
       // challenge").
-      const isBearerChallengeEndpoint = yield* Effect.tryPromise({
-        try: async (): Promise<boolean> => {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 6_000);
-          const probeUrl = new URL(input.endpoint);
-          for (const [key, value] of Object.entries(input.queryParams ?? {})) {
-            probeUrl.searchParams.set(key, value);
-          }
-          const response = await fetch(probeUrl.toString(), {
-            method: "POST",
-            headers: {
-              ...(input.headers ?? {}),
-              "content-type": "application/json",
-              accept: "application/json, text/event-stream",
+      const isBearerChallengeEndpoint = yield* Effect.gen(function* () {
+        const client = yield* HttpClient.HttpClient;
+        const probeUrl = new URL(input.endpoint);
+        for (const [key, value] of Object.entries(input.queryParams ?? {})) {
+          probeUrl.searchParams.set(key, value);
+        }
+        let request = HttpClientRequest.post(probeUrl.toString()).pipe(
+          HttpClientRequest.setHeader("content-type", "application/json"),
+          HttpClientRequest.setHeader("accept", "application/json, text/event-stream"),
+          HttpClientRequest.bodyJsonUnsafe({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-06-18",
+              capabilities: {},
+              clientInfo: { name: "executor-probe", version: "0" },
             },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: 1,
-              method: "initialize",
-              params: {
-                protocolVersion: "2025-06-18",
-                capabilities: {},
-                clientInfo: { name: "executor-probe", version: "0" },
-              },
-            }),
-            signal: controller.signal,
-          }).finally(() => clearTimeout(timer));
-          if (response.status !== 401) return false;
-          const wwwAuth =
-            response.headers.get("www-authenticate") ?? response.headers.get("WWW-Authenticate");
-          return !!wwwAuth && /^\s*bearer\b/i.test(wwwAuth);
-        },
-        catch: () => null,
-      }).pipe(Effect.catch(() => Effect.succeed(false)));
+          }),
+        );
+        for (const [name, value] of Object.entries(input.headers ?? {})) {
+          request = HttpClientRequest.setHeader(request, name, value);
+        }
+        const response = yield* client.execute(request).pipe(Effect.timeout(Duration.seconds(6)));
+        if (response.status !== 401) return false;
+        const wwwAuth =
+          response.headers["www-authenticate"] ?? response.headers["WWW-Authenticate"];
+        return !!wwwAuth && /^\s*bearer\b/i.test(wwwAuth);
+      }).pipe(
+        Effect.provide(FetchHttpClient.layer),
+        Effect.catch(() => Effect.succeed(false)),
+      );
 
       return {
         resourceMetadata: (resource?.metadata as Record<string, unknown> | undefined) ?? null,

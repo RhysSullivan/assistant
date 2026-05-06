@@ -16,21 +16,9 @@ const checkedPrefixes = [
   "packages/plugins/openapi/src/",
 ];
 
-const temporaryAllowedFiles = new Set([
-  "packages/core/sdk/src/oauth-discovery.ts",
-  "packages/core/sdk/src/oauth-discovery.test.ts",
-  "packages/core/sdk/src/oauth-helpers.test.ts",
-  "packages/core/sdk/src/oauth-service.ts",
-  "packages/plugins/mcp/src/sdk/probe-shape.ts",
-  "packages/plugins/openapi/src/sdk/client-credentials-oauth.test.ts",
-  "packages/plugins/openapi/src/sdk/multi-scope-oauth.test.ts",
-  "packages/plugins/openapi/src/sdk/oauth-refresh.test.ts",
-]);
-
 const shouldCheck = (filename) => {
   const normalized = toRepoRelative(filename);
   if (isDeclarationFile(filename)) return false;
-  if (temporaryAllowedFiles.has(normalized)) return false;
   return checkedPrefixes.some((prefix) => normalized.startsWith(prefix));
 };
 

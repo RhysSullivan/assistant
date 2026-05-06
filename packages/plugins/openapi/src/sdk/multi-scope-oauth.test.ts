@@ -8,8 +8,8 @@
 // user-facing `secrets.list()` automatically.
 // ---------------------------------------------------------------------------
 
-import { afterEach, expect, layer } from "@effect/vitest";
-import { Data, Effect, Layer, Predicate, Schema } from "effect";
+import { expect, layer } from "@effect/vitest";
+import { Data, Effect, Layer, Predicate, Ref, Schema } from "effect";
 import {
   HttpApi,
   HttpApiBuilder,
@@ -17,7 +17,13 @@ import {
   HttpApiGroup,
   OpenApi,
 } from "effect/unstable/httpapi";
-import { FetchHttpClient, HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http";
+import {
+  FetchHttpClient,
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 
 import {
@@ -32,6 +38,7 @@ import {
   type InvokeOptions,
   type SecretProvider,
 } from "@executor-js/sdk";
+import { serveTestHttpApp } from "@executor-js/sdk/testing";
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import { openApiPlugin } from "./plugin";
@@ -76,52 +83,33 @@ const TestLayer = HttpRouter.serve(ApiLive, { disableListenLog: true, disableLog
   Layer.provideMerge(NodeHttpServer.layerTest),
 );
 
-// ---------------------------------------------------------------------------
-// Fetch override for the token endpoint. Each user's OAuth callback code
-// deterministically maps to a different access_token in the mock
-// response so we can assert per-user isolation at invocation time.
-// ---------------------------------------------------------------------------
+const json = (status: number, body: unknown): HttpServerResponse.HttpServerResponse =>
+  HttpServerResponse.jsonUnsafe(body, { status });
 
-const originalFetch = globalThis.fetch;
-
-const mockTokenFetch = (tokenByCode: Record<string, string>) => {
-  globalThis.fetch = Object.assign(
-    async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof _input === "string" ? _input : _input.toString();
-      if (!url.includes("token.example.com")) {
-        return originalFetch(_input, init);
-      }
-      const bodyText =
-        init?.body instanceof URLSearchParams
-          ? init.body.toString()
-          : typeof init?.body === "string"
-            ? init.body
-            : "";
-      const params = new URLSearchParams(bodyText);
-      const code = params.get("code") ?? "";
-      const token = tokenByCode[code];
-      if (!token) {
-        return new Response(JSON.stringify({ error: "invalid_grant", code }), {
-          status: 400,
-          headers: { "content-type": "application/json" },
-        });
-      }
-      return new Response(
-        JSON.stringify({
-          access_token: token,
-          token_type: "Bearer",
-          refresh_token: `${token}-refresh`,
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    },
-    { preconnect: originalFetch.preconnect },
-  );
-};
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
+const serveTokenEndpoint = (
+  handle: (params: URLSearchParams) => HttpServerResponse.HttpServerResponse,
+) =>
+  Effect.gen(function* () {
+    const clientIds = yield* Ref.make<readonly string[]>([]);
+    const server = yield* serveTestHttpApp((request) =>
+      Effect.gen(function* () {
+        const params = new URLSearchParams(yield* request.text);
+        const clientId = params.get("client_id");
+        if (clientId) {
+          yield* Ref.update(clientIds, (all) => [...all, clientId]);
+        }
+        return handle(params);
+      }).pipe(
+        Effect.catch(() =>
+          Effect.succeed(HttpServerResponse.text("token fixture request failed", { status: 500 })),
+        ),
+      ),
+    );
+    return {
+      tokenUrl: server.url("/token"),
+      clientIds: Ref.get(clientIds),
+    } as const;
+  });
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -226,9 +214,21 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // 2. Each user runs startOAuth + centralized OAuth completion to mint a
       //    per-user Connection.
       // -------------------------------------------------------------
-      mockTokenFetch({
-        "code-alice": "alice-token",
-        "code-bob": "bob-token",
+      const tokenEndpoint = yield* serveTokenEndpoint((params) => {
+        const code = params.get("code") ?? "";
+        const tokenByCode: Record<string, string> = {
+          "code-alice": "alice-token",
+          "code-bob": "bob-token",
+        };
+        const token = tokenByCode[code];
+        if (!token) {
+          return json(400, { error: "invalid_grant", code });
+        }
+        return json(200, {
+          access_token: token,
+          token_type: "Bearer",
+          refresh_token: `${token}-refresh`,
+        });
       });
 
       const startInputFor = (user: string, scope: ScopeId) => ({
@@ -236,7 +236,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         displayName: `Petstore (${user})`,
         securitySchemeName: "oauth2",
         authorizationUrl: "https://auth.example.com/authorize",
-        tokenUrl: "https://token.example.com/token",
+        tokenUrl: tokenEndpoint.tokenUrl,
         redirectUrl: "https://app.example.com/oauth/callback",
         clientIdSecretId: "petstore_client_id",
         clientSecretSecretId: "petstore_client_secret",
@@ -302,7 +302,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         connectionId: aliceAuth.connectionId,
         securitySchemeName: "oauth2",
         flow: "authorizationCode",
-        tokenUrl: "https://token.example.com/token",
+        tokenUrl: tokenEndpoint.tokenUrl,
         authorizationUrl: "https://auth.example.com/authorize",
         clientIdSecretId: "petstore_client_id",
         clientSecretSecretId: "petstore_client_secret",
@@ -313,7 +313,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         connectionId: bobAuth.connectionId,
         securitySchemeName: "oauth2",
         flow: "authorizationCode",
-        tokenUrl: "https://token.example.com/token",
+        tokenUrl: tokenEndpoint.tokenUrl,
         authorizationUrl: "https://auth.example.com/authorize",
         clientIdSecretId: "petstore_client_id",
         clientSecretSecretId: "petstore_client_secret",
@@ -517,38 +517,19 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // encodes which client_id was used, so we can assert each
       // user's row ends up with a token minted from *their own*
       // credential resolution.
-      const tokenCalls: string[] = [];
-      globalThis.fetch = Object.assign(
-        async (_input: RequestInfo | URL, init?: RequestInit) => {
-          const url = typeof _input === "string" ? _input : _input.toString();
-          if (!url.includes("token.example.com")) {
-            return originalFetch(_input, init);
-          }
-          const bodyText =
-            init?.body instanceof URLSearchParams
-              ? init.body.toString()
-              : typeof init?.body === "string"
-                ? init.body
-                : "";
-          const params = new URLSearchParams(bodyText);
-          const clientId = params.get("client_id") ?? "unknown";
-          tokenCalls.push(clientId);
-          return new Response(
-            JSON.stringify({
-              access_token: `token-for-${clientId}`,
-              token_type: "Bearer",
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        },
-        { preconnect: originalFetch.preconnect },
-      );
+      const tokenEndpoint = yield* serveTokenEndpoint((params) => {
+        const clientId = params.get("client_id") ?? "unknown";
+        return json(200, {
+          access_token: `token-for-${clientId}`,
+          token_type: "Bearer",
+        });
+      });
 
       const startInput = {
         connectionId: "shared-petstore-oauth",
         displayName: "Petstore",
         securitySchemeName: "oauth2",
-        tokenUrl: "https://token.example.com/token",
+        tokenUrl: tokenEndpoint.tokenUrl,
         clientIdSecretId: "client_id",
         clientSecretSecretId: "client_secret",
         scopes: ["read"],
@@ -640,6 +621,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // (3) Scope-stacked secret resolution produced per-user tokens.
       // The exchange call Alice made used her shadowed value; Bob's
       // fell through to the org default.
+      const tokenCalls = yield* tokenEndpoint.clientIds;
       expect(tokenCalls).toContain("alice-client");
       expect(tokenCalls.filter((v) => v === "org-client").length).toBeGreaterThan(0);
 

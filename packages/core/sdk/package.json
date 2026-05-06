@@ -58,6 +58,7 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
+    "@effect/platform-node": "catalog:",
     "@executor-js/storage-core": "workspace:*",
     "effect": "catalog:",
     "fractional-indexing": "^3.2.0",

@@ -1,50 +1,59 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Ref } from "effect";
+import { HttpServerResponse } from "effect/unstable/http";
+import { serveTestHttpApp } from "@executor-js/sdk/testing";
 
 import { probeMcpEndpointShape } from "./probe-shape";
 
-type FetchStub = (
-  input: Parameters<typeof fetch>[0],
-  init?: Parameters<typeof fetch>[1],
-) => Promise<Response>;
-
-interface FetchFailure {
-  readonly failure: unknown;
+interface CapturedProbeRequest {
+  readonly method: string;
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: string;
 }
 
-const asFetch = (stub: FetchStub): typeof fetch => stub as typeof fetch;
+type ProbeHandler = (request: CapturedProbeRequest) => HttpServerResponse.HttpServerResponse;
 
-/**
- * Build a `fetch`-compatible stub that returns the given `Response` (or
- * rejects with the given failure) regardless of input. `fetch`'s exact signature
- * is a union; a narrow closure is enough for the probe.
- */
-const stubFetch = (result: Response | FetchFailure): typeof fetch =>
-  asFetch(async (_input, _init) => {
-    if ("failure" in result) {
-      // oxlint-disable-next-line promise/prefer-await-to-then, executor/no-promise-reject -- boundary: fetch-compatible test stub must reject like fetch
-      return Promise.reject(result.failure);
-    }
-    return result;
+const serveProbeEndpoint = (handler: ProbeHandler) =>
+  Effect.gen(function* () {
+    const requests = yield* Ref.make<readonly CapturedProbeRequest[]>([]);
+    const server = yield* serveTestHttpApp((request) =>
+      Effect.gen(function* () {
+        const body = yield* request.text;
+        const captured = {
+          method: request.method,
+          url: request.url ?? "/",
+          headers: request.headers,
+          body,
+        };
+        yield* Ref.update(requests, (all) => [...all, captured]);
+        return handler(captured);
+      }).pipe(
+        Effect.catch(() =>
+          Effect.succeed(HttpServerResponse.text("probe fixture request failed", { status: 500 })),
+        ),
+      ),
+    );
+
+    return {
+      endpoint: server.url("/probe"),
+      requests: Ref.get(requests),
+    } as const;
   });
 
-const stubFetchSequence = (results: readonly Response[]): typeof fetch => {
-  let index = 0;
-  return asFetch(async (_input, _init) => {
-    const result = results[index++];
-    if (!result) {
-      // oxlint-disable-next-line promise/prefer-await-to-then, executor/no-promise-reject -- boundary: fetch-compatible test stub must reject like fetch
-      return Promise.reject({ message: "unexpected fetch" });
-    }
-    return result;
-  });
-};
+const withServer = <A, E>(handler: ProbeHandler, use: (endpoint: string) => Effect.Effect<A, E>) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const server = yield* serveProbeEndpoint(handler);
+      return yield* use(server.endpoint);
+    }),
+  );
 
 describe("probeMcpEndpointShape", () => {
   it.effect("classifies 2xx as unauth-OK MCP", () =>
-    Effect.gen(function* () {
-      const response = new Response(
-        JSON.stringify({
+    withServer(
+      () =>
+        HttpServerResponse.jsonUnsafe({
           jsonrpc: "2.0",
           id: 1,
           result: {
@@ -53,103 +62,114 @@ describe("probeMcpEndpointShape", () => {
             serverInfo: { name: "t", version: "0" },
           },
         }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-      const result = yield* probeMcpEndpointShape("https://mcp.example/", {
-        fetch: stubFetch(response),
-      });
-      expect(result).toEqual({ kind: "mcp", requiresAuth: false });
-    }),
+      (endpoint) =>
+        Effect.gen(function* () {
+          const result = yield* probeMcpEndpointShape(endpoint);
+          expect(result).toEqual({ kind: "mcp", requiresAuth: false });
+        }),
+    ),
   );
 
   it.effect("classifies 401 with Bearer WWW-Authenticate as MCP+OAuth", () =>
-    Effect.gen(function* () {
-      const response = new Response(null, {
-        status: 401,
-        headers: {
-          "www-authenticate":
-            'Bearer resource_metadata="https://mcp.example/.well-known/oauth-protected-resource"',
-        },
-      });
-      const result = yield* probeMcpEndpointShape("https://mcp.example/", {
-        fetch: stubFetch(response),
-      });
-      expect(result).toEqual({ kind: "mcp", requiresAuth: true });
-    }),
+    withServer(
+      () =>
+        HttpServerResponse.empty({
+          status: 401,
+          headers: {
+            "www-authenticate":
+              'Bearer resource_metadata="https://mcp.example/.well-known/oauth-protected-resource"',
+          },
+        }),
+      (endpoint) =>
+        Effect.gen(function* () {
+          const result = yield* probeMcpEndpointShape(endpoint);
+          expect(result).toEqual({ kind: "mcp", requiresAuth: true });
+        }),
+    ),
   );
 
   it.effect("rejects 401 without WWW-Authenticate as non-MCP", () =>
-    Effect.gen(function* () {
-      const response = new Response("nope", { status: 401 });
-      const result = yield* probeMcpEndpointShape("https://api.example/", {
-        fetch: stubFetch(response),
-      });
-      expect(result.kind).toBe("not-mcp");
-    }),
+    withServer(
+      () => HttpServerResponse.text("nope", { status: 401 }),
+      (endpoint) =>
+        Effect.gen(function* () {
+          const result = yield* probeMcpEndpointShape(endpoint);
+          expect(result.kind).toBe("not-mcp");
+        }),
+    ),
   );
 
   it.effect("falls back to GET for OAuth-protected SSE endpoints", () =>
-    Effect.gen(function* () {
-      const post = new Response(null, { status: 405 });
-      const get = new Response(null, {
-        status: 401,
-        headers: {
-          "www-authenticate":
-            'Bearer resource_metadata="https://mcp.example/.well-known/oauth-protected-resource"',
-        },
-      });
-      const result = yield* probeMcpEndpointShape("https://mcp.example/sse", {
-        fetch: stubFetchSequence([post, get]),
-      });
-      expect(result).toEqual({ kind: "mcp", requiresAuth: true });
-    }),
+    withServer(
+      (request) => {
+        if (request.method === "POST") {
+          return HttpServerResponse.empty({ status: 405 });
+        }
+        return HttpServerResponse.empty({
+          status: 401,
+          headers: {
+            "www-authenticate":
+              'Bearer resource_metadata="https://mcp.example/.well-known/oauth-protected-resource"',
+          },
+        });
+      },
+      (endpoint) =>
+        Effect.gen(function* () {
+          const result = yield* probeMcpEndpointShape(endpoint);
+          expect(result).toEqual({ kind: "mcp", requiresAuth: true });
+        }),
+    ),
   );
 
   it.effect("classifies unauthenticated SSE GET endpoints as MCP", () =>
-    Effect.gen(function* () {
-      const post = new Response(null, { status: 405 });
-      const get = new Response("event: endpoint\n\n", {
-        status: 200,
-        headers: { "content-type": "text/event-stream" },
-      });
-      const result = yield* probeMcpEndpointShape("https://mcp.example/sse", {
-        fetch: stubFetchSequence([post, get]),
-      });
-      expect(result).toEqual({ kind: "mcp", requiresAuth: false });
-    }),
+    withServer(
+      (request) => {
+        if (request.method === "POST") {
+          return HttpServerResponse.empty({ status: 405 });
+        }
+        return HttpServerResponse.text("event: endpoint\n\n", {
+          status: 200,
+          contentType: "text/event-stream",
+        });
+      },
+      (endpoint) =>
+        Effect.gen(function* () {
+          const result = yield* probeMcpEndpointShape(endpoint);
+          expect(result).toEqual({ kind: "mcp", requiresAuth: false });
+        }),
+    ),
   );
 
   it.effect("rejects 400 GraphQL-shape responses as non-MCP", () =>
-    Effect.gen(function* () {
-      // This is exactly the response Railway's backboard returns for a
-      // JSON-RPC initialize POST — the bug this gate exists to catch.
-      const response = new Response(
-        JSON.stringify({
-          errors: [{ message: "Problem processing request" }],
+    withServer(
+      () =>
+        HttpServerResponse.jsonUnsafe(
+          { errors: [{ message: "Problem processing request" }] },
+          { status: 400 },
+        ),
+      (endpoint) =>
+        Effect.gen(function* () {
+          const result = yield* probeMcpEndpointShape(endpoint);
+          expect(result.kind).toBe("not-mcp");
         }),
-        { status: 400, headers: { "content-type": "application/json" } },
-      );
-      const result = yield* probeMcpEndpointShape("https://backboard.railway.com/graphql/v2", {
-        fetch: stubFetch(response),
-      });
-      expect(result.kind).toBe("not-mcp");
-    }),
+    ),
   );
 
   it.effect("rejects 404 as non-MCP", () =>
-    Effect.gen(function* () {
-      const response = new Response(null, { status: 404 });
-      const result = yield* probeMcpEndpointShape("https://example/", {
-        fetch: stubFetch(response),
-      });
-      expect(result.kind).toBe("not-mcp");
-    }),
+    withServer(
+      () => HttpServerResponse.empty({ status: 404 }),
+      (endpoint) =>
+        Effect.gen(function* () {
+          const result = yield* probeMcpEndpointShape(endpoint);
+          expect(result.kind).toBe("not-mcp");
+        }),
+    ),
   );
 
   it.effect("reports transport failure as unreachable", () =>
     Effect.gen(function* () {
-      const result = yield* probeMcpEndpointShape("https://missing/", {
-        fetch: stubFetch({ failure: { message: "fetch failed" } }),
+      const result = yield* probeMcpEndpointShape("http://127.0.0.1:1/missing", {
+        timeoutMs: 100,
       });
       expect(result.kind).toBe("unreachable");
     }),

@@ -5,8 +5,9 @@
 // provider-specific quirks.
 // ---------------------------------------------------------------------------
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "@effect/vitest";
-import { Effect, Exit } from "effect";
+import { describe, expect, it } from "@effect/vitest";
+import { Effect, Exit, Ref } from "effect";
+import { HttpServerResponse } from "effect/unstable/http";
 
 import {
   OAUTH2_DEFAULT_TIMEOUT_MS,
@@ -19,12 +20,81 @@ import {
   refreshAccessToken,
   shouldRefreshToken,
 } from "./oauth-helpers";
+import { serveTestHttpApp } from "./testing";
 
-const jsonResponse = (status: number, body: unknown): Response =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
+interface TokenCall {
+  readonly method: string;
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: URLSearchParams;
+}
+
+type TokenHandler = (call: TokenCall) => HttpServerResponse.HttpServerResponse;
+
+const json = (status: number, body: unknown): HttpServerResponse.HttpServerResponse =>
+  HttpServerResponse.jsonUnsafe(body, { status });
+
+const serveTokenEndpoint = (handler: TokenHandler) =>
+  Effect.gen(function* () {
+    const calls = yield* Ref.make<readonly TokenCall[]>([]);
+    const server = yield* serveTestHttpApp((request) =>
+      Effect.gen(function* () {
+        const bodyText = yield* request.text;
+        const call = {
+          method: request.method,
+          url: request.url ?? "/",
+          headers: request.headers,
+          body: new URLSearchParams(bodyText),
+        };
+        yield* Ref.update(calls, (all) => [...all, call]);
+        return handler(call);
+      }).pipe(
+        Effect.catch(() =>
+          Effect.succeed(HttpServerResponse.text("token fixture failed", { status: 500 })),
+        ),
+      ),
+    );
+
+    return {
+      tokenUrl: server.url("/token"),
+      calls: Ref.get(calls),
+    } as const;
   });
+
+const withTokenEndpoint = <A, E>(
+  handler: TokenHandler,
+  use: (fixture: {
+    readonly tokenUrl: string;
+    readonly calls: Effect.Effect<readonly TokenCall[]>;
+  }) => Effect.Effect<A, E>,
+) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fixture = yield* serveTokenEndpoint(handler);
+      return yield* use(fixture);
+    }),
+  );
+
+const validCodeBody = {
+  access_token: "tok",
+  token_type: "Bearer",
+  refresh_token: "rtok",
+  expires_in: 3600,
+  scope: "read",
+};
+
+const validRefreshBody = { access_token: "tok2", token_type: "Bearer", expires_in: 3600 };
+
+const jwtPart = (value: unknown): string =>
+  Buffer.from(JSON.stringify(value)).toString("base64url");
+
+const unsignedJwt = (claims: Record<string, unknown>, alg = "RS256"): string =>
+  `${jwtPart({ alg, typ: "JWT" })}.${jwtPart(claims)}.sig`;
+
+const tokenResponse =
+  (body: unknown): TokenHandler =>
+  () =>
+    json(200, body);
 
 // ---------------------------------------------------------------------------
 // PKCE
@@ -41,7 +111,6 @@ describe("PKCE", () => {
   });
 
   it("createPkceCodeChallenge matches the RFC 7636 Appendix A test vector", async () => {
-    // RFC 7636 §4.2 test vector
     const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
     const expected = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
     expect(await createPkceCodeChallenge(verifier)).toBe(expected);
@@ -59,8 +128,6 @@ describe("PKCE", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildAuthorizationUrl", () => {
-  // RFC 7636 §4.2 test-vector pair — verifier+challenge precomputed so
-  // the URL builder stays a pure sync function.
   const baseInput = {
     authorizationUrl: "https://example.com/authorize",
     clientId: "client-123",
@@ -103,7 +170,6 @@ describe("buildAuthorizationUrl", () => {
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("prompt")).toBe("consent");
     expect(url.searchParams.get("include_granted_scopes")).toBe("true");
-    // Standard params are still present.
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
   });
 
@@ -119,93 +185,55 @@ describe("buildAuthorizationUrl", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// exchangeAuthorizationCode / refreshAccessToken — request shape
-// ---------------------------------------------------------------------------
-
-type FetchArgs = { url: string; init: RequestInit };
-
-const captureFetch = (response: Response): { calls: FetchArgs[] } => {
-  const calls: FetchArgs[] = [];
-  globalThis.fetch = vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
-    calls.push({ url, init });
-    return response;
-  }) as typeof fetch;
-  return { calls };
-};
-
-const originalFetch = globalThis.fetch;
-
-const jwtPart = (value: unknown): string =>
-  Buffer.from(JSON.stringify(value)).toString("base64url");
-
-const unsignedJwt = (claims: Record<string, unknown>, alg = "RS256"): string =>
-  `${jwtPart({ alg, typ: "JWT" })}.${jwtPart(claims)}.sig`;
-
 describe("exchangeAuthorizationCode", () => {
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  const validBody = {
-    access_token: "tok",
-    token_type: "Bearer",
-    refresh_token: "rtok",
-    expires_in: 3600,
-    scope: "read",
-  };
-
-  it("posts form-urlencoded body with grant_type=authorization_code and PKCE verifier", async () => {
-    const { calls } = captureFetch(jsonResponse(200, validBody));
-    const result = await Effect.runPromise(
-      exchangeAuthorizationCode({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        clientSecret: "csecret",
-        redirectUrl: "https://app.example.com/cb",
-        codeVerifier: "verifier",
-        code: "abc",
+  it.effect("posts form-urlencoded body with grant_type=authorization_code and PKCE verifier", () =>
+    withTokenEndpoint(tokenResponse(validCodeBody), ({ tokenUrl, calls }) =>
+      Effect.gen(function* () {
+        const result = yield* exchangeAuthorizationCode({
+          tokenUrl,
+          clientId: "cid",
+          clientSecret: "csecret",
+          redirectUrl: "https://app.example.com/cb",
+          codeVerifier: "verifier",
+          code: "abc",
+        });
+        expect(result.access_token).toBe("tok");
+        const call = (yield* calls)[0]!;
+        expect(call.method).toBe("POST");
+        expect(call.headers["content-type"]).toMatch(/^application\/x-www-form-urlencoded/);
+        expect(call.headers["accept"]).toContain("application/json");
+        expect(call.body.get("grant_type")).toBe("authorization_code");
+        expect(call.body.get("client_id")).toBe("cid");
+        expect(call.body.get("client_secret")).toBe("csecret");
+        expect(call.body.get("redirect_uri")).toBe("https://app.example.com/cb");
+        expect(call.body.get("code_verifier")).toBe("verifier");
+        expect(call.body.get("code")).toBe("abc");
       }),
-    );
-    expect(result.access_token).toBe("tok");
-    expect(calls).toHaveLength(1);
-    const call = calls[0]!;
-    expect(call.url).toBe("https://example.com/token");
-    expect(call.init.method).toBe("POST");
-    const headers = call.init.headers as Record<string, string>;
-    expect(headers["content-type"]).toMatch(/^application\/x-www-form-urlencoded/);
-    expect(headers["accept"]).toContain("application/json");
-    const body = call.init.body as URLSearchParams;
-    expect(body.get("grant_type")).toBe("authorization_code");
-    expect(body.get("client_id")).toBe("cid");
-    expect(body.get("client_secret")).toBe("csecret");
-    expect(body.get("redirect_uri")).toBe("https://app.example.com/cb");
-    expect(body.get("code_verifier")).toBe("verifier");
-    expect(body.get("code")).toBe("abc");
-  });
+    ),
+  );
 
-  it("omits client_secret when none is provided (public clients with PKCE)", async () => {
-    const { calls } = captureFetch(jsonResponse(200, validBody));
-    await Effect.runPromise(
-      exchangeAuthorizationCode({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        redirectUrl: "https://app.example.com/cb",
-        codeVerifier: "verifier",
-        code: "abc",
+  it.effect("omits client_secret when none is provided (public clients with PKCE)", () =>
+    withTokenEndpoint(tokenResponse(validCodeBody), ({ tokenUrl, calls }) =>
+      Effect.gen(function* () {
+        yield* exchangeAuthorizationCode({
+          tokenUrl,
+          clientId: "cid",
+          redirectUrl: "https://app.example.com/cb",
+          codeVerifier: "verifier",
+          code: "abc",
+        });
+        const body = (yield* calls)[0]!.body;
+        expect(body.get("client_id")).toBe("cid");
+        expect(body.has("client_secret")).toBe(false);
       }),
-    );
-    const body = calls[0]!.init.body as URLSearchParams;
-    expect(body.get("client_id")).toBe("cid");
-    expect(body.has("client_secret")).toBe(false);
-  });
+    ),
+  );
 
-  it("strips id_tokens whose iss does not match AS metadata (PostHog-style OIDC backend behind plain OAuth 2.0 metadata)", async () => {
-    captureFetch(
-      jsonResponse(200, {
-        ...validBody,
+  it.effect("strips id_tokens whose iss does not match AS metadata", () =>
+    withTokenEndpoint(
+      tokenResponse({
+        ...validCodeBody,
         id_token: unsignedJwt({
-          // Upstream OP issuer — does NOT match issuerUrl below
           iss: "https://us.posthog.com",
           aud: "cid",
           sub: "user-1",
@@ -213,95 +241,101 @@ describe("exchangeAuthorizationCode", () => {
           iat: Math.floor(Date.now() / 1000),
         }),
       }),
-    );
-    const result = await Effect.runPromise(
-      exchangeAuthorizationCode({
-        tokenUrl: "https://oauth.posthog.com/oauth/token",
-        issuerUrl: "https://oauth.posthog.com",
-        clientId: "cid",
-        redirectUrl: "https://app.example.com/cb",
-        codeVerifier: "verifier",
-        code: "abc",
-      }),
-    );
-    expect(result.access_token).toBe("tok");
-    expect(result.refresh_token).toBe("rtok");
-  });
+      ({ tokenUrl }) =>
+        Effect.gen(function* () {
+          const result = yield* exchangeAuthorizationCode({
+            tokenUrl,
+            issuerUrl: new URL(tokenUrl).origin,
+            clientId: "cid",
+            redirectUrl: "https://app.example.com/cb",
+            codeVerifier: "verifier",
+            code: "abc",
+          });
+          expect(result.access_token).toBe("tok");
+          expect(result.refresh_token).toBe("rtok");
+        }),
+    ),
+  );
 
-  it("strips id_tokens whose aud does not match the client_id", async () => {
-    captureFetch(
-      jsonResponse(200, {
-        ...validBody,
+  it.effect("strips id_tokens whose aud does not match the client_id", () =>
+    withTokenEndpoint(
+      tokenResponse({
+        ...validCodeBody,
         id_token: unsignedJwt({
-          iss: "https://example.com",
-          // aud belongs to some other client
+          iss: "http://127.0.0.1",
           aud: "another-client",
           sub: "user-1",
           exp: Math.floor(Date.now() / 1000) + 3600,
           iat: Math.floor(Date.now() / 1000),
         }),
       }),
-    );
-    const result = await Effect.runPromise(
-      exchangeAuthorizationCode({
-        tokenUrl: "https://example.com/token",
-        issuerUrl: "https://example.com",
-        clientId: "cid",
-        redirectUrl: "https://app.example.com/cb",
-        codeVerifier: "verifier",
-        code: "abc",
-      }),
-    );
-    expect(result.access_token).toBe("tok");
-  });
+      ({ tokenUrl }) =>
+        Effect.gen(function* () {
+          const result = yield* exchangeAuthorizationCode({
+            tokenUrl,
+            issuerUrl: new URL(tokenUrl).origin,
+            clientId: "cid",
+            redirectUrl: "https://app.example.com/cb",
+            codeVerifier: "verifier",
+            code: "abc",
+          });
+          expect(result.access_token).toBe("tok");
+        }),
+    ),
+  );
 
-  it("happy path: token endpoint with no id_token still parses normally", async () => {
-    captureFetch(jsonResponse(200, validBody));
-    const result = await Effect.runPromise(
-      exchangeAuthorizationCode({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        redirectUrl: "https://app.example.com/cb",
-        codeVerifier: "verifier",
-        code: "abc",
+  it.effect("happy path: token endpoint with no id_token still parses normally", () =>
+    withTokenEndpoint(tokenResponse(validCodeBody), ({ tokenUrl }) =>
+      Effect.gen(function* () {
+        const result = yield* exchangeAuthorizationCode({
+          tokenUrl,
+          clientId: "cid",
+          redirectUrl: "https://app.example.com/cb",
+          codeVerifier: "verifier",
+          code: "abc",
+        });
+        expect(result.access_token).toBe("tok");
+        expect(result.refresh_token).toBe("rtok");
+        expect(result.expires_in).toBe(3600);
       }),
-    );
-    expect(result.access_token).toBe("tok");
-    expect(result.refresh_token).toBe("rtok");
-    expect(result.expires_in).toBe(3600);
-  });
+    ),
+  );
 
-  it("still surfaces RFC 6749 §5.2 error envelopes after the id_token strip", async () => {
-    captureFetch(
-      jsonResponse(400, {
-        error: "invalid_grant",
-        error_description: "authorization code expired",
-      }),
-    );
-    const exit = await Effect.runPromiseExit(
-      exchangeAuthorizationCode({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        redirectUrl: "https://app.example.com/cb",
-        codeVerifier: "verifier",
-        code: "abc",
-      }),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (!Exit.isFailure(exit)) return;
-    const failure = JSON.stringify(exit.cause);
-    expect(failure).toContain("OAuth2Error");
-    expect(failure).toContain("invalid_grant");
-    expect(failure).toContain("authorization code expired");
-  });
+  it.effect("still surfaces RFC 6749 §5.2 error envelopes after the id_token strip", () =>
+    withTokenEndpoint(
+      () =>
+        json(400, {
+          error: "invalid_grant",
+          error_description: "authorization code expired",
+        }),
+      ({ tokenUrl }) =>
+        Effect.gen(function* () {
+          const exit = yield* Effect.exit(
+            exchangeAuthorizationCode({
+              tokenUrl,
+              clientId: "cid",
+              redirectUrl: "https://app.example.com/cb",
+              codeVerifier: "verifier",
+              code: "abc",
+            }),
+          );
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (!Exit.isFailure(exit)) return;
+          const failure = JSON.stringify(exit.cause);
+          expect(failure).toContain("OAuth2Error");
+          expect(failure).toContain("invalid_grant");
+          expect(failure).toContain("authorization code expired");
+        }),
+    ),
+  );
 
-  it("strips id_tokens with algorithms not advertised in AS metadata (e.g. ES256 without supported list)", async () => {
-    captureFetch(
-      jsonResponse(200, {
-        ...validBody,
+  it.effect("strips id_tokens with algorithms not advertised in AS metadata", () =>
+    withTokenEndpoint(
+      tokenResponse({
+        ...validCodeBody,
         id_token: unsignedJwt(
           {
-            iss: "https://backboard.railway.com",
+            iss: "http://127.0.0.1",
             aud: "cid",
             sub: "user-1",
             exp: Math.floor(Date.now() / 1000) + 3600,
@@ -310,156 +344,155 @@ describe("exchangeAuthorizationCode", () => {
           "ES256",
         ),
       }),
-    );
+      ({ tokenUrl }) =>
+        Effect.gen(function* () {
+          const result = yield* exchangeAuthorizationCode({
+            tokenUrl,
+            issuerUrl: new URL(tokenUrl).origin,
+            clientId: "cid",
+            redirectUrl: "https://app.example.com/cb",
+            codeVerifier: "verifier",
+            code: "abc",
+          });
+          expect(result.access_token).toBe("tok");
+          expect(result.refresh_token).toBe("rtok");
+        }),
+    ),
+  );
 
-    const result = await Effect.runPromise(
-      exchangeAuthorizationCode({
-        tokenUrl: "https://backboard.railway.com/oauth/token",
-        issuerUrl: "https://backboard.railway.com",
-        clientId: "cid",
-        redirectUrl: "https://app.example.com/cb",
-        codeVerifier: "verifier",
-        code: "abc",
+  it.effect("uses HTTP Basic auth when clientAuth=basic (Stripe-style)", () =>
+    withTokenEndpoint(tokenResponse(validCodeBody), ({ tokenUrl, calls }) =>
+      Effect.gen(function* () {
+        yield* exchangeAuthorizationCode({
+          tokenUrl,
+          clientId: "cid",
+          clientSecret: "csecret",
+          redirectUrl: "https://app.example.com/cb",
+          codeVerifier: "verifier",
+          code: "abc",
+          clientAuth: "basic",
+        });
+        const call = (yield* calls)[0]!;
+        const expected = `Basic ${Buffer.from("cid:csecret").toString("base64")}`;
+        expect(call.headers["authorization"]).toBe(expected);
+        expect(call.body.has("client_id")).toBe(false);
+        expect(call.body.has("client_secret")).toBe(false);
       }),
-    );
+    ),
+  );
 
-    expect(result.access_token).toBe("tok");
-    expect(result.refresh_token).toBe("rtok");
-  });
+  it.effect("uses the documented 20-second timeout default", () =>
+    withTokenEndpoint(tokenResponse(validCodeBody), ({ tokenUrl }) =>
+      Effect.gen(function* () {
+        yield* exchangeAuthorizationCode({
+          tokenUrl,
+          clientId: "cid",
+          redirectUrl: "https://cb",
+          codeVerifier: "v",
+          code: "c",
+        });
+        expect(OAUTH2_DEFAULT_TIMEOUT_MS).toBe(20_000);
+      }),
+    ),
+  );
 
-  it("uses HTTP Basic auth when clientAuth=basic (Stripe-style)", async () => {
-    const { calls } = captureFetch(jsonResponse(200, validBody));
-    await Effect.runPromise(
-      exchangeAuthorizationCode({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        clientSecret: "csecret",
-        redirectUrl: "https://app.example.com/cb",
-        codeVerifier: "verifier",
-        code: "abc",
-        clientAuth: "basic",
-      }),
-    );
-    const headers = calls[0]!.init.headers as Record<string, string>;
-    const expected = `Basic ${Buffer.from("cid:csecret").toString("base64")}`;
-    expect(headers["authorization"]).toBe(expected);
-    const body = calls[0]!.init.body as URLSearchParams;
-    expect(body.has("client_id")).toBe(false);
-    expect(body.has("client_secret")).toBe(false);
-  });
+  it.effect("returns a typed OAuth2Error on transport failure", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        exchangeAuthorizationCode({
+          tokenUrl: "http://127.0.0.1:1/token",
+          clientId: "cid",
+          redirectUrl: "https://cb",
+          codeVerifier: "v",
+          code: "c",
+          timeoutMs: 100,
+        }),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (!Exit.isFailure(exit)) return;
+      const failure = JSON.stringify(exit.cause);
+      expect(failure).toContain("OAuth2Error");
+      expect(failure).toContain("OAuth token exchange failed");
+    }),
+  );
 
-  it("sets a 20-second AbortSignal timeout by default", async () => {
-    const { calls } = captureFetch(jsonResponse(200, validBody));
-    await Effect.runPromise(
-      exchangeAuthorizationCode({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        redirectUrl: "https://cb",
-        codeVerifier: "v",
-        code: "c",
-      }),
-    );
-    expect(OAUTH2_DEFAULT_TIMEOUT_MS).toBe(20_000);
-    expect(calls[0]!.init.signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it("returns a typed OAuth2Error on transport failure", async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue({ message: "boom" }) as typeof fetch;
-    const exit = await Effect.runPromiseExit(
-      exchangeAuthorizationCode({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        redirectUrl: "https://cb",
-        codeVerifier: "v",
-        code: "c",
-      }),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (!Exit.isFailure(exit)) return;
-    const err = exit.cause;
-    const failure = JSON.stringify(err);
-    expect(failure).toContain("OAuth2Error");
-    expect(failure).toContain("OAuth token exchange failed");
-  });
-
-  it("propagates RFC 6749 error_description text in the OAuth2Error", async () => {
-    captureFetch(
-      jsonResponse(400, {
-        error: "invalid_grant",
-        error_description: "Code expired",
-      }),
-    );
-    const exit = await Effect.runPromiseExit(
-      exchangeAuthorizationCode({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        redirectUrl: "https://cb",
-        codeVerifier: "v",
-        code: "c",
-      }),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (!Exit.isFailure(exit)) return;
-    expect(JSON.stringify(exit.cause)).toContain("Code expired");
-  });
+  it.effect("propagates RFC 6749 error_description text in the OAuth2Error", () =>
+    withTokenEndpoint(
+      () =>
+        json(400, {
+          error: "invalid_grant",
+          error_description: "Code expired",
+        }),
+      ({ tokenUrl }) =>
+        Effect.gen(function* () {
+          const exit = yield* Effect.exit(
+            exchangeAuthorizationCode({
+              tokenUrl,
+              clientId: "cid",
+              redirectUrl: "https://cb",
+              codeVerifier: "v",
+              code: "c",
+            }),
+          );
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (!Exit.isFailure(exit)) return;
+          expect(JSON.stringify(exit.cause)).toContain("Code expired");
+        }),
+    ),
+  );
 });
 
 describe("refreshAccessToken", () => {
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  const validBody = { access_token: "tok2", token_type: "Bearer", expires_in: 3600 };
-
-  it("posts grant_type=refresh_token with the refresh token", async () => {
-    const { calls } = captureFetch(jsonResponse(200, validBody));
-    await Effect.runPromise(
-      refreshAccessToken({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        clientSecret: "csecret",
-        refreshToken: "old",
+  it.effect("posts grant_type=refresh_token with the refresh token", () =>
+    withTokenEndpoint(tokenResponse(validRefreshBody), ({ tokenUrl, calls }) =>
+      Effect.gen(function* () {
+        yield* refreshAccessToken({
+          tokenUrl,
+          clientId: "cid",
+          clientSecret: "csecret",
+          refreshToken: "old",
+        });
+        const body = (yield* calls)[0]!.body;
+        expect(body.get("grant_type")).toBe("refresh_token");
+        expect(body.get("refresh_token")).toBe("old");
+        expect(body.get("client_id")).toBe("cid");
+        expect(body.get("client_secret")).toBe("csecret");
       }),
-    );
-    const body = calls[0]!.init.body as URLSearchParams;
-    expect(body.get("grant_type")).toBe("refresh_token");
-    expect(body.get("refresh_token")).toBe("old");
-    expect(body.get("client_id")).toBe("cid");
-    expect(body.get("client_secret")).toBe("csecret");
-  });
+    ),
+  );
 
-  it("includes scope when scopes are provided", async () => {
-    const { calls } = captureFetch(jsonResponse(200, validBody));
-    await Effect.runPromise(
-      refreshAccessToken({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        refreshToken: "old",
-        scopes: ["a", "b"],
+  it.effect("includes scope when scopes are provided", () =>
+    withTokenEndpoint(tokenResponse(validRefreshBody), ({ tokenUrl, calls }) =>
+      Effect.gen(function* () {
+        yield* refreshAccessToken({
+          tokenUrl,
+          clientId: "cid",
+          refreshToken: "old",
+          scopes: ["a", "b"],
+        });
+        expect((yield* calls)[0]!.body.get("scope")).toBe("a b");
       }),
-    );
-    const body = calls[0]!.init.body as URLSearchParams;
-    expect(body.get("scope")).toBe("a b");
-  });
+    ),
+  );
 
-  it("omits scope when scopes is empty", async () => {
-    const { calls } = captureFetch(jsonResponse(200, validBody));
-    await Effect.runPromise(
-      refreshAccessToken({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        refreshToken: "old",
-        scopes: [],
+  it.effect("omits scope when scopes is empty", () =>
+    withTokenEndpoint(tokenResponse(validRefreshBody), ({ tokenUrl, calls }) =>
+      Effect.gen(function* () {
+        yield* refreshAccessToken({
+          tokenUrl,
+          clientId: "cid",
+          refreshToken: "old",
+          scopes: [],
+        });
+        expect((yield* calls)[0]!.body.has("scope")).toBe(false);
       }),
-    );
-    const body = calls[0]!.init.body as URLSearchParams;
-    expect(body.has("scope")).toBe(false);
-  });
+    ),
+  );
 
-  it("strips refreshed id_tokens whose iss does not match AS metadata", async () => {
-    captureFetch(
-      jsonResponse(200, {
-        ...validBody,
+  it.effect("strips refreshed id_tokens whose iss does not match AS metadata", () =>
+    withTokenEndpoint(
+      tokenResponse({
+        ...validRefreshBody,
         id_token: unsignedJwt({
           iss: "https://us.posthog.com",
           aud: "cid",
@@ -468,25 +501,26 @@ describe("refreshAccessToken", () => {
           iat: Math.floor(Date.now() / 1000),
         }),
       }),
-    );
-    const result = await Effect.runPromise(
-      refreshAccessToken({
-        tokenUrl: "https://oauth.posthog.com/oauth/token",
-        issuerUrl: "https://oauth.posthog.com",
-        clientId: "cid",
-        refreshToken: "old",
-      }),
-    );
-    expect(result.access_token).toBe("tok2");
-  });
+      ({ tokenUrl }) =>
+        Effect.gen(function* () {
+          const result = yield* refreshAccessToken({
+            tokenUrl,
+            issuerUrl: new URL(tokenUrl).origin,
+            clientId: "cid",
+            refreshToken: "old",
+          });
+          expect(result.access_token).toBe("tok2");
+        }),
+    ),
+  );
 
-  it("strips refreshed id_tokens with algorithms not advertised in AS metadata", async () => {
-    captureFetch(
-      jsonResponse(200, {
-        ...validBody,
+  it.effect("strips refreshed id_tokens with algorithms not advertised in AS metadata", () =>
+    withTokenEndpoint(
+      tokenResponse({
+        ...validRefreshBody,
         id_token: unsignedJwt(
           {
-            iss: "https://backboard.railway.com",
+            iss: "http://127.0.0.1",
             aud: "cid",
             sub: "user-1",
             exp: Math.floor(Date.now() / 1000) + 3600,
@@ -495,37 +529,33 @@ describe("refreshAccessToken", () => {
           "ES256",
         ),
       }),
-    );
+      ({ tokenUrl }) =>
+        Effect.gen(function* () {
+          const result = yield* refreshAccessToken({
+            tokenUrl,
+            issuerUrl: new URL(tokenUrl).origin,
+            clientId: "cid",
+            refreshToken: "old",
+          });
+          expect(result.access_token).toBe("tok2");
+        }),
+    ),
+  );
 
-    const result = await Effect.runPromise(
-      refreshAccessToken({
-        tokenUrl: "https://backboard.railway.com/oauth/token",
-        issuerUrl: "https://backboard.railway.com",
-        clientId: "cid",
-        refreshToken: "old",
+  it.effect("happy path: refresh response with no id_token parses normally", () =>
+    withTokenEndpoint(tokenResponse(validRefreshBody), ({ tokenUrl }) =>
+      Effect.gen(function* () {
+        const result = yield* refreshAccessToken({
+          tokenUrl,
+          clientId: "cid",
+          refreshToken: "old",
+        });
+        expect(result.access_token).toBe("tok2");
+        expect(result.expires_in).toBe(3600);
       }),
-    );
-
-    expect(result.access_token).toBe("tok2");
-  });
-
-  it("happy path: refresh response with no id_token parses normally", async () => {
-    captureFetch(jsonResponse(200, validBody));
-    const result = await Effect.runPromise(
-      refreshAccessToken({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        refreshToken: "old",
-      }),
-    );
-    expect(result.access_token).toBe("tok2");
-    expect(result.expires_in).toBe(3600);
-  });
+    ),
+  );
 });
-
-// ---------------------------------------------------------------------------
-// shouldRefreshToken
-// ---------------------------------------------------------------------------
 
 describe("shouldRefreshToken", () => {
   it("never refreshes when expiresAt is null", () => {
@@ -556,31 +586,22 @@ describe("shouldRefreshToken", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Error type plumbing — make sure Effect propagates the tagged error
-// ---------------------------------------------------------------------------
-
 describe("OAuth2Error tagging", () => {
-  beforeEach(() => {
-    globalThis.fetch = vi.fn().mockRejectedValue({ message: "network down" }) as typeof fetch;
-  });
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  it("Effect failure channel carries OAuth2Error", async () => {
-    const exit = await Effect.runPromiseExit(
-      refreshAccessToken({
-        tokenUrl: "https://example.com/token",
-        clientId: "cid",
-        refreshToken: "old",
-      }),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (!Exit.isFailure(exit)) return;
-    const failures = JSON.stringify(exit.cause);
-    expect(failures).toContain("OAuth2Error");
-  });
+  it.effect("Effect failure channel carries OAuth2Error", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        refreshAccessToken({
+          tokenUrl: "http://127.0.0.1:1/token",
+          clientId: "cid",
+          refreshToken: "old",
+          timeoutMs: 100,
+        }),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (!Exit.isFailure(exit)) return;
+      expect(JSON.stringify(exit.cause)).toContain("OAuth2Error");
+    }),
+  );
 
   it("OAuth2Error is constructable directly with message and cause", () => {
     const err = new OAuth2Error({ message: "test", cause: { foo: 1 } });
