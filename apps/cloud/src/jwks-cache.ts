@@ -70,6 +70,7 @@ const fetchJwksOnce = async (
 ): Promise<JSONWebKeySet> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Promise-based jose key resolver must clear timeout before resolving/rejecting
   try {
     const response = await fetchImpl(url.toString(), {
       method: "GET",
@@ -77,10 +78,12 @@ const fetchJwksOnce = async (
       signal: controller.signal,
     });
     if (!response.ok) {
+      // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: jose expects this Promise adapter to reject on fetch failures
       throw new Error(`JWKS fetch failed: ${response.status} ${response.statusText}`);
     }
     const body = (await response.json()) as JSONWebKeySet;
     if (!body || !Array.isArray((body as JSONWebKeySet).keys)) {
+      // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: jose expects this Promise adapter to reject on malformed JWKS payloads
       throw new Error("JWKS fetch returned malformed payload");
     }
     return body;
@@ -111,6 +114,7 @@ export const createCachedRemoteJWKSet = (
   const refresh = (): Promise<CacheEntry> => {
     if (inflight) return inflight;
     inflight = (async () => {
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: single-flight Promise must reset inflight after success or rejection
       try {
         const jwks = await fetchJwksOnce(url, fetchImpl(), timeoutMs);
         const next: CacheEntry = {
@@ -135,12 +139,14 @@ export const createCachedRemoteJWKSet = (
 
   const get: JWTVerifyGetKey = async (protectedHeader, token) => {
     const current = await ensureFresh(false);
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: jose resolver retries one JWKS refresh before preserving the original rejection contract
     try {
       return await current.resolver(protectedHeader, token);
     } catch (error) {
       // Likely cause: keys rotated upstream after our TTL window started.
       // Refetch once and try again. Anything still failing bubbles up so
       // jose can classify it (we do not silently swallow real failures).
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: preserve jose resolver rejection when the failure is not a key rotation miss
       if (!(error instanceof JWKSNoMatchingKey)) throw error;
       const refreshed = await ensureFresh(true);
       return await refreshed.resolver(protectedHeader, token);
