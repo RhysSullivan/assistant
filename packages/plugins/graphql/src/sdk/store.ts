@@ -1,8 +1,9 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 import {
   defineSchema,
   type StorageDeps,
+  StorageError,
   type StorageFailure,
 } from "@executor-js/sdk/core";
 
@@ -116,25 +117,70 @@ export interface StoredOperation {
 
 // Persisted JSON shape for an OperationBinding. Reconstructed into a
 // Schema.Class instance on read.
-interface BindingJson {
-  readonly kind: "query" | "mutation";
-  readonly fieldName: string;
-  readonly operationString: string;
-  readonly variableNames: readonly string[];
-}
+const BindingJson = Schema.Struct({
+  kind: Schema.Literals(["query", "mutation"]),
+  fieldName: Schema.String,
+  operationString: Schema.String,
+  variableNames: Schema.Array(Schema.String),
+});
+type BindingJson = typeof BindingJson.Type;
 
-const decodeBinding = (value: unknown): OperationBinding => {
-  const data =
+const SourceRow = Schema.Struct({
+  id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+  endpoint: Schema.String,
+  auth_kind: Schema.Literals(["none", "oauth2"]),
+  auth_connection_id: Schema.optional(Schema.NullOr(Schema.String)),
+});
+type SourceRow = typeof SourceRow.Type;
+
+const ChildValueRow = Schema.Struct({
+  name: Schema.String,
+  kind: Schema.Literals(["text", "secret"]),
+  text_value: Schema.optional(Schema.NullOr(Schema.String)),
+  secret_id: Schema.optional(Schema.NullOr(Schema.String)),
+  secret_prefix: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+const OperationRow = Schema.Struct({
+  id: Schema.String,
+  source_id: Schema.String,
+  binding: Schema.Unknown,
+});
+
+const ChildUsageRowSchema = Schema.Struct({
+  source_id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+});
+/** Flat row shape returned by the usage-lookup helpers. Mirrors the new
+ *  child-table columns so callers can build a `Usage` without
+ *  re-decoding. */
+export type ChildUsageRow = typeof ChildUsageRowSchema.Type;
+
+const storageDecodeError = (message: string) => (cause: unknown) =>
+  new StorageError({ message, cause });
+
+const decodeBinding = (
+  value: unknown,
+): Effect.Effect<OperationBinding, StorageFailure> =>
+  (
     typeof value === "string"
-      ? (JSON.parse(value) as BindingJson)
-      : (value as BindingJson);
-  return new OperationBinding({
-    kind: data.kind,
-    fieldName: data.fieldName,
-    operationString: data.operationString,
-    variableNames: [...data.variableNames],
-  });
-};
+      ? Schema.decodeUnknownEffect(Schema.fromJsonString(BindingJson))(value)
+      : Schema.decodeUnknownEffect(BindingJson)(value)
+  ).pipe(
+    Effect.map(
+      (data) =>
+        new OperationBinding({
+          kind: data.kind,
+          fieldName: data.fieldName,
+          operationString: data.operationString,
+          variableNames: [...data.variableNames],
+        }),
+    ),
+    Effect.mapError(storageDecodeError("Invalid stored GraphQL operation binding")),
+  );
 
 const encodeBinding = (binding: OperationBinding): BindingJson => ({
   kind: binding.kind,
@@ -151,22 +197,34 @@ const toJsonRecord = (value: unknown): Record<string, unknown> =>
 // shape; `secret_prefix` is optional and only populated when present in
 // the original config.
 const rowsToValueMap = (
-  rows: readonly Record<string, unknown>[],
-): Record<string, HeaderValue> => {
-  const out: Record<string, HeaderValue> = {};
-  for (const row of rows) {
-    const name = row.name as string;
-    if (row.kind === "secret" && typeof row.secret_id === "string") {
-      const prefix = row.secret_prefix as string | undefined | null;
-      out[name] = prefix
-        ? { secretId: row.secret_id, prefix }
-        : { secretId: row.secret_id };
-    } else if (row.kind === "text" && typeof row.text_value === "string") {
-      out[name] = row.text_value;
+  rows: readonly unknown[],
+): Effect.Effect<Record<string, HeaderValue>, StorageFailure> =>
+  Effect.gen(function* () {
+    const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(ChildValueRow))(
+      rows,
+    ).pipe(
+      Effect.mapError(storageDecodeError("Invalid stored GraphQL child rows")),
+    );
+    const out: Record<string, HeaderValue> = {};
+    for (const row of decoded) {
+      if (
+        row.kind === "secret" &&
+        row.secret_id !== undefined &&
+        row.secret_id !== null
+      ) {
+        out[row.name] = row.secret_prefix
+          ? { secretId: row.secret_id, prefix: row.secret_prefix }
+          : { secretId: row.secret_id };
+      } else if (
+        row.kind === "text" &&
+        row.text_value !== undefined &&
+        row.text_value !== null
+      ) {
+        out[row.name] = row.text_value;
+      }
     }
-  }
-  return out;
-};
+    return out;
+  });
 
 // Encode one entry of a SecretBackedValue map into a child row. Used by
 // the writer for both `graphql_source_header` and
@@ -201,11 +259,8 @@ const valueToChildRow = (
   };
 };
 
-const rowToAuth = (row: Record<string, unknown>): GraphqlSourceAuth => {
-  if (
-    row.auth_kind === "oauth2" &&
-    typeof row.auth_connection_id === "string"
-  ) {
+const rowToAuth = (row: SourceRow): GraphqlSourceAuth => {
+  if (row.auth_kind === "oauth2" && row.auth_connection_id) {
     return { kind: "oauth2", connectionId: row.auth_connection_id };
   }
   return { kind: "none" };
@@ -226,15 +281,6 @@ const rowToAuth = (row: Record<string, unknown>): GraphqlSourceAuth => {
 // `path.scopeId` for HTTP, `toolRow.scope_id` / `input.scope` for
 // invokeTool/lifecycle) so every keyed mutation targets exactly one
 // row.
-/** Flat row shape returned by the usage-lookup helpers. Mirrors the new
- *  child-table columns so callers can build a `Usage` without
- *  re-decoding. */
-export interface ChildUsageRow {
-  readonly source_id: string;
-  readonly scope_id: string;
-  readonly name: string;
-}
-
 export interface GraphqlStore {
   readonly upsertSource: (
     input: StoredGraphqlSource,
@@ -323,7 +369,7 @@ export const makeDefaultGraphqlStore = ({
           { field: "scope_id", value: scope },
         ],
       })
-      .pipe(Effect.map(rowsToValueMap));
+      .pipe(Effect.flatMap(rowsToValueMap));
 
   const loadQueryParams = (sourceId: string, scope: string) =>
     db
@@ -334,32 +380,44 @@ export const makeDefaultGraphqlStore = ({
           { field: "scope_id", value: scope },
         ],
       })
-      .pipe(Effect.map(rowsToValueMap));
+      .pipe(Effect.flatMap(rowsToValueMap));
 
   const rowToSourceWithChildren = (
-    row: Record<string, unknown>,
+    row: unknown,
   ): Effect.Effect<StoredGraphqlSource, StorageFailure> =>
     Effect.gen(function* () {
-      const sourceId = row.id as string;
-      const scope = row.scope_id as string;
+      const sourceRow = yield* Schema.decodeUnknownEffect(SourceRow)(row).pipe(
+        Effect.mapError(storageDecodeError("Invalid stored GraphQL source row")),
+      );
+      const sourceId = sourceRow.id;
+      const scope = sourceRow.scope_id;
       const headers = yield* loadHeaders(sourceId, scope);
       const queryParams = yield* loadQueryParams(sourceId, scope);
       return {
         namespace: sourceId,
         scope,
-        name: row.name as string,
-        endpoint: row.endpoint as string,
+        name: sourceRow.name,
+        endpoint: sourceRow.endpoint,
         headers,
         queryParams,
-        auth: rowToAuth(row),
+        auth: rowToAuth(sourceRow),
       };
     });
 
-  const rowToOperation = (row: Record<string, unknown>): StoredOperation => ({
-    toolId: row.id as string,
-    sourceId: row.source_id as string,
-    binding: decodeBinding(row.binding),
-  });
+  const rowToOperation = (
+    row: unknown,
+  ): Effect.Effect<StoredOperation, StorageFailure> =>
+    Effect.gen(function* () {
+      const operationRow = yield* Schema.decodeUnknownEffect(OperationRow)(row).pipe(
+        Effect.mapError(storageDecodeError("Invalid stored GraphQL operation row")),
+      );
+      const binding = yield* decodeBinding(operationRow.binding);
+      return {
+        toolId: operationRow.id,
+        sourceId: operationRow.source_id,
+        binding,
+      };
+    });
 
   // Replace child rows for a source by deleting then bulk-inserting. Used
   // by both upsertSource (full rewrite) and updateSourceMeta (partial
@@ -540,7 +598,9 @@ export const makeDefaultGraphqlStore = ({
             { field: "scope_id", value: scope },
           ],
         })
-        .pipe(Effect.map((row) => (row ? rowToOperation(row) : null))),
+        .pipe(
+          Effect.flatMap((row) => (row ? rowToOperation(row) : Effect.succeed(null))),
+        ),
 
     listOperationsBySource: (sourceId, scope) =>
       db
@@ -551,7 +611,7 @@ export const makeDefaultGraphqlStore = ({
             { field: "scope_id", value: scope },
           ],
         })
-        .pipe(Effect.map((rows) => rows.map(rowToOperation))),
+        .pipe(Effect.flatMap((rows) => Effect.forEach(rows, rowToOperation))),
 
     removeSource: (namespace, scope) => deleteSource(namespace, scope),
 
@@ -562,14 +622,11 @@ export const makeDefaultGraphqlStore = ({
           where: [{ field: "secret_id", value: secretId }],
         })
         .pipe(
-          Effect.map((rows) =>
-            rows.map(
-              (r): ChildUsageRow => ({
-                source_id: r.source_id as string,
-                scope_id: r.scope_id as string,
-                name: r.name as string,
-              }),
-            ),
+          Effect.flatMap((rows) =>
+            Schema.decodeUnknownEffect(Schema.Array(ChildUsageRowSchema))(rows),
+          ),
+          Effect.mapError(
+            storageDecodeError("Invalid stored GraphQL header usage rows"),
           ),
         ),
 
@@ -580,14 +637,11 @@ export const makeDefaultGraphqlStore = ({
           where: [{ field: "secret_id", value: secretId }],
         })
         .pipe(
-          Effect.map((rows) =>
-            rows.map(
-              (r): ChildUsageRow => ({
-                source_id: r.source_id as string,
-                scope_id: r.scope_id as string,
-                name: r.name as string,
-              }),
-            ),
+          Effect.flatMap((rows) =>
+            Schema.decodeUnknownEffect(Schema.Array(ChildUsageRowSchema))(rows),
+          ),
+          Effect.mapError(
+            storageDecodeError("Invalid stored GraphQL query param usage rows"),
           ),
         ),
 
@@ -603,12 +657,19 @@ export const makeDefaultGraphqlStore = ({
         // row's name + scope. Synthesize a minimal StoredGraphqlSource
         // shape with empty headers/params so the type matches without
         // a wasted child fetch.
-        return rows.map(
+        const sourceRows = yield* Schema.decodeUnknownEffect(Schema.Array(SourceRow))(
+          rows,
+        ).pipe(
+          Effect.mapError(
+            storageDecodeError("Invalid stored GraphQL source usage rows"),
+          ),
+        );
+        return sourceRows.map(
           (row): StoredGraphqlSource => ({
-            namespace: row.id as string,
-            scope: row.scope_id as string,
-            name: row.name as string,
-            endpoint: row.endpoint as string,
+            namespace: row.id,
+            scope: row.scope_id,
+            name: row.name,
+            endpoint: row.endpoint,
             headers: {},
             queryParams: {},
             auth: rowToAuth(row),
@@ -624,11 +685,18 @@ export const makeDefaultGraphqlStore = ({
         // graphql source table is small in practice (one row per
         // endpoint).
         const rows = yield* db.findMany({ model: "graphql_source" });
+        const sourceRows = yield* Schema.decodeUnknownEffect(Schema.Array(SourceRow))(
+          rows,
+        ).pipe(
+          Effect.mapError(
+            storageDecodeError("Invalid stored GraphQL source name rows"),
+          ),
+        );
         const requested = new Set(keys);
         const out = new Map<string, string>();
-        for (const r of rows) {
-          const key = `${r.scope_id as string}:${r.id as string}`;
-          if (requested.has(key)) out.set(key, r.name as string);
+        for (const r of sourceRows) {
+          const key = `${r.scope_id}:${r.id}`;
+          if (requested.has(key)) out.set(key, r.name);
         }
         return out;
       }),
