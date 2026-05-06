@@ -33,6 +33,22 @@ const {
     <slot />
 
     <script>
+      import posthog from 'posthog-js'
+
+      const key = import.meta.env.PUBLIC_POSTHOG_KEY
+      if (key) {
+        const analyticsPath = (import.meta.env.PUBLIC_ANALYTICS_PATH ?? 'a').replace(/^\/+|\/+$/g, '')
+        posthog.init(key, {
+          api_host:
+            import.meta.env.PUBLIC_POSTHOG_HOST ?? `${window.location.origin}/api/${analyticsPath}`,
+          ui_host: 'https://us.posthog.com',
+          defaults: '2025-05-24',
+          person_profiles: 'identified_only',
+        })
+      }
+    </script>
+
+    <script>
       // Scroll-triggered reveals
       const observer = new IntersectionObserver(
         (entries) => {

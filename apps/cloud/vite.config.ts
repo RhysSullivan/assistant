@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
@@ -42,17 +41,17 @@ const loadWranglerPublicVars = () => {
   );
 };
 
-let generatedAnalyticsPath: string | undefined;
-const getGeneratedAnalyticsPath = () => {
-  generatedAnalyticsPath ??= randomUUID().slice(0, 8);
-  return generatedAnalyticsPath;
-};
+// VITE_PUBLIC_ANALYTICS_PATH is generated once per build by `scripts/build.mjs`
+// and inherited via process.env, so the client and SSR/Cloudflare environment
+// builds bake the same value. The fallback "a" is for `vite dev`, where the
+// proxy isn't routed anyway.
+const ANALYTICS_PATH = process.env.VITE_PUBLIC_ANALYTICS_PATH ?? "a";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const publicEnv = {
     ...loadWranglerPublicVars(),
-    VITE_PUBLIC_ANALYTICS_PATH: getGeneratedAnalyticsPath(),
+    VITE_PUBLIC_ANALYTICS_PATH: ANALYTICS_PATH,
     ...env,
   };
 
