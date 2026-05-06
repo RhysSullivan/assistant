@@ -347,6 +347,7 @@ export const collectSchemas = (
     if (!plugin.schema) continue;
     for (const [modelKey, model] of Object.entries(plugin.schema)) {
       if (merged[modelKey]) {
+        // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: collectSchemas is a synchronous manifest validation helper used before Effect runtime construction
         throw new Error(
           `Duplicate model "${modelKey}" contributed by plugin "${plugin.id}"` +
             ` (reserved by core or another plugin)`,
@@ -394,12 +395,21 @@ const staticDeclToSource = (
 const decodeJsonColumn = (value: unknown): unknown => {
   if (value === null || value === undefined) return undefined;
   if (typeof value !== "string") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
+  return Option.getOrElse(
+    Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))(value),
+    () => value,
+  );
 };
+
+const FailureMessage = Schema.Struct({
+  message: Schema.String,
+});
+
+const failureMessage = (cause: unknown): string =>
+  Option.match(Schema.decodeUnknownOption(FailureMessage)(cause), {
+    onNone: () => "Tool invocation failed",
+    onSome: (decoded) => decoded.message,
+  });
 
 const rowToTool = (
   row: ToolRow,
@@ -650,7 +660,7 @@ export const createExecutor = <
   const TPlugins extends readonly AnyPlugin[] = [],
 >(
   config: ExecutorConfig<TPlugins>,
-): Effect.Effect<Executor<TPlugins>, Error> =>
+): Effect.Effect<Executor<TPlugins>, StorageFailure> =>
   Effect.gen(function* () {
     const defaultPlugins = (): TPlugins => {
       const empty: readonly AnyPlugin[] = [];
@@ -664,9 +674,10 @@ export const createExecutor = <
     } = config;
 
     if (scopes.length === 0) {
-      return yield* Effect.fail(
-        new Error("createExecutor requires a non-empty scopes array"),
-      );
+      return yield* new StorageError({
+        message: "createExecutor requires a non-empty scopes array",
+        cause: undefined,
+      });
     }
 
     // Scope-wrap the root adapter so every read on a tenant-scoped
@@ -677,7 +688,7 @@ export const createExecutor = <
     // visible. Only tables whose schema declares `scope_id` are
     // scoped.
     const schema = collectSchemas(plugins);
-    const scopeIds = scopes.map((s) => s.id as string);
+    const scopeIds = scopes.map((s) => s.id);
     const scopedRoot = scopeAdapter(
       rootAdapter,
       { scopes: scopeIds },
@@ -761,7 +772,9 @@ export const createExecutor = <
     // shouldn't reach us — the adapter filters by `scope_id IN (stack)` —
     // but guarding here means a stray row can't silently win).
     const scopeRank = (row: { scope_id: unknown }) =>
-      scopePrecedence.get(row.scope_id as string) ?? Infinity;
+      typeof row.scope_id === "string"
+        ? scopePrecedence.get(row.scope_id) ?? Infinity
+        : Infinity;
 
     // Pick the innermost-scope row on a findOne-by-id against a scoped
     // model. The scope-wrapped adapter returns rows from every scope in
@@ -801,13 +814,13 @@ export const createExecutor = <
       Effect.gen(function* () {
         const ordered = [...rows].sort(
           (a, b) =>
-            (scopePrecedence.get(a.scope_id as string) ?? Infinity) -
-            (scopePrecedence.get(b.scope_id as string) ?? Infinity),
+            (scopePrecedence.get(a.scope_id) ?? Infinity) -
+            (scopePrecedence.get(b.scope_id) ?? Infinity),
         );
         for (const row of ordered) {
-          const provider = secretProviders.get(row.provider as string);
+          const provider = secretProviders.get(row.provider);
           if (!provider) continue;
-          const value = yield* provider.get(id, row.scope_id as string);
+          const value = yield* provider.get(id, row.scope_id);
           if (value !== null) return value;
         }
 
@@ -844,15 +857,12 @@ export const createExecutor = <
         // must not expose them even if a token secret id is leaked.
         const rows = yield* secretRowsForId(id);
         const owned = rows.find((row) => row.owned_by_connection_id);
-        if (owned) {
-          return yield* Effect.fail(
-            new SecretOwnedByConnectionError({
-              secretId: SecretId.make(id),
-              connectionId: ConnectionId.make(
-                owned.owned_by_connection_id as string,
-              ),
-            }),
-          );
+        const ownedConnectionId = owned?.owned_by_connection_id;
+        if (ownedConnectionId) {
+          return yield* new SecretOwnedByConnectionError({
+            secretId: SecretId.make(id),
+            connectionId: ConnectionId.make(ownedConnectionId),
+          });
         }
         return yield* resolveSecretValueFromRows(id, rows);
       });
@@ -866,10 +876,10 @@ export const createExecutor = <
       });
 
     const secretRouteHasBackingValue = (row: SecretRow) => {
-      const provider = secretProviders.get(row.provider as string);
+      const provider = secretProviders.get(row.provider);
       if (!provider?.has) return Effect.succeed(true);
       return provider
-        .has(row.id as string, row.scope_id as string)
+        .has(row.id, row.scope_id)
         .pipe(Effect.catch(() => Effect.succeed(false)));
     };
 
@@ -880,15 +890,13 @@ export const createExecutor = <
         // Validate the write target up front. The adapter would reject
         // an out-of-stack scope too, but catching it here gives a
         // clearer error before we touch the provider.
-        if (!scopeIds.includes(input.scope as string)) {
-          return yield* Effect.fail(
-            new StorageError({
-              message:
-                `secrets.set targets scope "${input.scope}" which is not ` +
-                `in the executor's scope stack [${scopeIds.join(", ")}].`,
-              cause: undefined,
-            }),
-          );
+        if (!scopeIds.includes(input.scope)) {
+          return yield* new StorageError({
+            message:
+              `secrets.set targets scope "${input.scope}" which is not ` +
+              `in the executor's scope stack [${scopeIds.join(", ")}].`,
+            cause: undefined,
+          });
         }
 
         // Pick provider: explicit or first-writable. Misconfiguration
@@ -899,12 +907,10 @@ export const createExecutor = <
         if (input.provider) {
           target = secretProviders.get(input.provider);
           if (!target) {
-            return yield* Effect.fail(
-              new StorageError({
-                message: `Unknown secret provider: ${input.provider}`,
-                cause: undefined,
-              }),
-            );
+            return yield* new StorageError({
+              message: `Unknown secret provider: ${input.provider}`,
+              cause: undefined,
+            });
           }
         } else {
           for (const provider of secretProviders.values()) {
@@ -914,24 +920,20 @@ export const createExecutor = <
             }
           }
           if (!target) {
-            return yield* Effect.fail(
-              new StorageError({
-                message: "No writable secret providers registered",
-                cause: undefined,
-              }),
-            );
+            return yield* new StorageError({
+              message: "No writable secret providers registered",
+              cause: undefined,
+            });
           }
         }
         if (!target.writable || !target.set) {
-          return yield* Effect.fail(
-            new StorageError({
+          return yield* new StorageError({
               message: `Secret provider "${target.key}" is read-only`,
               cause: undefined,
-            }),
-          );
+            });
         }
 
-        yield* target.set(input.id, input.value, input.scope as string);
+        yield* target.set(input.id, input.value, input.scope);
 
         // Upsert metadata row in the core `secret` table at the
         // caller-named scope. Pin the delete to `scope_id = input.scope`
@@ -1107,14 +1109,12 @@ export const createExecutor = <
         // Refuse to delete connection-owned secrets. The connection owns
         // the lifecycle — callers must go through connections.remove.
         if (target && target.owned_by_connection_id) {
-          return yield* Effect.fail(
-            new SecretOwnedByConnectionError({
+          return yield* new SecretOwnedByConnectionError({
               secretId: SecretId.make(id),
               connectionId: ConnectionId.make(
-                target.owned_by_connection_id as string,
+                target.owned_by_connection_id,
               ),
-            }),
-          );
+            });
         }
         // RESTRICT: refuse if any source/binding still references this
         // secret AND deleting the innermost row would leave the reference
@@ -1129,16 +1129,13 @@ export const createExecutor = <
         if (willDangle) {
           const usages = yield* secretsUsagesStrict(id);
           if (usages.length > 0) {
-            return yield* Effect.fail(
-              new SecretInUseError({
+            return yield* new SecretInUseError({
                 secretId: SecretId.make(id),
                 usageCount: usages.length,
-              }),
-            );
+              });
           }
         }
-        const targetScope = (target?.scope_id as string | undefined) ??
-          scopeIds[0]!;
+        const targetScope = target?.scope_id ?? scopeIds[0]!;
 
         const deleters = [...secretProviders.values()].filter(
           (p): p is typeof p & { delete: NonNullable<typeof p.delete> } =>
@@ -1197,17 +1194,17 @@ export const createExecutor = <
         const connectionOwnedIds = new Set(
           allRows
             .filter((r) => r.owned_by_connection_id)
-            .map((r) => r.id as string),
+            .map((r) => r.id),
         );
         const rows = allRows.filter((r) => !r.owned_by_connection_id);
         const precedence = new Map<string, number>();
         scopeIds.forEach((id, index) => precedence.set(id, index));
         const pick = (row: typeof rows[number]) => {
           const existing = byId.get(row.id);
-          const incomingScope = row.scope_id as string;
+          const incomingScope = row.scope_id;
           const incomingRank = precedence.get(incomingScope) ?? Number.MAX_SAFE_INTEGER;
           if (existing) {
-            const existingRank = precedence.get(existing.scopeId as string) ?? Number.MAX_SAFE_INTEGER;
+            const existingRank = precedence.get(existing.scopeId) ?? Number.MAX_SAFE_INTEGER;
             if (existingRank <= incomingRank) return;
           }
           byId.set(
@@ -1220,7 +1217,7 @@ export const createExecutor = <
               createdAt:
                 row.created_at instanceof Date
                   ? row.created_at
-                  : new Date(row.created_at as string),
+                  : new Date(row.created_at),
             }),
           );
         };
@@ -1300,29 +1297,29 @@ export const createExecutor = <
 
     const rowToConnection = (row: ConnectionRow): ConnectionRef =>
       new ConnectionRef({
-        id: ConnectionId.make(row.id as string),
-        scopeId: ScopeId.make(row.scope_id as string),
-        provider: row.provider as string,
-        identityLabel: (row.identity_label as string | null | undefined) ?? null,
-        accessTokenSecretId: SecretId.make(row.access_token_secret_id as string),
+        id: ConnectionId.make(row.id),
+        scopeId: ScopeId.make(row.scope_id),
+        provider: row.provider,
+        identityLabel: row.identity_label ?? null,
+        accessTokenSecretId: SecretId.make(row.access_token_secret_id),
         refreshTokenSecretId:
           row.refresh_token_secret_id != null
-            ? SecretId.make(row.refresh_token_secret_id as string)
+            ? SecretId.make(row.refresh_token_secret_id)
             : null,
         expiresAt:
-          row.expires_at != null ? Number(row.expires_at as number) : null,
-        oauthScope: (row.scope as string | null | undefined) ?? null,
+          row.expires_at != null ? Number(row.expires_at) : null,
+        oauthScope: row.scope ?? null,
         providerState: Option.getOrNull(
           decodeProviderState(decodeJsonColumn(row.provider_state)),
         ),
         createdAt:
           row.created_at instanceof Date
             ? row.created_at
-            : new Date(row.created_at as string),
+            : new Date(row.created_at),
         updatedAt:
           row.updated_at instanceof Date
             ? row.updated_at
-            : new Date(row.updated_at as string),
+            : new Date(row.updated_at),
       });
 
     const findInnermostConnectionRow = (
@@ -1355,10 +1352,10 @@ export const createExecutor = <
         const byIdRank = new Map<string, number>();
         for (const row of rows as readonly ConnectionRow[]) {
           const rank = scopeRank(row as { scope_id: unknown });
-          const existing = byIdRank.get(row.id as string);
+          const existing = byIdRank.get(row.id);
           if (existing === undefined || rank < existing) {
-            byId.set(row.id as string, row);
-            byIdRank.set(row.id as string, rank);
+            byId.set(row.id, row);
+            byIdRank.set(row.id, rank);
           }
         }
         return [...byId.values()].map(rowToConnection);
@@ -1380,20 +1377,16 @@ export const createExecutor = <
       Effect.gen(function* () {
         const target = secretProviders.get(params.provider);
         if (!target) {
-          return yield* Effect.fail(
-            new StorageError({
+          return yield* new StorageError({
               message: `Unknown secret provider: ${params.provider}`,
               cause: undefined,
-            }),
-          );
+            });
         }
         if (!target.writable || !target.set) {
-          return yield* Effect.fail(
-            new StorageError({
+          return yield* new StorageError({
               message: `Secret provider "${target.key}" is read-only`,
               cause: undefined,
-            }),
-          );
+            });
         }
         yield* target.set(params.id, params.value, params.scope);
 
@@ -1426,24 +1419,20 @@ export const createExecutor = <
         if (requested) {
           const p = secretProviders.get(requested);
           if (!p) {
-            return yield* Effect.fail(
-              new StorageError({
+            return yield* new StorageError({
                 message: `Unknown secret provider: ${requested}`,
                 cause: undefined,
-              }),
-            );
+              });
           }
           return p;
         }
         for (const p of secretProviders.values()) {
           if (p.writable && p.set) return p;
         }
-        return yield* Effect.fail(
-          new StorageError({
+        return yield* new StorageError({
             message: "No writable secret providers registered",
             cause: undefined,
-          }),
-        );
+          });
       });
 
     const connectionsCreate = (
@@ -1453,23 +1442,19 @@ export const createExecutor = <
       ConnectionProviderNotRegisteredError | StorageFailure
     > =>
       Effect.gen(function* () {
-        if (!scopeIds.includes(input.scope as string)) {
-          return yield* Effect.fail(
-            new StorageError({
+        if (!scopeIds.includes(input.scope)) {
+          return yield* new StorageError({
               message:
                 `connections.create targets scope "${input.scope}" which is not ` +
                 `in the executor's scope stack [${scopeIds.join(", ")}].`,
               cause: undefined,
-            }),
-          );
+            });
         }
         if (!resolveConnectionProvider(input.provider)) {
-          return yield* Effect.fail(
-            new ConnectionProviderNotRegisteredError({
+          return yield* new ConnectionProviderNotRegisteredError({
               provider: input.provider,
               connectionId: input.id,
-            }),
-          );
+            });
         }
 
         const writable = yield* pickWritableProvider();
@@ -1484,38 +1469,38 @@ export const createExecutor = <
             yield* core.delete({
               model: "connection",
               where: [
-                { field: "id", value: input.id as string },
-                { field: "scope_id", value: input.scope as string },
+                { field: "id", value: input.id },
+                { field: "scope_id", value: input.scope },
               ],
             });
 
             yield* writeOwnedSecret({
-              id: input.accessToken.secretId as string,
-              scope: input.scope as string,
+              id: input.accessToken.secretId,
+              scope: input.scope,
               name: input.accessToken.name,
               value: input.accessToken.value,
               provider: writable.key,
-              ownedByConnectionId: input.id as string,
+              ownedByConnectionId: input.id,
             });
             if (input.refreshToken) {
               yield* writeOwnedSecret({
-                id: input.refreshToken.secretId as string,
-                scope: input.scope as string,
+                id: input.refreshToken.secretId,
+                scope: input.scope,
                 name: input.refreshToken.name,
                 value: input.refreshToken.value,
                 provider: writable.key,
-                ownedByConnectionId: input.id as string,
+                ownedByConnectionId: input.id,
               });
             }
 
             yield* core.create({
               model: "connection",
               data: {
-                id: input.id as string,
-                scope_id: input.scope as string,
+                id: input.id,
+                scope_id: input.scope,
                 provider: input.provider,
                 identity_label: input.identityLabel ?? undefined,
-                access_token_secret_id: input.accessToken.secretId as string,
+                access_token_secret_id: input.accessToken.secretId,
                 refresh_token_secret_id:
                   input.refreshToken?.secretId ?? undefined,
                 expires_at: input.expiresAt ?? undefined,
@@ -1557,27 +1542,25 @@ export const createExecutor = <
       ConnectionNotFoundError | StorageFailure
     > =>
       Effect.gen(function* () {
-        const row = yield* findInnermostConnectionRow(input.id as string);
+        const row = yield* findInnermostConnectionRow(input.id);
         if (!row) {
-          return yield* Effect.fail(
-            new ConnectionNotFoundError({ connectionId: input.id }),
-          );
+          return yield* new ConnectionNotFoundError({ connectionId: input.id });
         }
         const writable = yield* pickWritableProvider();
         const accessName =
-          `Connection ${input.id as string} access token`;
+          `Connection ${input.id} access token`;
         const refreshName =
-          `Connection ${input.id as string} refresh token`;
+          `Connection ${input.id} refresh token`;
 
         return yield* adapter.transaction(() =>
           Effect.gen(function* () {
             yield* writeOwnedSecret({
-              id: row.access_token_secret_id as string,
-              scope: row.scope_id as string,
+              id: row.access_token_secret_id,
+              scope: row.scope_id,
               name: accessName,
               value: input.accessToken,
               provider: writable.key,
-              ownedByConnectionId: row.id as string,
+              ownedByConnectionId: row.id,
             });
             const rotatedRefresh = input.refreshToken ?? undefined;
             if (
@@ -1585,12 +1568,12 @@ export const createExecutor = <
               row.refresh_token_secret_id
             ) {
               yield* writeOwnedSecret({
-                id: row.refresh_token_secret_id as string,
-                scope: row.scope_id as string,
+                id: row.refresh_token_secret_id,
+                scope: row.scope_id,
                 name: refreshName,
                 value: rotatedRefresh,
                 provider: writable.key,
-                ownedByConnectionId: row.id as string,
+                ownedByConnectionId: row.id,
               });
             }
             const now = new Date();
@@ -1606,18 +1589,16 @@ export const createExecutor = <
             yield* core.update({
               model: "connection",
               where: [
-                { field: "id", value: row.id as string },
-                { field: "scope_id", value: row.scope_id as string },
+                { field: "id", value: row.id },
+                { field: "scope_id", value: row.scope_id },
               ],
               update: patch,
             });
             const updated = yield* findInnermostConnectionRow(
-              row.id as string,
+              row.id,
             );
             if (!updated) {
-              return yield* Effect.fail(
-                new ConnectionNotFoundError({ connectionId: input.id }),
-              );
+              return yield* new ConnectionNotFoundError({ connectionId: input.id });
             }
             return rowToConnection(updated);
           }),
@@ -1631,17 +1612,15 @@ export const createExecutor = <
       Effect.gen(function* () {
         const row = yield* findInnermostConnectionRow(id);
         if (!row) {
-          return yield* Effect.fail(
-            new ConnectionNotFoundError({
+          return yield* new ConnectionNotFoundError({
               connectionId: ConnectionId.make(id),
-            }),
-          );
+            });
         }
         yield* core.update({
           model: "connection",
           where: [
             { field: "id", value: id },
-            { field: "scope_id", value: row.scope_id as string },
+            { field: "scope_id", value: row.scope_id },
           ],
           update: {
             identity_label: label ?? undefined,
@@ -1667,15 +1646,13 @@ export const createExecutor = <
         if (willDangle) {
           const usages = yield* connectionsUsagesStrict(id);
           if (usages.length > 0) {
-            return yield* Effect.fail(
-              new ConnectionInUseError({
+            return yield* new ConnectionInUseError({
                 connectionId: ConnectionId.make(id),
                 usageCount: usages.length,
-              }),
-            );
+              });
           }
         }
-        const scope = row.scope_id as string;
+        const scope = row.scope_id;
         yield* adapter.transaction(() =>
           Effect.gen(function* () {
             // Find every owned secret at this scope and drop through
@@ -1697,7 +1674,7 @@ export const createExecutor = <
             for (const secret of owned) {
               yield* Effect.all(
                 deleters.map((p) =>
-                  p.delete(secret.id as string, scope).pipe(
+                  p.delete(secret.id, scope).pipe(
                     Effect.catchCause((cause) =>
                       Effect.logWarning(
                         `Failed to delete connection-owned secret from provider ${p.key}`,
@@ -1749,20 +1726,16 @@ export const createExecutor = <
       Effect.gen(function* () {
         const provider = resolveConnectionProvider(ref.provider);
         if (!provider) {
-          return yield* Effect.fail(
-            new ConnectionProviderNotRegisteredError({
+          return yield* new ConnectionProviderNotRegisteredError({
               provider: ref.provider,
               connectionId: ref.id,
-            }),
-          );
+            });
         }
         if (!provider.refresh) {
-          return yield* Effect.fail(
-            new ConnectionRefreshNotSupportedError({
+          return yield* new ConnectionRefreshNotSupportedError({
               connectionId: ref.id,
               provider: ref.provider,
-            }),
-          );
+            });
         }
 
         const refreshTokenValue = ref.refreshTokenSecretId
@@ -1790,13 +1763,12 @@ export const createExecutor = <
         if (Result.isFailure(rawResult)) {
           const err = rawResult.failure;
           if (err.reauthRequired) {
-            return yield* Effect.fail(
-              new ConnectionReauthRequiredError({
-                connectionId: err.connectionId,
-                provider: ref.provider,
-                message: err.message,
-              }),
-            );
+            return yield* new ConnectionReauthRequiredError({
+              connectionId: err.connectionId,
+              provider: ref.provider,
+              // oxlint-disable-next-line executor/no-unknown-error-message -- typed: Result failure is ConnectionRefreshError, whose public payload includes message
+              message: err.message,
+            });
           }
           return yield* Effect.fail(err);
         }
@@ -1832,11 +1804,9 @@ export const createExecutor = <
       Effect.gen(function* () {
         const row = yield* findInnermostConnectionRow(id);
         if (!row) {
-          return yield* Effect.fail(
-            new ConnectionNotFoundError({
+          return yield* new ConnectionNotFoundError({
               connectionId: ConnectionId.make(id),
-            }),
-          );
+            });
         }
         const ref = rowToConnection(row);
         const now = Date.now();
@@ -1919,9 +1889,10 @@ export const createExecutor = <
     // ------------------------------------------------------------------
     for (const plugin of plugins) {
       if (runtimes.has(plugin.id)) {
-        return yield* Effect.fail(
-          new Error(`Duplicate plugin id: ${plugin.id}`),
-        );
+        return yield* new StorageError({
+          message: `Duplicate plugin id: ${plugin.id}`,
+          cause: undefined,
+        });
       }
 
       // Plugin-facing typed view. `StorageError` and `UniqueViolationError`
@@ -1957,22 +1928,18 @@ export const createExecutor = <
                 // share the same string space. Fails as `StorageError`
                 // so the HTTP edge surfaces it as `InternalError(traceId)`.
                 if (staticSources.has(input.id)) {
-                  return yield* Effect.fail(
-                    new StorageError({
+                  return yield* new StorageError({
                       message: `Source id "${input.id}" collides with a static source`,
                       cause: undefined,
-                    }),
-                  );
+                    });
                 }
                 for (const tool of input.tools) {
                   const fqid = `${input.id}.${tool.name}`;
                   if (staticTools.has(fqid)) {
-                    return yield* Effect.fail(
-                      new StorageError({
+                    return yield* new StorageError({
                         message: `Tool id "${fqid}" collides with a static tool`,
                         cause: undefined,
-                      }),
-                    );
+                      });
                   }
                 }
                 // Wrap in adapter.transaction so a standalone register()
@@ -2004,7 +1971,7 @@ export const createExecutor = <
                   yield* deleteSourceById(
                     core,
                     sourceId,
-                    row.scope_id as string,
+                    row.scope_id,
                   );
                 }),
               ),
@@ -2075,22 +2042,20 @@ export const createExecutor = <
         : [];
       for (const source of decls) {
         if (staticSources.has(source.id)) {
-          return yield* Effect.fail(
-            new Error(
-              `Duplicate static source id: ${source.id} (plugin ${plugin.id})`,
-            ),
-          );
+          return yield* new StorageError({
+            message: `Duplicate static source id: ${source.id} (plugin ${plugin.id})`,
+            cause: undefined,
+          });
         }
         staticSources.set(source.id, { source, pluginId: plugin.id });
 
         for (const tool of source.tools) {
           const fqid = `${source.id}.${tool.name}`;
           if (staticTools.has(fqid)) {
-            return yield* Effect.fail(
-              new Error(
-                `Duplicate static tool id: ${fqid} (plugin ${plugin.id})`,
-              ),
-            );
+            return yield* new StorageError({
+              message: `Duplicate static tool id: ${fqid} (plugin ${plugin.id})`,
+              cause: undefined,
+            });
           }
           staticTools.set(fqid, {
             source,
@@ -2111,11 +2076,10 @@ export const createExecutor = <
         const providers = Effect.isEffect(raw) ? yield* raw : raw;
         for (const provider of providers) {
           if (secretProviders.has(provider.key)) {
-            return yield* Effect.fail(
-              new Error(
-                `Duplicate secret provider key: ${provider.key} (from plugin ${plugin.id})`,
-              ),
-            );
+            return yield* new StorageError({
+              message: `Duplicate secret provider key: ${provider.key} (from plugin ${plugin.id})`,
+              cause: undefined,
+            });
           }
           secretProviders.set(provider.key, provider);
         }
@@ -2129,11 +2093,10 @@ export const createExecutor = <
         const providers = Effect.isEffect(raw) ? yield* raw : raw;
         for (const provider of providers) {
           if (connectionProviders.has(provider.key)) {
-            return yield* Effect.fail(
-              new Error(
-                `Duplicate connection provider key: ${provider.key} (from plugin ${plugin.id})`,
-              ),
-            );
+            return yield* new StorageError({
+              message: `Duplicate connection provider key: ${provider.key} (from plugin ${plugin.id})`,
+              cause: undefined,
+            });
           }
           connectionProviders.set(provider.key, provider);
         }
@@ -2554,8 +2517,7 @@ export const createExecutor = <
               (cause) =>
                 new ToolInvocationError({
                   toolId: ToolId.make(toolId),
-                  message:
-                    cause instanceof Error ? cause.message : String(cause),
+                  message: failureMessage(cause),
                   cause,
                 }),
             ),
@@ -2702,13 +2664,13 @@ export const createExecutor = <
               yield* runtime.plugin.removeSource({
                 ctx: runtime.ctx,
                 sourceId,
-                scope: sourceRow.scope_id as string,
+                scope: sourceRow.scope_id,
               });
             }
             yield* deleteSourceById(
               core,
               sourceId,
-              sourceRow.scope_id as string,
+              sourceRow.scope_id,
             );
           }),
         );
@@ -2730,7 +2692,7 @@ export const createExecutor = <
           yield* runtime.plugin.refreshSource({
             ctx: runtime.ctx,
             sourceId,
-            scope: sourceRow.scope_id as string,
+            scope: sourceRow.scope_id,
           });
         }
       });
@@ -2853,7 +2815,7 @@ export const createExecutor = <
           });
           let min: string | null = null;
           for (const row of existing) {
-            const p = row.position as string;
+            const p = row.position;
             if (min === null || p < min) min = p;
           }
           position = generateKeyBetween(null, min);
@@ -2923,13 +2885,13 @@ export const createExecutor = <
           model: "tool_policy",
           where: [
             { field: "id", value: input.id },
-            { field: "scope_id", value: row.scope_id as string },
+            { field: "scope_id", value: row.scope_id },
           ],
           update: {
-            pattern: updated.pattern as string,
-            action: updated.action as string,
-            position: updated.position as string,
-            updated_at: updated.updated_at as Date,
+            pattern: updated.pattern,
+            action: updated.action,
+            position: updated.position,
+            updated_at: updated.updated_at,
           },
         });
         return rowToToolPolicy(updated);
