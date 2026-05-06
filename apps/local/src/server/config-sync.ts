@@ -5,19 +5,22 @@
 // plugin in executor.ts.
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { join } from "node:path";
 import * as fs from "node:fs";
 import * as jsonc from "jsonc-parser";
 
 import type {
-  SourceConfig,
   ExecutorFileConfig,
   ConfigHeaderValue,
 } from "@executor-js/config";
-import { SECRET_REF_PREFIX } from "@executor-js/config";
+import { SECRET_REF_PREFIX, SourceConfig } from "@executor-js/config";
 
 import type { LocalExecutor } from "./executor";
+
+const ConfigSyncFile = Schema.Struct({
+  sources: Schema.optional(Schema.Array(SourceConfig)),
+});
 
 // ---------------------------------------------------------------------------
 // Header translation: config format → plugin format
@@ -73,7 +76,7 @@ const loadConfigSync = (path: string): ExecutorFileConfig | null => {
     console.warn(`[config-sync] Failed to parse ${path}:`, errors);
     return null;
   }
-  return parsed as ExecutorFileConfig;
+  return Option.getOrNull(Schema.decodeUnknownOption(ConfigSyncFile)(parsed));
 };
 
 // ---------------------------------------------------------------------------
@@ -88,7 +91,7 @@ const addSourceFromConfig = (
   // aware of per-user tenancy. Pin replayed sources to the outermost
   // scope so a future `[user, org]` stack still sees them via org
   // fall-through.
-  const scope = executor.scopes.at(-1)!.id as string;
+  const scope = executor.scopes.at(-1)!.id;
   switch (source.kind) {
     case "openapi":
       return executor.openapi.addSpec({
@@ -161,7 +164,7 @@ export const syncFromConfig = (
             const ns = "namespace" in source ? source.namespace : ("name" in source ? source.name : "unknown");
             console.warn(
               `[config-sync] Failed to load source "${ns}":`,
-              e instanceof Error ? e.message : String(e),
+              e,
             );
             return Effect.succeed(false as const);
           }),
