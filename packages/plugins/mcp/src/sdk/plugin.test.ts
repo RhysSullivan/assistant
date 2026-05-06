@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
@@ -256,7 +256,7 @@ describe("mcpPlugin", () => {
         })
         .pipe(Effect.result);
 
-      expect(result._tag).toBe("Failure");
+      expect(Result.isFailure(result)).toBe(true);
 
       const sources = yield* executor.sources.list();
       const broken = sources.find((s) => s.id === "broken_source");
@@ -282,8 +282,10 @@ describe("mcpPlugin", () => {
   // without needing an in-test MCP server.
   // -------------------------------------------------------------------------
 
-  const ORG_SCOPE = ScopeId.make("org-scope");
-  const USER_SCOPE = ScopeId.make("user-scope");
+  const ORG_SCOPE_VALUE = "org-scope";
+  const USER_SCOPE_VALUE = "user-scope";
+  const ORG_SCOPE = ScopeId.make(ORG_SCOPE_VALUE);
+  const USER_SCOPE = ScopeId.make(USER_SCOPE_VALUE);
 
   const stackedScopes = [
     new Scope({ id: USER_SCOPE, name: "user", createdAt: new Date() }),
@@ -326,28 +328,28 @@ describe("mcpPlugin", () => {
 
       // Org-level base source — discovery fails but row persists.
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: ORG_SCOPE as string,
+        scope: ORG_SCOPE_VALUE,
         name: "Org Source",
         endpoint: "http://127.0.0.1:1/org-mcp",
       });
 
       // Per-user shadow with the same namespace.
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: USER_SCOPE as string,
+        scope: USER_SCOPE_VALUE,
         name: "User Source",
         endpoint: "http://127.0.0.1:1/user-mcp",
       });
 
-      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE as string);
-      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE as string);
+      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE_VALUE);
+      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE_VALUE);
 
       // Both rows must coexist — the store's scope-pinned getters
       // return the exact row regardless of the scope stack's
       // fall-through order.
       expect(userView?.name).toBe("User Source");
-      expect(userView?.scope).toBe(USER_SCOPE as string);
+      expect(userView?.scope).toBe(USER_SCOPE_VALUE);
       expect(orgView?.name).toBe("Org Source");
-      expect(orgView?.scope).toBe(ORG_SCOPE as string);
+      expect(orgView?.scope).toBe(ORG_SCOPE_VALUE);
     }),
   );
 
@@ -361,20 +363,20 @@ describe("mcpPlugin", () => {
       );
 
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: ORG_SCOPE as string,
+        scope: ORG_SCOPE_VALUE,
         name: "Org Source",
         endpoint: "http://127.0.0.1:1/org-mcp",
       });
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: USER_SCOPE as string,
+        scope: USER_SCOPE_VALUE,
         name: "User Source",
         endpoint: "http://127.0.0.1:1/user-mcp",
       });
 
-      yield* executor.mcp.removeSource("shared", USER_SCOPE as string);
+      yield* executor.mcp.removeSource("shared", USER_SCOPE_VALUE);
 
-      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE as string);
-      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE as string);
+      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE_VALUE);
+      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE_VALUE);
 
       expect(userView).toBeNull();
       expect(orgView?.name).toBe("Org Source");
@@ -391,32 +393,34 @@ describe("mcpPlugin", () => {
       );
 
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: ORG_SCOPE as string,
+        scope: ORG_SCOPE_VALUE,
         name: "Org Source",
         endpoint: "http://127.0.0.1:1/org-mcp",
       });
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: USER_SCOPE as string,
+        scope: USER_SCOPE_VALUE,
         name: "User Source",
         endpoint: "http://127.0.0.1:1/user-mcp",
       });
 
-      yield* executor.mcp.updateSource("shared", USER_SCOPE as string, {
+      yield* executor.mcp.updateSource("shared", USER_SCOPE_VALUE, {
         name: "User Renamed",
         endpoint: "http://127.0.0.1:1/user-new-mcp",
       });
 
-      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE as string);
-      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE as string);
+      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE_VALUE);
+      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE_VALUE);
 
       expect(userView?.name).toBe("User Renamed");
-      expect(userView?.config.transport).toBe("remote");
-      if (userView?.config.transport !== "remote") return;
-      expect(userView.config.endpoint).toBe("http://127.0.0.1:1/user-new-mcp");
+      expect(userView?.config).toMatchObject({
+        transport: "remote",
+        endpoint: "http://127.0.0.1:1/user-new-mcp",
+      });
       expect(orgView?.name).toBe("Org Source");
-      expect(orgView?.config.transport).toBe("remote");
-      if (orgView?.config.transport !== "remote") return;
-      expect(orgView.config.endpoint).toBe("http://127.0.0.1:1/org-mcp");
+      expect(orgView?.config).toMatchObject({
+        transport: "remote",
+        endpoint: "http://127.0.0.1:1/org-mcp",
+      });
     }),
   );
 
@@ -460,20 +464,20 @@ describe("mcpPlugin", () => {
       // perspective — it returns Failure because discovery failed, but
       // crucially the source row was persisted so the list surfaces
       // it for subsequent sign-in.
-      expect(result._tag).toBe("Failure");
+      expect(Result.isFailure(result)).toBe(true);
 
       const stored = yield* executor.mcp.getSource(
         "deferred_oauth",
         "test-scope",
       );
       expect(stored).not.toBeNull();
-      expect(stored?.config.transport).toBe("remote");
-      if (stored?.config.transport !== "remote") return;
-      expect(stored.config.auth.kind).toBe("oauth2");
-      if (stored.config.auth.kind !== "oauth2") return;
-      expect(stored.config.auth.connectionId).toBe(
-        "mcp-oauth2-deferred_oauth",
-      );
+      expect(stored?.config).toMatchObject({
+        transport: "remote",
+        auth: {
+          kind: "oauth2",
+          connectionId: "mcp-oauth2-deferred_oauth",
+        },
+      });
 
       // Source is visible in the shell list too.
       const sources = yield* executor.sources.list();
@@ -521,9 +525,10 @@ describe("mcpPlugin", () => {
         "needs_auth",
         "test-scope",
       );
-      expect(stored?.config.transport).toBe("remote");
-      if (stored?.config.transport !== "remote") return;
-      expect(stored.config.auth.kind).toBe("oauth2");
+      expect(stored?.config).toMatchObject({
+        transport: "remote",
+        auth: { kind: "oauth2" },
+      });
     }),
   );
 
@@ -531,8 +536,10 @@ describe("mcpPlugin", () => {
     "signing in as a user transitions the source to connected",
     () =>
       Effect.gen(function* () {
-        const USER_SCOPE_ID = ScopeId.make("user-scope");
-        const ORG_SCOPE_ID = ScopeId.make("org-scope");
+        const USER_SCOPE_ID_VALUE = "user-scope";
+        const ORG_SCOPE_ID_VALUE = "org-scope";
+        const USER_SCOPE_ID = ScopeId.make(USER_SCOPE_ID_VALUE);
+        const ORG_SCOPE_ID = ScopeId.make(ORG_SCOPE_ID_VALUE);
         const scopes = [
           new Scope({
             id: USER_SCOPE_ID,
@@ -557,7 +564,7 @@ describe("mcpPlugin", () => {
         yield* executor.mcp
           .addSource({
             transport: "remote",
-            scope: ORG_SCOPE_ID as string,
+            scope: ORG_SCOPE_ID_VALUE,
             name: "Team MCP",
             endpoint: "http://127.0.0.1:1/team-mcp",
             remoteTransport: "auto",
@@ -624,15 +631,15 @@ describe("mcpPlugin", () => {
         // virtue of the connection existing.
         const stored = yield* executor.mcp.getSource(
           "team_mcp",
-          ORG_SCOPE_ID as string,
+          ORG_SCOPE_ID_VALUE,
         );
-        expect(stored?.config.transport).toBe("remote");
-        if (stored?.config.transport !== "remote") return;
-        expect(stored.config.auth.kind).toBe("oauth2");
-        if (stored.config.auth.kind !== "oauth2") return;
-        expect(stored.config.auth.connectionId).toBe(
-          "mcp-oauth2-team_mcp",
-        );
+        expect(stored?.config).toMatchObject({
+          transport: "remote",
+          auth: {
+            kind: "oauth2",
+            connectionId: "mcp-oauth2-team_mcp",
+          },
+        });
       }),
   );
 
