@@ -17,7 +17,7 @@
 // backends are gated behind env vars and skipped by default.
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 
 import {
   SecretId,
@@ -448,7 +448,13 @@ const program = Effect.gen(function* () {
 // 4. Run.
 // ---------------------------------------------------------------------------
 
-Effect.runPromise(program).catch((err) => {
-  console.error("Example failed:", err);
-  process.exit(1);
-});
+Effect.runPromise(
+  program.pipe(
+    Effect.catchCause((cause) =>
+      Effect.sync(() => {
+        console.error("Example failed:", Cause.squash(cause));
+        process.exit(1);
+      }),
+    ),
+  ),
+);
