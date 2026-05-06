@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import { Database } from "bun:sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { Schema } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,14 +10,25 @@ import { join } from "node:path";
 import { migrateLegacyConnections } from "./migrate-connections";
 
 let workDir: string;
+let databases: Array<Database>;
 
 beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), "executor-migrate-connections-"));
+  databases = [];
 });
 
 afterEach(() => {
+  for (const db of databases) {
+    db.close();
+  }
   rmSync(workDir, { recursive: true, force: true });
 });
+
+const openDatabase = (): Database => {
+  const db = new Database(join(workDir, "data.db"));
+  databases.push(db);
+  return db;
+};
 
 const columnNames = (db: Database, table: string): ReadonlyArray<string> =>
   (
@@ -25,9 +37,24 @@ const columnNames = (db: Database, table: string): ReadonlyArray<string> =>
     }>
   ).map((column) => column.name);
 
+const MigratedMcpConfig = Schema.Struct({
+  auth: Schema.optional(Schema.Unknown),
+});
+const decodeMigratedMcpConfig = Schema.decodeUnknownSync(
+  Schema.fromJsonString(MigratedMcpConfig),
+);
+
+const MigratedOpenApiOAuth2 = Schema.Struct({
+  kind: Schema.Literal("oauth2"),
+  connectionId: Schema.String,
+});
+const decodeMigratedOpenApiOAuth2 = Schema.decodeUnknownSync(
+  Schema.fromJsonString(MigratedOpenApiOAuth2),
+);
+
 describe("migrateLegacyConnections", () => {
   it("backfills legacy MCP OAuth rows after connection.kind has been dropped", async () => {
-    const db = new Database(join(workDir, "data.db"));
+    const db = openDatabase();
     migrate(drizzle(db), {
       migrationsFolder: join(import.meta.dirname, "../../drizzle"),
     });
@@ -98,7 +125,7 @@ describe("migrateLegacyConnections", () => {
       readonly auth_kind: string;
       readonly auth_connection_id: string;
     };
-    expect(JSON.parse(source.config).auth).toBeUndefined();
+    expect(decodeMigratedMcpConfig(source.config).auth).toBeUndefined();
     expect(source.auth_kind).toBe("oauth2");
     expect(source.auth_connection_id).toBe("mcp-oauth2-remote-mcp");
 
@@ -117,12 +144,10 @@ describe("migrateLegacyConnections", () => {
         owned_by_connection_id: "mcp-oauth2-remote-mcp",
       },
     ]);
-
-    db.close();
   });
 
   it("backfills legacy OpenAPI OAuth from oauth2 column after invocation_config has been dropped", async () => {
-    const db = new Database(join(workDir, "data.db"));
+    const db = openDatabase();
     migrate(drizzle(db), {
       migrationsFolder: join(import.meta.dirname, "../../drizzle"),
     });
@@ -196,10 +221,8 @@ describe("migrateLegacyConnections", () => {
     const source = db
       .prepare("SELECT oauth2 FROM openapi_source WHERE scope_id = ? AND id = ?")
       .get("scope-1", "legacy-openapi") as { readonly oauth2: string };
-    const oauth2 = JSON.parse(source.oauth2);
+    const oauth2 = decodeMigratedOpenApiOAuth2(source.oauth2);
     expect(oauth2.kind).toBe("oauth2");
     expect(oauth2.connectionId).toBe(connection?.id);
-
-    db.close();
   });
 });
