@@ -5,6 +5,7 @@ import { HttpServerResponse } from "effect/unstable/http";
 import {
   OAuthDiscoveryError,
   beginDynamicAuthorization,
+  canonicalResourceUrl,
   discoverAuthorizationServerMetadata,
   discoverProtectedResourceMetadata,
   registerDynamicClient,
@@ -24,6 +25,7 @@ const DcrRequestBody = Schema.Struct({
   redirect_uris: Schema.Array(Schema.String),
   token_endpoint_auth_method: Schema.String,
   scope: Schema.optional(Schema.String),
+  client_uri: Schema.optional(Schema.String),
 });
 const decodeDcrRequestBody = Schema.decodeUnknownSync(Schema.fromJsonString(DcrRequestBody));
 
@@ -75,6 +77,18 @@ const withOAuthFixture = <A, E>(
       return yield* use(fixture);
     }),
   );
+
+describe("canonicalResourceUrl", () => {
+  it("lowercases scheme + host, drops trailing slash, fragment, and query", () => {
+    expect(canonicalResourceUrl("https://API.Example.com/v1/mcp/")).toBe(
+      "https://api.example.com/v1/mcp",
+    );
+    expect(canonicalResourceUrl("HTTPS://api.example.com/v1/mcp?x=1#frag")).toBe(
+      "https://api.example.com/v1/mcp",
+    );
+    expect(canonicalResourceUrl("https://api.example.com/")).toBe("https://api.example.com");
+  });
+});
 
 describe("discoverProtectedResourceMetadata", () => {
   it.effect("fetches RFC 9728 well-known metadata on the resource's origin", () =>
@@ -312,10 +326,605 @@ describe("beginDynamicAuthorization", () => {
           expect(url.searchParams.get("response_type")).toBe("code");
           expect(url.searchParams.get("state")).toBe("state-xyz");
           expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+          expect(url.searchParams.get("resource")).toBe(baseUrl);
           expect(result.state.authorizationServerMetadata.token_endpoint).toBe(
             `${baseUrl}/oauth/token`,
           );
+          expect(result.state.resourceMetadata?.resource).toBe(baseUrl);
         }),
     ),
+  );
+
+  it.effect("declares requested scopes in the DCR body when caller passes them explicitly", () =>
+    withOAuthFixture(
+      (request, baseUrl) => {
+        if (request.url === "/.well-known/oauth-protected-resource") {
+          return notFound();
+        }
+        if (request.url === "/.well-known/oauth-authorization-server") {
+          return sendJson({
+            issuer: baseUrl,
+            authorization_endpoint: `${baseUrl}/authorize`,
+            token_endpoint: `${baseUrl}/token`,
+            registration_endpoint: `${baseUrl}/register`,
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          });
+        }
+        if (request.url === "/register") {
+          return sendJson(
+            {
+              client_id: "scope-client",
+              redirect_uris: ["https://app/cb"],
+              token_endpoint_auth_method: "none",
+            },
+            201,
+          );
+        }
+        return notFound();
+      },
+      ({ baseUrl, requests }) =>
+        Effect.gen(function* () {
+          const result = yield* beginDynamicAuthorization({
+            endpoint: baseUrl,
+            redirectUrl: "https://app/cb",
+            state: "s",
+            scopes: ["openid", "email", "offline_access"],
+          });
+
+          const dcrCall = (yield* requests).find((request) => request.url === "/register")!;
+          const body = decodeDcrRequestBody(dcrCall.body);
+          expect(body.scope).toBe("openid email offline_access");
+
+          const authUrl = new URL(result.authorizationUrl);
+          expect(authUrl.searchParams.get("scope")).toBe("openid email offline_access");
+        }),
+    ),
+  );
+
+  it.effect("requests only PRM scopes_supported when advertised (RFC 9728 §2 limited scope)", () =>
+    withOAuthFixture(
+      (request, baseUrl) => {
+        if (request.url === "/.well-known/oauth-protected-resource/mcp") {
+          return sendJson({
+            resource: `${baseUrl}/mcp`,
+            authorization_servers: [baseUrl],
+            scopes_supported: ["mcp"],
+          });
+        }
+        if (request.url === "/.well-known/oauth-authorization-server") {
+          return sendJson({
+            issuer: baseUrl,
+            authorization_endpoint: `${baseUrl}/authorize`,
+            token_endpoint: `${baseUrl}/token`,
+            registration_endpoint: `${baseUrl}/register`,
+            scopes_supported: ["openid", "profile", "email", "offline_access", "mcp"],
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          });
+        }
+        if (request.url === "/register") {
+          return sendJson(
+            {
+              client_id: "prm-scope-client",
+              redirect_uris: ["https://app/cb"],
+              token_endpoint_auth_method: "none",
+            },
+            201,
+          );
+        }
+        return notFound();
+      },
+      ({ baseUrl, requests }) =>
+        Effect.gen(function* () {
+          const result = yield* beginDynamicAuthorization({
+            endpoint: `${baseUrl}/mcp`,
+            redirectUrl: "https://app/cb",
+            state: "s",
+          });
+
+          const dcrCall = (yield* requests).find((request) => request.url === "/register")!;
+          const body = decodeDcrRequestBody(dcrCall.body);
+          expect(body.scope).toBe("mcp");
+
+          const authUrl = new URL(result.authorizationUrl);
+          expect(authUrl.searchParams.get("scope")).toBe("mcp");
+        }),
+    ),
+  );
+
+  it.effect("requests empty scope when only AS-level scopes_supported is advertised", () =>
+    withOAuthFixture(
+      (request, baseUrl) => {
+        if (request.url === "/.well-known/oauth-protected-resource") {
+          return notFound();
+        }
+        if (request.url === "/.well-known/oauth-authorization-server") {
+          return sendJson({
+            issuer: baseUrl,
+            authorization_endpoint: `${baseUrl}/authorize`,
+            token_endpoint: `${baseUrl}/token`,
+            registration_endpoint: `${baseUrl}/register`,
+            scopes_supported: ["openid", "profile", "email", "offline_access"],
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          });
+        }
+        if (request.url === "/register") {
+          return sendJson(
+            {
+              client_id: "as-scope-client",
+              redirect_uris: ["https://app/cb"],
+              token_endpoint_auth_method: "none",
+            },
+            201,
+          );
+        }
+        return notFound();
+      },
+      ({ baseUrl, requests }) =>
+        Effect.gen(function* () {
+          const result = yield* beginDynamicAuthorization({
+            endpoint: baseUrl,
+            redirectUrl: "https://app/cb",
+            state: "s",
+          });
+
+          const dcrCall = (yield* requests).find((request) => request.url === "/register")!;
+          const body = decodeDcrRequestBody(dcrCall.body);
+          expect(body.scope).toBeUndefined();
+
+          const authUrl = new URL(result.authorizationUrl);
+          expect(authUrl.searchParams.get("scope")).toBe("");
+        }),
+    ),
+  );
+
+  it.effect("includes RFC 8707 resource parameter on the authorization URL", () =>
+    withOAuthFixture(
+      (request, baseUrl) => {
+        if (request.url === "/.well-known/oauth-protected-resource/v1/mcp") {
+          return sendJson({
+            resource: `${baseUrl}/canonical-id`,
+            authorization_servers: [baseUrl],
+          });
+        }
+        if (request.url === "/.well-known/oauth-authorization-server") {
+          return sendJson({
+            issuer: baseUrl,
+            authorization_endpoint: `${baseUrl}/authorize`,
+            token_endpoint: `${baseUrl}/token`,
+            registration_endpoint: `${baseUrl}/register`,
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          });
+        }
+        if (request.url === "/register") {
+          return sendJson(
+            {
+              client_id: "res-client",
+              redirect_uris: ["https://app/cb"],
+              token_endpoint_auth_method: "none",
+            },
+            201,
+          );
+        }
+        return notFound();
+      },
+      ({ baseUrl }) =>
+        Effect.gen(function* () {
+          const result = yield* beginDynamicAuthorization({
+            endpoint: `${baseUrl}/v1/mcp`,
+            redirectUrl: "https://app/cb",
+            state: "s",
+          });
+
+          const authUrl = new URL(result.authorizationUrl);
+          expect(authUrl.searchParams.get("resource")).toBe(`${baseUrl}/canonical-id`);
+          expect(result.state.resource).toBe(`${baseUrl}/canonical-id`);
+        }),
+    ),
+  );
+
+  it.effect(
+    "falls back to canonical endpoint URL for the resource parameter when PRM is absent",
+    () =>
+      withOAuthFixture(
+        (request, baseUrl) => {
+          if (request.url === "/.well-known/oauth-protected-resource/v1/mcp") {
+            return notFound();
+          }
+          if (request.url === "/.well-known/oauth-protected-resource") {
+            return notFound();
+          }
+          if (request.url === "/.well-known/oauth-authorization-server") {
+            return sendJson({
+              issuer: baseUrl,
+              authorization_endpoint: `${baseUrl}/authorize`,
+              token_endpoint: `${baseUrl}/token`,
+              registration_endpoint: `${baseUrl}/register`,
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            });
+          }
+          if (request.url === "/register") {
+            return sendJson(
+              {
+                client_id: "ep-client",
+                redirect_uris: ["https://app/cb"],
+                token_endpoint_auth_method: "none",
+              },
+              201,
+            );
+          }
+          return notFound();
+        },
+        ({ baseUrl }) =>
+          Effect.gen(function* () {
+            const result = yield* beginDynamicAuthorization({
+              endpoint: `${baseUrl}/v1/mcp/`,
+              redirectUrl: "https://app/cb",
+              state: "s",
+            });
+
+            const authUrl = new URL(result.authorizationUrl);
+            expect(authUrl.searchParams.get("resource")).toBe(`${baseUrl}/v1/mcp`);
+          }),
+      ),
+  );
+
+  it.effect("includes client_uri in the DCR body", () =>
+    withOAuthFixture(
+      (request, baseUrl) => {
+        if (request.url === "/.well-known/oauth-protected-resource") {
+          return notFound();
+        }
+        if (request.url === "/.well-known/oauth-authorization-server") {
+          return sendJson({
+            issuer: baseUrl,
+            authorization_endpoint: `${baseUrl}/authorize`,
+            token_endpoint: `${baseUrl}/token`,
+            registration_endpoint: `${baseUrl}/register`,
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          });
+        }
+        if (request.url === "/register") {
+          return sendJson(
+            {
+              client_id: "uri-client",
+              redirect_uris: ["https://app/cb"],
+              token_endpoint_auth_method: "none",
+            },
+            201,
+          );
+        }
+        return notFound();
+      },
+      ({ baseUrl, requests }) =>
+        Effect.gen(function* () {
+          yield* beginDynamicAuthorization({
+            endpoint: baseUrl,
+            redirectUrl: "https://app/cb",
+            state: "s",
+          });
+
+          const dcrCall = (yield* requests).find((request) => request.url === "/register")!;
+          const body = decodeDcrRequestBody(dcrCall.body);
+          expect(body.client_uri).toBe("https://executor.sh");
+        }),
+    ),
+  );
+
+  it.effect("negotiates client_secret_post when the AS does not advertise none", () =>
+    withOAuthFixture(
+      (request, baseUrl) => {
+        if (request.url === "/.well-known/oauth-protected-resource/v3/mcp") {
+          return sendJson({
+            resource: `${baseUrl}/v3/mcp`,
+            authorization_servers: [baseUrl],
+            scopes_supported: ["mcp"],
+          });
+        }
+        if (request.url === "/.well-known/oauth-authorization-server") {
+          return sendJson({
+            issuer: baseUrl,
+            authorization_endpoint: `${baseUrl}/authorize`,
+            token_endpoint: `${baseUrl}/token`,
+            registration_endpoint: `${baseUrl}/register`,
+            token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"],
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          });
+        }
+        if (request.url === "/register") {
+          return sendJson(
+            {
+              client_id: "clay-id",
+              client_secret: "clay-secret",
+              redirect_uris: ["https://app/cb"],
+              token_endpoint_auth_method: "client_secret_post",
+            },
+            201,
+          );
+        }
+        return notFound();
+      },
+      ({ baseUrl, requests }) =>
+        Effect.gen(function* () {
+          yield* beginDynamicAuthorization({
+            endpoint: `${baseUrl}/v3/mcp`,
+            redirectUrl: "https://app/cb",
+            state: "s",
+          });
+
+          const dcrCall = (yield* requests).find((request) => request.url === "/register")!;
+          const body = decodeDcrRequestBody(dcrCall.body);
+          expect(body.token_endpoint_auth_method).toBe("client_secret_post");
+        }),
+    ),
+  );
+
+  it.effect("fails with a clear error when the AS advertises only unsupported auth methods", () =>
+    withOAuthFixture(
+      (request, baseUrl) => {
+        if (request.url === "/.well-known/oauth-protected-resource") {
+          return notFound();
+        }
+        if (request.url === "/.well-known/oauth-authorization-server") {
+          return sendJson({
+            issuer: baseUrl,
+            authorization_endpoint: `${baseUrl}/authorize`,
+            token_endpoint: `${baseUrl}/token`,
+            registration_endpoint: `${baseUrl}/register`,
+            token_endpoint_auth_methods_supported: ["private_key_jwt"],
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          });
+        }
+        return notFound();
+      },
+      ({ baseUrl }) =>
+        Effect.gen(function* () {
+          const exit = yield* Effect.exit(
+            beginDynamicAuthorization({
+              endpoint: baseUrl,
+              redirectUrl: "https://app/cb",
+              state: "s",
+            }),
+          );
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (!Exit.isFailure(exit)) return;
+          const reason = exit.cause.reasons.find(Cause.isFailReason);
+          expect(reason?.error).toEqual(
+            expect.objectContaining({
+              _tag: "OAuthDiscoveryError",
+              message: expect.stringMatching(/usable token_endpoint_auth_method/),
+            }),
+          );
+        }),
+    ),
+  );
+
+  it.effect(
+    "falls through to a later authorization_servers entry when the first has no metadata",
+    () =>
+      withOAuthFixture(
+        (request, baseUrl) => {
+          if (request.url === "/.well-known/oauth-protected-resource/api") {
+            return sendJson({
+              resource: `${baseUrl}/api`,
+              authorization_servers: [`${baseUrl}/primary`, `${baseUrl}/backup`],
+            });
+          }
+          if (request.url === "/.well-known/oauth-authorization-server/primary") {
+            return notFound();
+          }
+          if (request.url === "/.well-known/openid-configuration/primary") {
+            return notFound();
+          }
+          if (request.url === "/.well-known/oauth-authorization-server/backup") {
+            return sendJson({
+              issuer: `${baseUrl}/backup`,
+              authorization_endpoint: `${baseUrl}/backup/authorize`,
+              token_endpoint: `${baseUrl}/backup/token`,
+              registration_endpoint: `${baseUrl}/backup/register`,
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            });
+          }
+          if (request.url === "/backup/register") {
+            return sendJson(
+              {
+                client_id: "backup-client",
+                redirect_uris: ["https://app/cb"],
+                token_endpoint_auth_method: "none",
+              },
+              201,
+            );
+          }
+          return notFound();
+        },
+        ({ baseUrl }) =>
+          Effect.gen(function* () {
+            const result = yield* beginDynamicAuthorization({
+              endpoint: `${baseUrl}/api`,
+              redirectUrl: "https://app/cb",
+              state: "s",
+            });
+
+            expect(result.state.authorizationServerUrl).toBe(`${baseUrl}/backup`);
+            expect(result.state.clientInformation.client_id).toBe("backup-client");
+          }),
+      ),
+  );
+
+  it.effect("propagates AS error code + description on DCR failure", () =>
+    withOAuthFixture(
+      (request, baseUrl) => {
+        if (request.url === "/.well-known/oauth-protected-resource") {
+          return notFound();
+        }
+        if (request.url === "/.well-known/oauth-authorization-server") {
+          return sendJson({
+            issuer: baseUrl,
+            authorization_endpoint: `${baseUrl}/authorize`,
+            token_endpoint: `${baseUrl}/token`,
+            registration_endpoint: `${baseUrl}/register`,
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          });
+        }
+        if (request.url === "/register") {
+          return sendJson(
+            {
+              error: "invalid_redirect_uri",
+              error_description: "redirect is not allowed",
+            },
+            400,
+          );
+        }
+        return notFound();
+      },
+      ({ baseUrl }) =>
+        Effect.gen(function* () {
+          const exit = yield* Effect.exit(
+            beginDynamicAuthorization({
+              endpoint: baseUrl,
+              redirectUrl: "https://app/cb",
+              state: "s",
+            }),
+          );
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (!Exit.isFailure(exit)) return;
+          const reason = exit.cause.reasons.find(Cause.isFailReason);
+          expect(reason?.error).toEqual(
+            expect.objectContaining({
+              _tag: "OAuthDiscoveryError",
+              status: 400,
+              error: "invalid_redirect_uri",
+              errorDescription: "redirect is not allowed",
+            }),
+          );
+        }),
+    ),
+  );
+
+  it.effect("skips discovery + DCR when previousState is provided", () =>
+    withOAuthFixture(
+      () => notFound(),
+      ({ baseUrl, requests }) =>
+        Effect.gen(function* () {
+          const result = yield* beginDynamicAuthorization({
+            endpoint: `${baseUrl}/mcp`,
+            redirectUrl: "https://app/cb",
+            state: "s",
+            previousState: {
+              authorizationServerUrl: baseUrl,
+              authorizationServerMetadataUrl: `${baseUrl}/.well-known/oauth-authorization-server`,
+              authorizationServerMetadata: {
+                issuer: baseUrl,
+                authorization_endpoint: `${baseUrl}/authorize`,
+                token_endpoint: `${baseUrl}/token`,
+                registration_endpoint: `${baseUrl}/register`,
+              },
+              resourceMetadata: {
+                resource: `${baseUrl}/mcp`,
+                authorization_servers: [baseUrl],
+              },
+              resourceMetadataUrl: `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
+              clientInformation: {
+                client_id: "cached-client",
+              },
+            },
+          });
+
+          expect((yield* requests).length).toBe(0);
+          expect(new URL(result.authorizationUrl).searchParams.get("client_id")).toBe(
+            "cached-client",
+          );
+        }),
+    ),
+  );
+
+  it.effect("rejects servers that don't support PKCE S256", () =>
+    withOAuthFixture(
+      (request, baseUrl) => {
+        if (request.url === "/.well-known/oauth-protected-resource") {
+          return notFound();
+        }
+        if (request.url === "/.well-known/oauth-authorization-server") {
+          return sendJson({
+            issuer: baseUrl,
+            authorization_endpoint: `${baseUrl}/authorize`,
+            token_endpoint: `${baseUrl}/token`,
+            registration_endpoint: `${baseUrl}/register`,
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["plain"],
+          });
+        }
+        return notFound();
+      },
+      ({ baseUrl }) =>
+        Effect.gen(function* () {
+          const exit = yield* Effect.exit(
+            beginDynamicAuthorization({
+              endpoint: baseUrl,
+              redirectUrl: "https://app/cb",
+              state: "s",
+            }),
+          );
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (!Exit.isFailure(exit)) return;
+          const reason = exit.cause.reasons.find(Cause.isFailReason);
+          expect(reason?.error).toEqual(
+            expect.objectContaining({
+              _tag: "OAuthDiscoveryError",
+              message: expect.stringMatching(/PKCE S256/),
+            }),
+          );
+        }),
+    ),
+  );
+
+  it.effect(
+    "fails when the authorization server has no registration_endpoint and no previous client",
+    () =>
+      withOAuthFixture(
+        (request, baseUrl) => {
+          if (request.url === "/.well-known/oauth-protected-resource") {
+            return notFound();
+          }
+          if (request.url === "/.well-known/oauth-authorization-server") {
+            return sendJson({
+              issuer: baseUrl,
+              authorization_endpoint: `${baseUrl}/authorize`,
+              token_endpoint: `${baseUrl}/token`,
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            });
+          }
+          return notFound();
+        },
+        ({ baseUrl }) =>
+          Effect.gen(function* () {
+            const exit = yield* Effect.exit(
+              beginDynamicAuthorization({
+                endpoint: baseUrl,
+                redirectUrl: "https://app/cb",
+                state: "s",
+              }),
+            );
+            expect(Exit.isFailure(exit)).toBe(true);
+            if (!Exit.isFailure(exit)) return;
+            const reason = exit.cause.reasons.find(Cause.isFailReason);
+            expect(reason?.error).toEqual(
+              expect.objectContaining({
+                _tag: "OAuthDiscoveryError",
+                message: expect.stringMatching(/registration_endpoint/),
+              }),
+            );
+          }),
+      ),
   );
 });

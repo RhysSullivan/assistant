@@ -347,13 +347,15 @@ const staticDeclToSource = (decl: StaticSourceDecl, pluginId: string): Source =>
   runtime: true,
 });
 
+const decodeJsonFromString = Schema.decodeUnknownOption(Schema.UnknownFromJsonString);
+
 const decodeJsonColumn = (value: unknown): unknown => {
   if (value === null || value === undefined) return undefined;
   if (typeof value !== "string") return value;
-  return Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(value).pipe(
-    Option.getOrElse(() => value),
-  );
+  return decodeJsonFromString(value).pipe(Option.getOrElse(() => value));
 };
+
+const decodeProviderState = Schema.decodeUnknownOption(ConnectionProviderState);
 
 const rowToTool = (row: ToolRow, annotations?: ToolAnnotations): Tool => ({
   id: row.id,
@@ -1176,8 +1178,6 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     // Matches the value the old per-plugin refresh code used, so
     // behavior under the new SDK orchestration stays identical.
     const CONNECTION_REFRESH_SKEW_MS = 60_000;
-
-    const decodeProviderState = Schema.decodeUnknownOption(ConnectionProviderState);
 
     const rowToConnection = (row: ConnectionRow): ConnectionRef =>
       new ConnectionRef({

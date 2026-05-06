@@ -51,15 +51,14 @@ import {
 } from "../sdk/types";
 
 const ErrorMessage = Schema.Struct({ message: Schema.String });
+const decodeErrorMessage = Schema.decodeUnknownOption(ErrorMessage);
+const isOpenApiSourceBindingValue = Schema.is(OpenApiSourceBindingValue);
 
 const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
-  Option.match(
-    Option.flatMap(Exit.findErrorOption(exit), Schema.decodeUnknownOption(ErrorMessage)),
-    {
-      onNone: () => fallback,
-      onSome: ({ message }) => message,
-    },
-  );
+  Option.match(Option.flatMap(Exit.findErrorOption(exit), decodeErrorMessage), {
+    onNone: () => fallback,
+    onSome: ({ message }) => message,
+  });
 
 type SlotDef =
   | {
@@ -137,12 +136,12 @@ const effectiveBindingForScope = (
 const isSecretBindingValue = (
   value: unknown,
 ): value is Extract<OpenApiSourceBindingValueType, { readonly kind: "secret" }> =>
-  Schema.is(OpenApiSourceBindingValue)(value) && value.kind === "secret";
+  isOpenApiSourceBindingValue(value) && value.kind === "secret";
 
 const isConnectionBindingValue = (
   value: unknown,
 ): value is Extract<OpenApiSourceBindingValueType, { readonly kind: "connection" }> =>
-  Schema.is(OpenApiSourceBindingValue)(value) && value.kind === "connection";
+  isOpenApiSourceBindingValue(value) && value.kind === "connection";
 
 export default function EditOpenApiSource(props: {
   readonly sourceId: string;

@@ -81,6 +81,8 @@ const withApplyDefault = (
   return value;
 };
 
+const decodeJsonFromString = Schema.decodeUnknownOption(Schema.UnknownFromJsonString);
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -199,9 +201,7 @@ export const createAdapter = (options: CreateAdapterOptions): DBAdapter => {
   };
 
   const decodeJsonFallback = (value: string): unknown =>
-    Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(value).pipe(
-      Option.getOrElse((): unknown => value),
-    );
+    decodeJsonFromString(value).pipe(Option.getOrElse((): unknown => value));
 
   const decodeValue = (attr: DBFieldAttribute | undefined, value: unknown): unknown => {
     if (value === undefined || value === null) return value;

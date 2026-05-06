@@ -183,6 +183,21 @@ describe("buildAuthorizationUrl", () => {
     expect(url.searchParams.get("tenant")).toBe("acme");
     expect(url.searchParams.get("client_id")).toBe("client-123");
   });
+
+  it("includes RFC 8707 resource indicator when provided", () => {
+    const url = new URL(
+      buildAuthorizationUrl({
+        ...baseInput,
+        resource: "https://api.example.com/v1/mcp",
+      }),
+    );
+    expect(url.searchParams.get("resource")).toBe("https://api.example.com/v1/mcp");
+  });
+
+  it("omits resource parameter when not provided", () => {
+    const url = new URL(buildAuthorizationUrl(baseInput));
+    expect(url.searchParams.has("resource")).toBe(false);
+  });
 });
 
 describe("exchangeAuthorizationCode", () => {
@@ -225,6 +240,37 @@ describe("exchangeAuthorizationCode", () => {
         const body = (yield* calls)[0]!.body;
         expect(body.get("client_id")).toBe("cid");
         expect(body.has("client_secret")).toBe(false);
+      }),
+    ),
+  );
+
+  it.effect("includes RFC 8707 resource parameter on the token request when provided", () =>
+    withTokenEndpoint(tokenResponse(validCodeBody), ({ tokenUrl, calls }) =>
+      Effect.gen(function* () {
+        yield* exchangeAuthorizationCode({
+          tokenUrl,
+          clientId: "cid",
+          redirectUrl: "https://app.example.com/cb",
+          codeVerifier: "verifier",
+          code: "abc",
+          resource: "https://api.example.com/v1/mcp",
+        });
+        expect((yield* calls)[0]!.body.get("resource")).toBe("https://api.example.com/v1/mcp");
+      }),
+    ),
+  );
+
+  it.effect("omits resource parameter when not provided", () =>
+    withTokenEndpoint(tokenResponse(validCodeBody), ({ tokenUrl, calls }) =>
+      Effect.gen(function* () {
+        yield* exchangeAuthorizationCode({
+          tokenUrl,
+          clientId: "cid",
+          redirectUrl: "https://app.example.com/cb",
+          codeVerifier: "verifier",
+          code: "abc",
+        });
+        expect((yield* calls)[0]!.body.has("resource")).toBe(false);
       }),
     ),
   );
@@ -485,6 +531,20 @@ describe("refreshAccessToken", () => {
           scopes: [],
         });
         expect((yield* calls)[0]!.body.has("scope")).toBe(false);
+      }),
+    ),
+  );
+
+  it.effect("includes RFC 8707 resource parameter on refresh requests when provided", () =>
+    withTokenEndpoint(tokenResponse(validRefreshBody), ({ tokenUrl, calls }) =>
+      Effect.gen(function* () {
+        yield* refreshAccessToken({
+          tokenUrl,
+          clientId: "cid",
+          refreshToken: "old",
+          resource: "https://api.example.com/v1/mcp",
+        });
+        expect((yield* calls)[0]!.body.get("resource")).toBe("https://api.example.com/v1/mcp");
       }),
     ),
   );

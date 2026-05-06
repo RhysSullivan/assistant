@@ -11,6 +11,7 @@
     "executor/no-effect-escape-hatch": "error",
     "executor/no-effect-internal-tags": "error",
     "executor/no-error-constructor": "error",
+    "executor/no-inline-schema-compile": "error",
     "executor/no-instanceof-error": "error",
     "executor/no-instanceof-tagged-error": "error",
     "executor/no-json-parse": "error",

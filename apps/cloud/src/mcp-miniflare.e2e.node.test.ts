@@ -186,6 +186,8 @@ const OtlpPayloadFromJson = Schema.fromJsonString(
   }),
 );
 
+const decodeOtlpPayload = Schema.decodeUnknownOption(OtlpPayloadFromJson);
+
 const unwrapAttrValue = (v?: OtlpAttributeValue): unknown => {
   if (!v) return undefined;
   if (v.stringValue !== undefined) return v.stringValue;
@@ -218,7 +220,7 @@ const TelemetryReceiverLive = Layer.effect(TelemetryReceiver)(
           body += chunk;
         });
         req.on("end", () => {
-          const maybePayload = Schema.decodeUnknownOption(OtlpPayloadFromJson)(body);
+          const maybePayload = decodeOtlpPayload(body);
           if (Option.isSome(maybePayload)) {
             const payload = maybePayload.value;
             for (const rs of payload.resourceSpans ?? []) {

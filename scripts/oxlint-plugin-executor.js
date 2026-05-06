@@ -5,6 +5,7 @@ import noEffectEscapeHatch from "./oxlint-plugin-executor/rules/no-effect-escape
 import noEffectInternalTags from "./oxlint-plugin-executor/rules/no-effect-internal-tags.js";
 import noErrorConstructor from "./oxlint-plugin-executor/rules/no-error-constructor.js";
 import noInlineObjectTypeAssertion from "./oxlint-plugin-executor/rules/no-inline-object-type-assertion.js";
+import noInlineSchemaCompile from "./oxlint-plugin-executor/rules/no-inline-schema-compile.js";
 import noInstanceofError from "./oxlint-plugin-executor/rules/no-instanceof-error.js";
 import noInstanceofTaggedError from "./oxlint-plugin-executor/rules/no-instanceof-tagged-error.js";
 import noJsonParse from "./oxlint-plugin-executor/rules/no-json-parse.js";
@@ -42,6 +43,7 @@ export default {
     "no-error-constructor": noErrorConstructor,
     "no-ts-nocheck": noTsNocheck,
     "no-inline-object-type-assertion": noInlineObjectTypeAssertion,
+    "no-inline-schema-compile": noInlineSchemaCompile,
     "no-instanceof-error": noInstanceofError,
     "no-instanceof-tagged-error": noInstanceofTaggedError,
     "no-json-parse": noJsonParse,

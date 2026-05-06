@@ -14,7 +14,7 @@
     "db:studio:prod": "op run --env-file=.env.production -- drizzle-kit studio",
     "db:migrate:prod": "op run --env-file=.env.production -- drizzle-kit migrate",
     "db:migrate:dev": "op run --env-file=.env.op -- drizzle-kit migrate",
-    "build": "turbo run build --filter @executor-js/vite-plugin && vite build",
+    "build": "node scripts/build.mjs",
     "preview": "vite preview",
     "deploy": "op run --env-file=.env.production -- bun run build && op run --env-file=.env.production -- wrangler deploy",
     "cf-typegen": "wrangler types",

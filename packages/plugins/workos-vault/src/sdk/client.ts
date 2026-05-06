@@ -26,12 +26,13 @@ const WORKOS_KEK_NOT_READY_MESSAGE =
 const CauseWithStatusSchema = Schema.Struct({
   status: Schema.Number,
 });
+const decodeCauseWithStatusOption = Schema.decodeUnknownOption(CauseWithStatusSchema);
 
 const statusFromWorkOSCause = (cause: unknown): number | undefined => {
   if (cause instanceof GenericServerException || cause instanceof NotFoundException) {
     return cause.status;
   }
-  return Option.match(Schema.decodeUnknownOption(CauseWithStatusSchema)(cause), {
+  return Option.match(decodeCauseWithStatusOption(cause), {
     onNone: () => undefined,
     onSome: (decoded) => decoded.status,
   });

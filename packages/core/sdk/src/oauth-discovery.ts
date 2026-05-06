@@ -40,6 +40,12 @@ import {
 export class OAuthDiscoveryError extends Data.TaggedError("OAuthDiscoveryError")<{
   readonly message: string;
   readonly status?: number;
+  /** RFC 6749 §5.2 / RFC 7591 §3.2.2 error code, when the AS returned
+   *  one (`invalid_client_metadata`, `invalid_redirect_uri`, ...). Lets
+   *  the HTTP edge surface a structured error to the UI rather than
+   *  swallow the AS's response into a generic message string. */
+  readonly error?: string;
+  readonly errorDescription?: string;
   readonly cause?: unknown;
 }> {}
 
@@ -534,6 +540,8 @@ export const registerDynamicClient = (
               err.error_description ? ` — ${err.error_description}` : ""
             }`,
             status: err.status,
+            error: err.error,
+            errorDescription: err.error_description,
             cause: err,
           }),
         ),
@@ -549,6 +557,44 @@ export const registerDynamicClient = (
   );
 
 // ---------------------------------------------------------------------------
+// RFC 8707 — Resource Indicator canonicalisation
+//
+// MCP Authorization 2025-06-18 requires `resource` on /authorize and /token
+// requests. RFC 8707 §2 says the value is "an absolute URI" identifying the
+// protected resource — same scheme + host + (optional) path, no fragment,
+// no query, lowercased scheme/host.
+// ---------------------------------------------------------------------------
+
+export const canonicalResourceUrl = (value: string): string => {
+  const url = new URL(value);
+  const scheme = url.protocol.toLowerCase();
+  const host = url.host.toLowerCase();
+  const path = url.pathname.replace(/\/+$/, "");
+  return `${scheme}//${host}${path}`;
+};
+
+// ---------------------------------------------------------------------------
+// Token-endpoint auth method negotiation
+//
+// OAuth 2.1 §2.4 leaves the choice to the client; our preference order is
+// security-first: PKCE-only public client > client_secret_post >
+// client_secret_basic. Servers like Clay only advertise the secret variants;
+// servers like most MCP examples only advertise `none`.
+// ---------------------------------------------------------------------------
+
+const SUPPORTED_DCR_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"] as const;
+
+type DcrAuthMethod = (typeof SUPPORTED_DCR_AUTH_METHODS)[number];
+
+const negotiateAuthMethod = (advertised: readonly string[] | undefined): DcrAuthMethod | null => {
+  if (!advertised || advertised.length === 0) return "none";
+  for (const candidate of SUPPORTED_DCR_AUTH_METHODS) {
+    if (advertised.includes(candidate)) return candidate;
+  }
+  return null;
+};
+
+// ---------------------------------------------------------------------------
 // Convenience: begin the full dynamic flow in one call
 // ---------------------------------------------------------------------------
 
@@ -559,6 +605,12 @@ export interface DynamicAuthorizationState {
   readonly authorizationServerMetadataUrl: string;
   readonly authorizationServerMetadata: OAuthAuthorizationServerMetadata;
   readonly clientInformation: OAuthClientInformation;
+  /** RFC 8707 canonical resource URL passed on /authorize and persisted
+   *  for the matching /token + refresh calls. */
+  readonly resource: string;
+  /** Scopes ultimately requested at /authorize. Persisted so refresh
+   *  can replay the same set. */
+  readonly scopes: readonly string[];
 }
 
 export interface DynamicAuthorizationStartResult {
@@ -615,27 +667,48 @@ export const beginDynamicAuthorization = (
         : null
       : yield* discoverProtectedResourceMetadata(input.endpoint, options);
 
-    const authorizationServerUrl = (() => {
-      if (prior.authorizationServerUrl) return prior.authorizationServerUrl;
-      const fromResource = resource && resource.metadata.authorization_servers?.[0];
-      if (fromResource) return fromResource;
+    // RFC 9728 allows multiple authorization_servers — try each in
+    // listed order. Fall back to the endpoint's origin only when no
+    // PRM is advertised.
+    const candidateAuthorizationServerUrls: readonly string[] = (() => {
+      if (prior.authorizationServerUrl) return [prior.authorizationServerUrl];
+      const fromResource = resource?.metadata.authorization_servers ?? [];
+      if (fromResource.length > 0) return fromResource;
       const u = new URL(input.endpoint);
-      return `${u.protocol}//${u.host}`;
+      return [`${u.protocol}//${u.host}`];
     })();
 
-    const authServer =
+    const priorAuthServer =
       prior.authorizationServerMetadata && prior.authorizationServerMetadataUrl
         ? {
             metadata: prior.authorizationServerMetadata,
             metadataUrl: prior.authorizationServerMetadataUrl,
+            url: prior.authorizationServerUrl ?? candidateAuthorizationServerUrls[0]!,
           }
-        : yield* discoverAuthorizationServerMetadata(authorizationServerUrl, options);
+        : null;
 
-    if (!authServer) {
-      return yield* new OAuthDiscoveryError({
-        message: `No OAuth authorization server metadata at ${authorizationServerUrl}`,
-      });
-    }
+    const discovered = priorAuthServer
+      ? priorAuthServer
+      : yield* (() => {
+          const tried: string[] = [];
+          return Effect.gen(function* () {
+            for (const candidate of candidateAuthorizationServerUrls) {
+              tried.push(candidate);
+              const md = yield* discoverAuthorizationServerMetadata(candidate, options).pipe(
+                Effect.catchTag("OAuthDiscoveryError", () => Effect.succeed(null)),
+              );
+              if (md) {
+                return { metadata: md.metadata, metadataUrl: md.metadataUrl, url: candidate };
+              }
+            }
+            return yield* new OAuthDiscoveryError({
+              message: `No OAuth authorization server metadata found (tried: ${tried.join(", ")})`,
+            });
+          });
+        })();
+
+    const authServer = { metadata: discovered.metadata, metadataUrl: discovered.metadataUrl };
+    const authorizationServerUrl = discovered.url;
 
     const pkceMethods = authServer.metadata.code_challenge_methods_supported ?? [];
     if (pkceMethods.length > 0 && !pkceMethods.includes("S256")) {
@@ -651,13 +724,36 @@ export const beginDynamicAuthorization = (
       });
     }
 
-    const scopes = input.scopes ?? authServer.metadata.scopes_supported ?? [];
+    // RFC 9728 §2: PRM `scopes_supported` is the resource-scoped list and is
+    // authoritative when present. AS-level `scopes_supported` is global and
+    // (per RFC 9728 §2) "not meant to indicate that an OAuth client should
+    // request all scopes in the list", so we don't auto-expand it. When only
+    // AS-level scopes are advertised we request none and let the AS apply
+    // its default — callers wanting refresh tokens / specific scopes pass
+    // them explicitly via `input.scopes`.
+    const scopes: readonly string[] =
+      input.scopes ??
+      (resource?.metadata.scopes_supported && resource.metadata.scopes_supported.length > 0
+        ? resource.metadata.scopes_supported
+        : []);
+
+    const negotiatedAuthMethod = negotiateAuthMethod(
+      authServer.metadata.token_endpoint_auth_methods_supported,
+    );
+    if (!negotiatedAuthMethod) {
+      return yield* new OAuthDiscoveryError({
+        message: `Authorization server does not support a usable token_endpoint_auth_method (advertised: ${(
+          authServer.metadata.token_endpoint_auth_methods_supported ?? []
+        ).join(", ")})`,
+      });
+    }
 
     const baseClientMetadata: DynamicClientMetadata = {
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      token_endpoint_auth_method: "none",
+      token_endpoint_auth_method: negotiatedAuthMethod,
       client_name: "Executor",
+      client_uri: "https://executor.sh",
       ...(scopes.length > 0 ? { scope: scopes.join(" ") } : {}),
       ...(input.clientMetadata ?? {}),
       redirect_uris: input.clientMetadata?.redirect_uris ?? [input.redirectUrl],
@@ -681,6 +777,8 @@ export const beginDynamicAuthorization = (
         );
       })());
 
+    const resourceValue = resource?.metadata.resource ?? canonicalResourceUrl(input.endpoint);
+
     const codeVerifier = createPkceCodeVerifier();
     const codeChallenge = yield* Effect.promise(() => createPkceCodeChallenge(codeVerifier));
 
@@ -691,6 +789,7 @@ export const beginDynamicAuthorization = (
       scopes,
       state: input.state,
       codeChallenge,
+      resource: resourceValue,
     });
 
     return {
@@ -703,6 +802,8 @@ export const beginDynamicAuthorization = (
         authorizationServerMetadataUrl: authServer.metadataUrl,
         authorizationServerMetadata: authServer.metadata,
         clientInformation,
+        resource: resourceValue,
+        scopes,
       },
     };
   });

@@ -58,7 +58,6 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/platform-node": "catalog:",
     "@executor-js/storage-core": "workspace:*",
     "effect": "catalog:",
     "fractional-indexing": "^3.2.0",
@@ -66,6 +65,7 @@
   },
   "devDependencies": {
     "@effect/atom-react": "catalog:",
+    "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
@@ -76,9 +76,13 @@
   },
   "peerDependencies": {
     "@effect/atom-react": "catalog:",
+    "@effect/platform-node": "catalog:",
     "react": "catalog:"
   },
   "peerDependenciesMeta": {
+    "@effect/platform-node": {
+      "optional": true
+    },
     "@effect/atom-react": {
       "optional": true
     },

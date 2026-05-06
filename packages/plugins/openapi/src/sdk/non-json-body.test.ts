@@ -33,6 +33,7 @@ const JsonNameBody = Schema.fromJsonString(
     name: Schema.String,
   }),
 );
+const decodeJsonNameBody = Schema.decodeUnknownSync(JsonNameBody);
 
 const memoryProvider: SecretProvider = (() => {
   const store = new Map<string, string>();
@@ -216,7 +217,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
       expect(captured.contentType).toBe("text/xml");
       const body = captured.body.toString("utf8");
       expect(body).not.toBe("[object Object]");
-      expect(Schema.decodeUnknownSync(JsonNameBody)(body)).toEqual({ name: "Acme" });
+      expect(decodeJsonNameBody(body)).toEqual({ name: "Acme" });
     }),
   );
 
@@ -364,7 +365,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
       );
 
       expect(captured.contentType).toBe("application/json");
-      expect(Schema.decodeUnknownSync(JsonNameBody)(captured.body.toString("utf8"))).toEqual({
+      expect(decodeJsonNameBody(captured.body.toString("utf8"))).toEqual({
         name: "Acme",
       });
     }),

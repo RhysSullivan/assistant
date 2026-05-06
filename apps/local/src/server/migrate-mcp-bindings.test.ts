@@ -26,6 +26,8 @@ const ConfigJson = Schema.fromJsonString(
   }),
 );
 
+const decodeConfigJson = Schema.decodeUnknownSync(ConfigJson);
+
 const tempDirs: Array<string> = [];
 
 const makeDbPath = () => {
@@ -87,7 +89,7 @@ describe("0007_normalize_plugin_secret_refs (mcp)", () => {
     expect(row.auth_secret_id).toBe("tok-secret");
     expect(row.auth_secret_prefix).toBe("Bearer ");
     // The auth key should be stripped from config json after migration.
-    const config = Schema.decodeUnknownSync(ConfigJson)(row.config);
+    const config = decodeConfigJson(row.config);
     expect(config.auth).toBeUndefined();
     expect(config.transport).toBe("remote");
     expect(config.endpoint).toBe("https://example.com/mcp");
@@ -200,7 +202,7 @@ describe("0007_normalize_plugin_secret_refs (mcp)", () => {
     };
     expect(row.auth_kind).toBe("none");
     expect(row.auth_secret_id).toBeNull();
-    const config = Schema.decodeUnknownSync(ConfigJson)(row.config);
+    const config = decodeConfigJson(row.config);
     expect(config.transport).toBe("stdio");
     expect(config.command).toBe("/usr/bin/server");
     after.close();

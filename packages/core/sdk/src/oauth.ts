@@ -127,6 +127,9 @@ export const OAuthProviderState = Schema.Union([
     scopes: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
     scopeSeparator: Schema.optional(Schema.String),
     scope: Schema.NullOr(Schema.String),
+    /** RFC 8707 canonical resource URL. Replayed on refresh so the new
+     *  access token's audience stays bound to the same resource. */
+    resource: Schema.optional(Schema.NullOr(Schema.String)),
   }),
   Schema.Struct({
     kind: Schema.Literal("authorization-code"),
@@ -138,6 +141,7 @@ export const OAuthProviderState = Schema.Union([
     scopes: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
     scopeSeparator: Schema.optional(Schema.String),
     scope: Schema.NullOr(Schema.String),
+    resource: Schema.optional(Schema.NullOr(Schema.String)),
   }),
   Schema.Struct({
     kind: Schema.Literal("client-credentials"),
@@ -268,6 +272,11 @@ export class OAuthProbeError extends Schema.TaggedErrorClass<OAuthProbeError>()(
 
 export class OAuthStartError extends Schema.TaggedErrorClass<OAuthStartError>()("OAuthStartError", {
   message: Schema.String,
+  /** RFC 6749 §5.2 / RFC 7591 §3.2.2 error code propagated up from the
+   *  authorization server (e.g. `invalid_client_metadata`). UI surfaces
+   *  it as the structured "AS rejected the registration" reason. */
+  error: Schema.optional(Schema.String),
+  errorDescription: Schema.optional(Schema.String),
 }) {
   static annotations = { httpApiStatus: 400 };
 }

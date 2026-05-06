@@ -185,6 +185,7 @@
         "@tailwindcss/vite": "^4.2.2",
         "astro": "^6.1.3",
         "effect": "catalog:",
+        "posthog-js": "^1.372.5",
         "tailwindcss": "^4.2.2",
       },
       "devDependencies": {

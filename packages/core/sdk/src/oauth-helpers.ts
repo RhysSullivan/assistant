@@ -80,6 +80,10 @@ export type BuildAuthorizationUrlInput = {
   readonly codeChallenge: string;
   /** Separator between scopes. RFC 6749 says space; some providers use comma. */
   readonly scopeSeparator?: string;
+  /** RFC 8707 Resource Indicator. MCP Authorization 2025-06-18 §"Resource
+   *  Parameter Implementation" requires clients to send this on every
+   *  authorization request, regardless of AS support. */
+  readonly resource?: string;
   /** Provider-specific extras (e.g. Google's `access_type=offline`). */
   readonly extraParams?: Readonly<Record<string, string>>;
 };
@@ -96,6 +100,9 @@ export const buildAuthorizationUrl = (input: BuildAuthorizationUrlInput): string
   url.searchParams.set("state", input.state);
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("code_challenge", input.codeChallenge);
+  if (input.resource) {
+    url.searchParams.set("resource", input.resource);
+  }
   if (input.extraParams) {
     for (const [k, v] of Object.entries(input.extraParams)) {
       url.searchParams.set(k, v);
@@ -261,6 +268,10 @@ export type ExchangeAuthorizationCodeInput = {
   readonly code: string;
   readonly clientAuth?: ClientAuthMethod;
   readonly idTokenSigningAlgValuesSupported?: readonly string[];
+  /** RFC 8707 Resource Indicator. MCP Auth spec MUST-requires this on
+   *  the token request when the client knows the resource it intends
+   *  to call. */
+  readonly resource?: string;
   readonly timeoutMs?: number;
 };
 
@@ -284,6 +295,9 @@ export const exchangeAuthorizationCode = (
         redirect_uri: input.redirectUrl,
         code_verifier: input.codeVerifier,
       });
+      if (input.resource) {
+        params.set("resource", input.resource);
+      }
       const response = await oauth.genericTokenEndpointRequest(
         as,
         client,
@@ -350,6 +364,10 @@ export type RefreshAccessTokenInput = {
   readonly scopeSeparator?: string;
   readonly clientAuth?: ClientAuthMethod;
   readonly idTokenSigningAlgValuesSupported?: readonly string[];
+  /** RFC 8707 Resource Indicator — MCP spec MUST-requires this on
+   *  refresh requests so the new access token's audience is bound to
+   *  the same resource. */
+  readonly resource?: string;
   readonly timeoutMs?: number;
 };
 
@@ -363,12 +381,15 @@ export const refreshAccessToken = (
       });
       const client: oauth.Client = { client_id: input.clientId };
       const clientAuth = pickClientAuth(input.clientSecret, input.clientAuth ?? "body");
+      const extraParams = new URLSearchParams();
+      if (input.scopes && input.scopes.length > 0) {
+        extraParams.set("scope", input.scopes.join(input.scopeSeparator ?? " "));
+      }
+      if (input.resource) {
+        extraParams.set("resource", input.resource);
+      }
       const additionalParameters =
-        input.scopes && input.scopes.length > 0
-          ? new URLSearchParams({
-              scope: input.scopes.join(input.scopeSeparator ?? " "),
-            })
-          : undefined;
+        Array.from(extraParams.keys()).length > 0 ? extraParams : undefined;
       const response = await oauth.refreshTokenGrantRequest(
         as,
         client,
