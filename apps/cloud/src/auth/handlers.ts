@@ -270,7 +270,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
               },
             );
             deleteCookie("wos-session", { path: "/" });
-            return yield* Effect.fail(new WorkOSError());
+            return yield* new WorkOSError();
           }
 
           setCookie("wos-session", refreshed, COOKIE_OPTIONS);
@@ -341,7 +341,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
             yield* Effect.logWarning("acceptInvitation: invitation has no organizationId", {
               invitationId: payload.invitationId,
             });
-            return yield* Effect.fail(new WorkOSError());
+            return yield* new WorkOSError();
           }
 
           // Mirror the org locally so domain tables can FK against it.
@@ -369,7 +369,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
               },
             );
             deleteCookie("wos-session", { path: "/" });
-            return yield* Effect.fail(new WorkOSError());
+            return yield* new WorkOSError();
           }
 
           setCookie("wos-session", refreshed, COOKIE_OPTIONS);
