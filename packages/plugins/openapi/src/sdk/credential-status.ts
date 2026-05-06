@@ -23,7 +23,7 @@ export type SourceForCredentialStatus = {
 };
 
 const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: ScopeId): number =>
-  ranks.get(scopeId as string) ?? Number.MAX_SAFE_INTEGER;
+  ranks.get(scopeId) ?? Number.MAX_SAFE_INTEGER;
 
 export const effectiveBindingForScope = (
   rows: readonly BindingRowForCredentialStatus[],
@@ -60,7 +60,7 @@ const hasConnectionBinding = (
   const binding = effectiveBindingForScope(rows, slot, targetScope, ranks);
   if (binding?.value.kind !== "connection") return false;
   return liveConnectionIds
-    ? liveConnectionIds.has(binding.value.connectionId as string)
+    ? liveConnectionIds.has(binding.value.connectionId)
     : true;
 };
 
@@ -83,7 +83,7 @@ export function missingCredentialLabels(
   const liveConnectionIds = rawLiveConnectionIds
     ? rawLiveConnectionIds instanceof Set
       ? rawLiveConnectionIds
-      : new Set([...rawLiveConnectionIds].map((id) => id as string))
+      : new Set(rawLiveConnectionIds)
     : undefined;
 
   for (const [headerName, value] of Object.entries(source.config.headers ?? {})) {

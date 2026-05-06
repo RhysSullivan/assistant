@@ -11,8 +11,8 @@ import {
 const userScope = ScopeId.make("user");
 const orgScope = ScopeId.make("org");
 const scopeRanks = new Map([
-  [userScope as string, 0],
-  [orgScope as string, 1],
+  [userScope, 0],
+  [orgScope, 1],
 ]);
 
 const source: SourceForCredentialStatus = {
@@ -41,11 +41,11 @@ const bindings = (
       slot === "oauth2:oauth2:connection"
         ? {
             kind: "connection",
-            connectionId: ConnectionId.make(`${scopeId as string}-connection`),
+            connectionId: ConnectionId.make(`${scopeId}-connection`),
           }
         : {
             kind: "secret",
-            secretId: SecretId.make(`${scopeId as string}-${slot}`),
+            secretId: SecretId.make(`${scopeId}-${slot}`),
           },
   }));
 
