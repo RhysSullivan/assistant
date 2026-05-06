@@ -21,7 +21,8 @@
     "./api": "./src/api/index.ts",
     "./react": "./src/react/index.ts",
     "./presets": "./src/sdk/presets.ts",
-    "./client": "./src/react/plugin-client.tsx"
+    "./client": "./src/react/plugin-client.tsx",
+    "./testing": "./src/testing/index.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -36,6 +37,12 @@
         "import": {
           "types": "./dist/sdk/index.d.ts",
           "default": "./dist/core.js"
+        }
+      },
+      "./testing": {
+        "import": {
+          "types": "./dist/testing/index.d.ts",
+          "default": "./dist/testing.js"
         }
       }
     }

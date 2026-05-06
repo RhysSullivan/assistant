@@ -10,12 +10,6 @@ export type McpTestServer = {
   readonly sessionCount: () => number;
 };
 
-/**
- * Spin up a real HTTP server backed by a fresh `McpServer` per session,
- * with proper session routing via `mcp-session-id`. The factory is invoked
- * once per new session, so tools registered inside it are isolated per
- * connection (matching the SDK's own server/transport coupling).
- */
 export const serveMcpServer = (factory: () => McpServer) =>
   Effect.acquireRelease(
     Effect.callback<McpTestServer, Error>((resume) => {

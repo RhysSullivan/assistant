@@ -1,25 +1,23 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
 
 import {
   ConnectionId,
   CreateConnectionInput,
   createExecutor,
-  definePlugin,
   makeTestConfig,
   Scope,
   ScopeId,
   SecretId,
-  type SecretProvider,
   TokenMaterial,
 } from "@executor-js/sdk";
+import { memorySecretsPlugin } from "@executor-js/sdk/testing";
 
 import { graphqlPlugin } from "./plugin";
 import type { IntrospectionResult } from "./introspect";
+import { makeGreetingGraphqlSchema, serveGraphqlTestServer } from "../testing";
 
 const TEST_SCOPE = "test-scope";
-
-class TestServerAddressError extends Data.TaggedError("TestServerAddressError")<{}> {}
 
 // ---------------------------------------------------------------------------
 // Mock introspection response
@@ -92,31 +90,119 @@ const introspectionResult: IntrospectionResult = {
 
 const introspectionJson = JSON.stringify({ data: introspectionResult });
 
-const makeMemorySecretsPlugin = () => {
-  const store = new Map<string, string>();
-  const provider: SecretProvider = {
-    key: "memory",
-    writable: true,
-    get: (id, scope) => Effect.sync(() => store.get(`${scope}\u0000${id}`) ?? null),
-    set: (id, value, scope) =>
-      Effect.sync(() => {
-        store.set(`${scope}\u0000${id}`, value);
-      }),
-    delete: (id, scope) => Effect.sync(() => store.delete(`${scope}\u0000${id}`)),
-    list: () =>
-      Effect.sync(() =>
-        Array.from(store.keys()).map((key) => {
-          const name = key.split("\u0000", 2)[1] ?? key;
-          return { id: name, name };
+describe("graphqlPlugin real protocol server", () => {
+  const serveGreetingServer = serveGraphqlTestServer({ schema: makeGreetingGraphqlSchema() });
+
+  it.effect("adds a source by introspecting the live GraphQL endpoint", () =>
+    Effect.gen(function* () {
+      const server = yield* serveGreetingServer;
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
+
+      const result = yield* executor.graphql.addSource({
+        endpoint: server.endpoint,
+        scope: TEST_SCOPE,
+        namespace: "live_graph",
+      });
+
+      expect(result).toEqual({ toolCount: 2, namespace: "live_graph" });
+
+      const tools = yield* executor.tools.list();
+      expect(tools.map((tool) => tool.id)).toEqual(
+        expect.arrayContaining(["live_graph.query.hello", "live_graph.mutation.setGreeting"]),
+      );
+
+      const requests = yield* server.requests;
+      expect(requests.some((request) => request.payload.query?.includes("__schema"))).toBe(true);
+    }),
+  );
+
+  it.effect("invokes a live query with headers and query params", () =>
+    Effect.gen(function* () {
+      const server = yield* serveGreetingServer;
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
+
+      yield* executor.graphql.addSource({
+        endpoint: server.endpoint,
+        scope: TEST_SCOPE,
+        namespace: "live_invoke",
+        headers: { "x-static": "abc" },
+        queryParams: { token: "qp-token" },
+      });
+      yield* server.clearRequests;
+
+      const result = yield* executor.tools.invoke("live_invoke.query.hello", {
+        name: "Ada",
+      });
+
+      expect(result).toEqual({
+        status: 200,
+        data: { hello: "Hello Ada" },
+        errors: null,
+      });
+
+      const requests = yield* server.requests;
+      expect(requests.length).toBe(1);
+      expect(requests[0]?.headers["x-static"]).toBe("abc");
+      expect(new URL(requests[0]!.url).searchParams.get("token")).toBe("qp-token");
+      expect(requests[0]?.payload.variables).toEqual({ name: "Ada" });
+    }),
+  );
+
+  it.effect("invokes OAuth-backed sources with a bearer token", () =>
+    Effect.gen(function* () {
+      const server = yield* serveGreetingServer;
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [memorySecretsPlugin(), graphqlPlugin()] as const,
         }),
-      ),
-  };
-  return definePlugin(() => ({
-    id: "memory-secrets" as const,
-    storage: () => ({}),
-    secretProviders: [provider],
-  }));
-};
+      );
+
+      const connectionId = ConnectionId.make("graphql-oauth2-test");
+      yield* executor.connections.create(
+        new CreateConnectionInput({
+          id: connectionId,
+          scope: ScopeId.make(TEST_SCOPE),
+          provider: "oauth2",
+          identityLabel: "GraphQL Test",
+          accessToken: new TokenMaterial({
+            secretId: SecretId.make(`${connectionId}.access_token`),
+            name: "GraphQL Access Token",
+            value: "secret-token",
+          }),
+          refreshToken: null,
+          expiresAt: null,
+          oauthScope: null,
+          providerState: null,
+        }),
+      );
+
+      yield* executor.graphql.addSource({
+        endpoint: server.endpoint,
+        scope: TEST_SCOPE,
+        namespace: "oauth_graph",
+        auth: { kind: "oauth2", connectionId },
+      });
+      yield* server.clearRequests;
+
+      const result = yield* executor.tools.invoke("oauth_graph.query.hello", {
+        name: "Ada",
+      });
+
+      expect(result).toEqual({
+        status: 200,
+        data: { hello: "Hello Ada" },
+        errors: null,
+      });
+
+      const requests = yield* server.requests;
+      expect(requests[0]?.headers.authorization).toBe("Bearer secret-token");
+    }),
+  );
+});
 
 describe("graphqlPlugin", () => {
   it.effect("registers tools from introspection JSON", () =>
@@ -253,85 +339,6 @@ describe("graphqlPlugin", () => {
       // already there from addSource and haven't been removed).
       const tools = yield* executor.tools.list();
       expect(tools.filter((t) => t.sourceId === "patched").length).toBe(2);
-    }),
-  );
-
-  it.effect("invokes OAuth-backed sources with a bearer token", () =>
-    Effect.gen(function* () {
-      const http = yield* Effect.promise(() => import("node:http"));
-      let authorizationHeader: string | null = null;
-      const server = yield* Effect.acquireRelease(
-        Effect.callback<
-          {
-            readonly server: ReturnType<typeof http.createServer>;
-            readonly port: number;
-          },
-          Error | TestServerAddressError
-        >((resume) => {
-          const server = http.createServer((req, res) => {
-            authorizationHeader = req.headers.authorization ?? null;
-            res.setHeader("content-type", "application/json");
-            res.end(JSON.stringify({ data: { hello: "Hello Ada" } }));
-          });
-          server.listen(0, "127.0.0.1", () => {
-            const address = server.address();
-            if (!address || typeof address === "string") {
-              resume(Effect.fail(new TestServerAddressError()));
-              return;
-            }
-            resume(Effect.succeed({ server, port: address.port }));
-          });
-          server.once("error", (error) => resume(Effect.fail(error)));
-        }),
-        ({ server }) =>
-          Effect.callback<void>((resume) => {
-            server.close(() => resume(Effect.void));
-          }).pipe(Effect.ignore),
-      );
-
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [makeMemorySecretsPlugin()(), graphqlPlugin()] as const,
-        }),
-      );
-
-      const connectionId = ConnectionId.make("graphql-oauth2-test");
-      yield* executor.connections.create(
-        new CreateConnectionInput({
-          id: connectionId,
-          scope: ScopeId.make(TEST_SCOPE),
-          provider: "oauth2",
-          identityLabel: "GraphQL Test",
-          accessToken: new TokenMaterial({
-            secretId: SecretId.make(`${connectionId}.access_token`),
-            name: "GraphQL Access Token",
-            value: "secret-token",
-          }),
-          refreshToken: null,
-          expiresAt: null,
-          oauthScope: null,
-          providerState: null,
-        }),
-      );
-
-      yield* executor.graphql.addSource({
-        endpoint: `http://127.0.0.1:${server.port}/graphql`,
-        scope: TEST_SCOPE,
-        introspectionJson,
-        namespace: "oauth_graph",
-        auth: { kind: "oauth2", connectionId },
-      });
-
-      const result = yield* executor.tools.invoke("oauth_graph.query.hello", {
-        name: "Ada",
-      });
-
-      expect(result).toEqual({
-        status: 200,
-        data: { hello: "Hello Ada" },
-        errors: null,
-      });
-      expect(authorizationHeader).toBe("Bearer secret-token");
     }),
   );
 
@@ -506,7 +513,7 @@ describe("graphqlPlugin", () => {
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [makeMemorySecretsPlugin()(), graphqlPlugin()] as const,
+          plugins: [memorySecretsPlugin(), graphqlPlugin()] as const,
         }),
       );
 
@@ -543,7 +550,7 @@ describe("graphqlPlugin", () => {
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [makeMemorySecretsPlugin()(), graphqlPlugin()] as const,
+          plugins: [memorySecretsPlugin(), graphqlPlugin()] as const,
         }),
       );
 
@@ -579,7 +586,7 @@ describe("graphqlPlugin", () => {
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [makeMemorySecretsPlugin()(), graphqlPlugin()] as const,
+          plugins: [memorySecretsPlugin(), graphqlPlugin()] as const,
         }),
       );
 

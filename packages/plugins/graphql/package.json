@@ -21,7 +21,8 @@
     "./api": "./src/api/index.ts",
     "./react": "./src/react/index.ts",
     "./presets": "./src/sdk/presets.ts",
-    "./client": "./src/react/plugin-client.tsx"
+    "./client": "./src/react/plugin-client.tsx",
+    "./testing": "./src/testing/index.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -37,6 +38,12 @@
           "types": "./dist/sdk/index.d.ts",
           "default": "./dist/core.js"
         }
+      },
+      "./testing": {
+        "import": {
+          "types": "./dist/testing/index.d.ts",
+          "default": "./dist/testing.js"
+        }
       }
     }
   },
@@ -51,7 +58,9 @@
     "@effect/platform-node": "catalog:",
     "@executor-js/config": "workspace:*",
     "@executor-js/sdk": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "graphql": "^16.12.0",
+    "graphql-yoga": "^5.17.0"
   },
   "devDependencies": {
     "@effect/atom-react": "catalog:",

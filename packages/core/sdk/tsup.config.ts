@@ -5,6 +5,7 @@ export default defineConfig({
     index: "src/promise.ts",
     core: "src/index.ts",
     client: "src/client.ts",
+    testing: "src/testing.ts",
   },
   format: ["esm"],
   dts: false,

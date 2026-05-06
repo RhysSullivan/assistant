@@ -18,7 +18,7 @@ import {
 
 import { mcpPlugin } from "./plugin";
 import { extractManifestFromListToolsResult, deriveMcpNamespace, joinToolPath } from "./manifest";
-import { serveMcpServer } from "./test-utils";
+import { serveMcpServer } from "../testing";
 
 // ---------------------------------------------------------------------------
 // Memory secrets plugin — without a writable provider in the stack,

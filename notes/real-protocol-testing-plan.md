@@ -46,7 +46,7 @@ Testing services belong behind explicit `./testing` subpath exports:
 
 The plugin packages own the protocol details. Core SDK testing owns only boring
 Executor fixtures such as memory adapters, memory secrets, auto-accept
-elicitation, and fetch-shaped adapters that delegate to Effect HTTP.
+elicitation, and other Effect-native test primitives.
 
 Use `TestLayer` / `TestLayers` naming for realistic local test services.
 Reserve `LiveLayer` / `LiveLayers` for production wiring. These servers are
@@ -124,7 +124,6 @@ Suggested file layout:
 ```txt
 packages/core/sdk/src/testing.ts
 packages/core/sdk/src/testing/
-  fetch.ts
   memory-secrets.ts
 
 packages/plugins/openapi/src/testing/
@@ -191,9 +190,6 @@ Useful additions:
   in-test secret provider definitions.
 - `makeExecutorTestLayer(options)`, if repeated `createExecutor(makeTestConfig)`
   setup becomes noisy.
-- `makeFetchFromHttpClient` or `FetchTestAdapter`, for third-party APIs that
-  require a fetch-shaped callback while still routing requests through Effect's
-  HTTP client.
 - Small request/response capture primitives built on `Ref`, only if multiple
   plugins need the same shape.
 
@@ -243,8 +239,8 @@ Work:
 - Support a fresh `McpServer` factory per session, matching the current helper.
 - Keep malformed/non-MCP HTTP endpoints as explicit test layers for probe
   behavior.
-- Replace fetch-injected probe tests with real local HTTP servers and the
-  Effect-backed fetch adapter.
+- Replace fetch-injected probe tests with real local HTTP servers and
+  Effect-native HTTP boundaries.
 
 Representative scenarios:
 
@@ -261,10 +257,11 @@ Representative scenarios:
 GraphQL should gain a real executable schema server. This is the place where a
 new dependency may be justified.
 
-Preferred first dependency is the core `graphql` package if it is enough:
-define a schema, execute introspection and operations with `graphql(...)`, and
-serve the standard JSON-over-HTTP GraphQL endpoint through Effect/node HTTP.
-Use `graphql-yoga` only if we need a fuller server feature set later.
+Use `graphql-yoga` for the test server. The extra dependency is justified
+because the fixture needs to exercise a real JSON-over-HTTP GraphQL endpoint,
+not only direct `graphql(...)` execution. Keep Vitest configured to inline the
+Yoga/GraphQL dependency chain so executable schemas and server execution share
+one GraphQL module realm.
 
 Work:
 
@@ -292,19 +289,19 @@ Representative scenarios:
 ## Fetch Boundary
 
 The target rule is: product and plugin code should not call raw `fetch`
-directly. HTTP should go through Effect HTTP or a small approved adapter that
-turns an Effect `HttpClient` into a fetch-shaped function for libraries that
-force that API.
+directly. HTTP should go through Effect HTTP. If a third-party library truly
+forces a fetch-shaped callback, the adapter should live at that owning package's
+boundary rather than in shared SDK testing.
 
 Boundary files may exist, but they should be explicit and scarce. Examples:
 
-- a SDK adapter for `oauth4webapi` custom fetch
+- a core OAuth adapter for `oauth4webapi` custom fetch, if that library forces it
 - a MCP transport adapter if the upstream MCP SDK requires fetch-shaped input
 - platform entrypoints that must implement a `fetch(request, env, ctx)` method
 - test harnesses that intentionally call a Worker binding's `fetch` method
 
-Everything else should use Effect HTTP, Executor client APIs, or the approved
-adapter.
+Everything else should use Effect HTTP, Executor client APIs, or an explicit
+package-local boundary.
 
 Lint plan:
 
@@ -319,17 +316,17 @@ Lint plan:
 - Start with a narrow allowlist for known boundary files and remove entries as
   migrations land.
 - Include error messages that tell the author which Effect HTTP or approved
-  adapter to use.
+  package-local boundary to use.
 
-The lint rule should land after the first adapter exists. Otherwise every fix
-has to invent its own local escape hatch.
+The lint rule can land once the core test primitives and at least one real
+protocol fixture exist. Fetch-shaped adapters should be added only at forced
+library boundaries during migration.
 
 ## Migration Order
 
 1. Add `./testing` exports and SDK test primitives.
    - Expose `@executor-js/sdk/testing`.
    - Add memory secrets test support.
-   - Add the Effect HTTP to fetch-shaped adapter.
    - Keep `makeTestConfig` available from the root SDK.
 
 2. Build the GraphQL vertical slice.
@@ -344,8 +341,8 @@ has to invent its own local escape hatch.
    - Migrate current tests to import from the new public testing subpaths.
 
 4. Replace global fetch patching.
-   - Convert core OAuth discovery/helper tests to real local servers or the
-     Effect-backed fetch adapter.
+   - Convert core OAuth discovery/helper tests to real local servers or
+     package-local Effect HTTP boundaries.
    - Convert OpenAPI OAuth tests to the OAuth test server.
    - Convert MCP probe tests to real local HTTP server layers.
    - Convert Google Discovery tests using the same boundary pattern.
@@ -403,8 +400,8 @@ Turbo. Do not use `bun test`.
 
 - Should `@executor-js/sdk/testing` be a new subpath around the existing
   `src/testing.ts`, or should `src/testing.ts` become `src/testing/index.ts`?
-- Should GraphQL use only the `graphql` package, or should we adopt
-  `graphql-yoga` once tests need more HTTP behavior?
+- How much GraphQL HTTP behavior should live in the shared fixture versus
+  scenario-specific schemas in individual tests?
 - Which app-level raw fetch calls should remain approved platform boundaries
   versus being migrated to Effect HTTP?
 - Should the raw fetch lint rule become repo-wide immediately with allowlists,

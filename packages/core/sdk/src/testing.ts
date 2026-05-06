@@ -1,11 +1,14 @@
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
+import { Effect } from "effect";
+
 import { makeInMemoryBlobStore } from "./blob";
 import type { ExecutorConfig } from "./executor";
 import { collectSchemas } from "./executor";
 import { ScopeId } from "./ids";
-import type { AnyPlugin } from "./plugin";
+import { definePlugin, type AnyPlugin } from "./plugin";
 import { Scope } from "./scope";
+import type { SecretProvider } from "./secrets";
 
 // ---------------------------------------------------------------------------
 // makeTestConfig — build an ExecutorConfig backed by in-memory adapter +
@@ -42,3 +45,31 @@ export const makeTestConfig = <const TPlugins extends readonly AnyPlugin[] = []>
     onElicitation: "accept-all",
   };
 };
+
+export const memorySecretsPlugin = definePlugin(() => {
+  const store = new Map<string, string>();
+
+  const provider: SecretProvider = {
+    key: "memory",
+    writable: true,
+    get: (id, scope) => Effect.sync(() => store.get(`${scope}\u0000${id}`) ?? null),
+    set: (id, value, scope) =>
+      Effect.sync(() => {
+        store.set(`${scope}\u0000${id}`, value);
+      }),
+    delete: (id, scope) => Effect.sync(() => store.delete(`${scope}\u0000${id}`)),
+    list: () =>
+      Effect.sync(() =>
+        Array.from(store.keys()).map((key) => {
+          const name = key.split("\u0000", 2)[1] ?? key;
+          return { id: name, name };
+        }),
+      ),
+  };
+
+  return {
+    id: "memory-secrets" as const,
+    storage: () => ({}),
+    secretProviders: [provider],
+  };
+});

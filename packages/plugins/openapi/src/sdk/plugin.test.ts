@@ -13,20 +13,20 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import {
   createExecutor,
   type DBAdapter,
-  definePlugin,
   makeTestConfig,
   Scope,
   ScopeId,
   SecretId,
   SetSecretInput,
   type InvokeOptions,
-  type SecretProvider,
   type Where,
 } from "@executor-js/sdk";
+import { memorySecretsPlugin } from "@executor-js/sdk/testing";
 
 const TEST_SCOPE = "test-scope";
 import { openApiPlugin } from "./plugin";
 import { OAuth2Auth, OpenApiSourceBindingInput } from "./types";
+import { makeOpenApiTestServer } from "../testing";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -52,38 +52,6 @@ const recordFindMany = (adapter: DBAdapter, calls: FindManyCall[]): DBAdapter =>
       }),
     ),
 });
-
-// ---------------------------------------------------------------------------
-// In-memory secrets provider plugin — registered alongside openapi so
-// executor.secrets.set/get work in tests.
-// ---------------------------------------------------------------------------
-
-const memoryProvider: SecretProvider = (() => {
-  const store = new Map<string, string>();
-  return {
-    key: "memory",
-    writable: true,
-    get: (id, scope) => Effect.sync(() => store.get(`${scope}\u0000${id}`) ?? null),
-    set: (id, value, scope) =>
-      Effect.sync(() => {
-        store.set(`${scope}\u0000${id}`, value);
-      }),
-    delete: (id, scope) => Effect.sync(() => store.delete(`${scope}\u0000${id}`)),
-    list: () =>
-      Effect.sync(() =>
-        Array.from(store.keys()).map((k) => {
-          const name = k.split("\u0000", 2)[1] ?? k;
-          return { id: name, name };
-        }),
-      ),
-  };
-})();
-
-const memorySecretsPlugin = definePlugin(() => ({
-  id: "memory-secrets" as const,
-  storage: () => ({}),
-  secretProviders: [memoryProvider],
-}));
 
 // ---------------------------------------------------------------------------
 // Define a test API with Effect HttpApi
@@ -186,19 +154,18 @@ const TestLayer = HttpRouter.serve(ApiLive, { disableListenLog: true, disableLog
 layer(TestLayer)("OpenAPI Plugin", (it) => {
   it.effect("previewSpec returns metadata and header presets", () =>
     Effect.gen(function* () {
-      const httpClient = yield* HttpClient.HttpClient;
-      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+      const server = yield* makeOpenApiTestServer({ spec });
 
       const executor = yield* createExecutor(
         makeTestConfig({
           plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
+            openApiPlugin({ httpClientLayer: server.httpClientLayer }),
             memorySecretsPlugin(),
           ] as const,
         }),
       );
 
-      const preview = yield* executor.openapi.previewSpec(specJson);
+      const preview = yield* executor.openapi.previewSpec(server.specJson);
 
       expect(preview.operationCount).toBeGreaterThanOrEqual(2);
       expect(preview.servers).toBeDefined();

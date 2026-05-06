@@ -12,7 +12,7 @@ import {
 } from "@executor-js/sdk";
 
 import { mcpPlugin } from "./plugin";
-import { serveMcpServer } from "./test-utils";
+import { serveMcpServer } from "../testing";
 
 // ---------------------------------------------------------------------------
 // Test MCP server on a real HTTP port
