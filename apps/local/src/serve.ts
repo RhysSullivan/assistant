@@ -37,6 +37,7 @@ const hasFileExtension = (pathname: string): boolean => {
 
 function collectStaticRoutes(dir: string, prefix = ""): Record<string, StaticHandler> {
   const routes: Record<string, StaticHandler> = {};
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: filesystem route discovery is best-effort for optional built assets
   try {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const fullPath = join(dir, entry.name);
