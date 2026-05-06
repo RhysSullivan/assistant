@@ -19,13 +19,16 @@
 // `scope_id: { type: "string", required: true, index: true }`. Tables
 // without it are shared across scopes by construction.
 
-import { Effect } from "effect";
+import { Effect, type Brand } from "effect";
 
 import {
   StorageError,
+  typedAdapter,
   type DBAdapter,
   type DBSchema,
   type DBTransactionAdapter,
+  type StorageFailure,
+  type TypedAdapter,
   type Where,
 } from "@executor-js/storage-core";
 
@@ -40,6 +43,25 @@ export interface ScopeContext {
    */
   readonly scopes: readonly string[];
 }
+
+/**
+ * Adapter that has already been wrapped by `scopeAdapter`. Executor/plugin
+ * internals should accept this branded type after construction, so a raw
+ * adapter cannot be threaded into scoped storage by accident.
+ */
+export type ScopedDBAdapter = DBAdapter & Brand.Brand<"ScopedDBAdapter">;
+
+/**
+ * Plugin-facing typed adapter derived from a `ScopedDBAdapter`. It has the
+ * same runtime shape as `TypedAdapter`, but the brand keeps StorageDeps from
+ * being satisfied by `typedAdapter(rawAdapter)`.
+ */
+export type ScopedTypedAdapter<TSchema extends DBSchema> = TypedAdapter<TSchema, StorageFailure> &
+  Brand.Brand<"ScopedTypedAdapter">;
+
+export const scopedTypedAdapter = <TSchema extends DBSchema>(
+  adapter: ScopedDBAdapter,
+): ScopedTypedAdapter<TSchema> => typedAdapter<TSchema>(adapter) as ScopedTypedAdapter<TSchema>;
 
 const collectScopedModels = (schema: DBSchema): Set<string> => {
   const out = new Set<string>();
@@ -190,7 +212,11 @@ const wrapTxMethods = (
   };
 };
 
-export const scopeAdapter = (inner: DBAdapter, ctx: ScopeContext, schema: DBSchema): DBAdapter => {
+export const scopeAdapter = (
+  inner: DBAdapter,
+  ctx: ScopeContext,
+  schema: DBSchema,
+): ScopedDBAdapter => {
   const scopedModels = collectScopedModels(schema);
   const tx = wrapTxMethods(inner, ctx, scopedModels);
   return {
@@ -202,7 +228,7 @@ export const scopeAdapter = (inner: DBAdapter, ctx: ScopeContext, schema: DBSche
       }),
     createSchema: inner.createSchema,
     options: inner.options,
-  };
+  } as ScopedDBAdapter;
 };
 
 export const __scopeField = SCOPE_FIELD;

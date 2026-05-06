@@ -1,6 +1,6 @@
 import type { Context, Effect, Layer } from "effect";
 import type { HttpApiGroup } from "effect/unstable/httpapi";
-import type { DBAdapter, DBSchema, StorageFailure, TypedAdapter } from "@executor-js/storage-core";
+import type { DBSchema, StorageFailure } from "@executor-js/storage-core";
 
 import type { PluginBlobStore } from "./blob";
 import type {
@@ -29,6 +29,7 @@ import type {
 } from "./errors";
 import type { OAuthService } from "./oauth";
 import type { Scope } from "./scope";
+import type { ScopedDBAdapter, ScopedTypedAdapter } from "./scoped-adapter";
 import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 import type { Usage, UsagesForConnectionInput, UsagesForSecretInput } from "./usages";
 
@@ -60,7 +61,7 @@ export interface StorageDeps<TSchema extends DBSchema | undefined = undefined> {
    * `@executor-js/api` `withCapture`) is the one place that
    * translates it to the opaque `InternalError({ traceId })`.
    */
-  readonly adapter: TSchema extends DBSchema ? TypedAdapter<TSchema, StorageFailure> : DBAdapter;
+  readonly adapter: TSchema extends DBSchema ? ScopedTypedAdapter<TSchema> : ScopedDBAdapter;
   readonly blobs: PluginBlobStore;
 }
 

@@ -203,6 +203,7 @@ export {
 } from "./oauth-helpers";
 
 export { makeOAuth2Service, type OAuthServiceDeps } from "./oauth-service";
+export type { ScopedDBAdapter, ScopedTypedAdapter } from "./scoped-adapter";
 
 export {
   OAuthDiscoveryError,

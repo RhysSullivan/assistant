@@ -74,3 +74,8 @@ executor.jsonc
 # Warden local scan outputs
 .warden/
 .warden-runs/
+
+# Agent local notes
+MISTAKES.md
+DESIRES.md
+LEARNINGS.md

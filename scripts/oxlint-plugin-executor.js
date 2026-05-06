@@ -1,5 +1,6 @@
 import noConditionalTests from "./oxlint-plugin-executor/rules/no-conditional-tests.js";
 import noCrossPackageRelativeImports from "./oxlint-plugin-executor/rules/no-cross-package-relative-imports.js";
+import noDirectCloudExecutorSchemaImport from "./oxlint-plugin-executor/rules/no-direct-cloud-executor-schema-import.js";
 import noDoubleCast from "./oxlint-plugin-executor/rules/no-double-cast.js";
 import noEffectEscapeHatch from "./oxlint-plugin-executor/rules/no-effect-escape-hatch.js";
 import noEffectInternalTags from "./oxlint-plugin-executor/rules/no-effect-internal-tags.js";
@@ -36,6 +37,7 @@ export default {
     "no-conditional-tests": noConditionalTests,
     "no-double-cast": noDoubleCast,
     "no-cross-package-relative-imports": noCrossPackageRelativeImports,
+    "no-direct-cloud-executor-schema-import": noDirectCloudExecutorSchemaImport,
     "require-reactivity-keys": requireReactivityKeys,
     "no-effect-escape-hatch": noEffectEscapeHatch,
     "no-effect-internal-tags": noEffectInternalTags,

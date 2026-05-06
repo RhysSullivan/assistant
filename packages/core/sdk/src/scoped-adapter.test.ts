@@ -4,8 +4,8 @@ import { Cause, Effect, Exit } from "effect";
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 import { StorageError, typedAdapter } from "@executor-js/storage-core";
 
-import { defineSchema } from "./plugin";
-import { scopeAdapter } from "./scoped-adapter";
+import { defineSchema, type StorageDeps } from "./plugin";
+import { scopedTypedAdapter, scopeAdapter } from "./scoped-adapter";
 
 const schema = defineSchema({
   thing: {
@@ -28,6 +28,32 @@ const setup = (scopes: readonly string[]) => {
   const wrapped = scopeAdapter(inner, { scopes }, schema);
   return typedAdapter<typeof schema>(wrapped);
 };
+
+describe("StorageDeps type boundary", () => {
+  it("does not accept typedAdapter(rawAdapter)", () => {
+    const raw = makeMemoryAdapter({ schema });
+    const rawTyped = typedAdapter<typeof schema>(raw);
+    const scopedTyped = scopedTypedAdapter<typeof schema>(
+      scopeAdapter(raw, { scopes: ["a"] }, schema),
+    );
+
+    const accepted: StorageDeps<typeof schema> = {
+      scopes: [],
+      adapter: scopedTyped,
+      blobs: null as never,
+    };
+
+    const rejected = {
+      scopes: [],
+      // @ts-expect-error StorageDeps must not accept typedAdapter(rawAdapter).
+      adapter: rawTyped,
+      blobs: null as never,
+    } satisfies StorageDeps<typeof schema>;
+
+    expect(accepted.adapter).toBe(scopedTyped);
+    expect(rejected.adapter).toBe(rawTyped);
+  });
+});
 
 describe("scopeAdapter — write rejection on scoped tables", () => {
   it.effect("rejects create with scope_id outside the stack", () =>

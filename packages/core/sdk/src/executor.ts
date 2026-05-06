@@ -2,7 +2,6 @@ import { Context, Deferred, Effect, Option, Result, Schema, Semaphore } from "ef
 import { generateKeyBetween } from "fractional-indexing";
 import {
   StorageError,
-  typedAdapter,
   type DBAdapter,
   type DBSchema,
   type DBTransactionAdapter,
@@ -88,7 +87,7 @@ import {
   type ToolListFilter,
 } from "./types";
 import { buildToolTypeScriptPreview } from "./schema-types";
-import { scopeAdapter } from "./scoped-adapter";
+import { scopedTypedAdapter, scopeAdapter, type ScopedDBAdapter } from "./scoped-adapter";
 
 // ---------------------------------------------------------------------------
 // Elicitation handler — set once at `createExecutor({ onElicitation })`
@@ -538,7 +537,7 @@ const activeAdapterRef = Context.Reference<DBTransactionAdapter | null>("executo
 // root) on every call. Stable identity for consumers (plugin storage,
 // `typedAdapter`, etc.) — they see one adapter object, but the routing is
 // decided at call time via the FiberRef above.
-const buildAdapterRouter = (root: DBAdapter): DBAdapter => {
+const buildAdapterRouter = (root: ScopedDBAdapter): ScopedDBAdapter => {
   const pick = <A, E>(
     use: (active: DBTransactionAdapter) => Effect.Effect<A, E>,
   ): Effect.Effect<A, E> =>
@@ -571,7 +570,7 @@ const buildAdapterRouter = (root: DBAdapter): DBAdapter => {
           Effect.provideService(callback(trx), activeAdapterRef, trx),
         );
       }),
-  } as DBAdapter;
+  } as ScopedDBAdapter;
 };
 
 // ---------------------------------------------------------------------------
@@ -624,7 +623,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
     const scopeIds = scopes.map((s) => s.id);
     const scopedRoot = scopeAdapter(rootAdapter, { scopes: scopeIds }, schema);
     const adapter = buildAdapterRouter(scopedRoot);
-    const core = typedAdapter<CoreSchema>(adapter);
+    const core = scopedTypedAdapter<CoreSchema>(adapter);
 
     // Populated once, never mutated after startup.
     const staticTools = new Map<string, StaticTools>();
@@ -1743,7 +1742,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = []>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const storageDeps: StorageDeps<any> = {
         scopes,
-        adapter: typedAdapter(adapter),
+        adapter: plugin.schema ? scopedTypedAdapter(adapter) : adapter,
         // Blob keys are namespaced by `<scope>/<plugin>` so two tenants
         // sharing a backing BlobStore can't collide or leak on the
         // same `(plugin, key)` pair. The store's `get`/`has` walk the
