@@ -13,7 +13,7 @@
 
 import { describe, it } from "@effect/vitest";
 import { expect } from "@effect/vitest";
-import { Effect, Result } from "effect";
+import { Data, Effect, Result } from "effect";
 
 import type { DBAdapter } from "../adapter";
 import type { DBSchema } from "../schema";
@@ -75,14 +75,13 @@ export type WithAdapter = <A, E>(
   fn: (adapter: DBAdapter) => Effect.Effect<A, E>,
 ) => Effect.Effect<A, E | Error>;
 
+class TransactionRollbackTestError extends Data.TaggedError("TransactionRollbackTestError")<{}> {}
+
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
 
-export const runAdapterConformance = (
-  name: string,
-  withAdapter: WithAdapter,
-): void => {
+export const runAdapterConformance = (name: string, withAdapter: WithAdapter): void => {
   describe(`conformance: ${name}`, () => {
     const withDefaultsInput = (
       value: unknown,
@@ -136,9 +135,7 @@ export const runAdapterConformance = (
           expect(found!.id).toBe(created.id);
           expect(found!.enabled).toBe(true);
           expect(found!.createdAt instanceof Date).toBe(true);
-          expect(found!.createdAt.toISOString()).toBe(
-            "2026-04-15T00:00:00.000Z",
-          );
+          expect(found!.createdAt.toISOString()).toBe("2026-04-15T00:00:00.000Z");
           expect(found!.metadata).toEqual({ slug: "gh", tags: ["a", "b"] });
         }),
       ),
@@ -161,7 +158,7 @@ export const runAdapterConformance = (
           });
           const found = yield* adapter.findOne<{ createdAt: Date }>({
             model: "source",
-            where: [{ field: "id", value: row.id as string }],
+            where: [{ field: "id", value: row.id }],
           });
           expect(found!.createdAt.toISOString()).toBe(d.toISOString());
         }),
@@ -381,10 +378,7 @@ export const runAdapterConformance = (
             model: "source",
             where: [{ field: "priority", value: 5, operator: "gte" }],
           });
-          expect(highPriority.map((r) => r.name).sort()).toEqual([
-            "github-edge",
-            "gitlab",
-          ]);
+          expect(highPriority.map((r) => r.name).sort()).toEqual(["github-edge", "gitlab"]);
         }),
       ),
     );
@@ -516,9 +510,7 @@ export const runAdapterConformance = (
             update: { touchedAt: explicitDate },
           });
           expect(updated).not.toBeNull();
-          expect(updated!.touchedAt.toISOString()).toBe(
-            explicitDate.toISOString(),
-          );
+          expect(updated!.touchedAt.toISOString()).toBe(explicitDate.toISOString());
           // Sanity: omitting touchedAt should trigger onUpdate.
           const hookDriven = yield* adapter.update<{
             id: string;
@@ -530,9 +522,7 @@ export const runAdapterConformance = (
             update: { name: "rename" },
           });
           expect(hookDriven).not.toBeNull();
-          expect(hookDriven!.touchedAt.toISOString()).toBe(
-            "2099-01-01T00:00:00.000Z",
-          );
+          expect(hookDriven!.touchedAt.toISOString()).toBe("2099-01-01T00:00:00.000Z");
         }),
       ),
     );
@@ -546,7 +536,7 @@ export const runAdapterConformance = (
               Effect.gen(function* () {
                 yield* trx.create({ model: "tag", data: { label: "tx1" } });
                 yield* trx.create({ model: "tag", data: { label: "tx2" } });
-                return yield* Effect.fail(new Error("boom"));
+                return yield* new TransactionRollbackTestError();
               }),
             )
             .pipe(Effect.result);
@@ -571,128 +561,120 @@ export const runAdapterConformance = (
       ),
     );
 
-    it.effect(
-      "where: mixed AND/OR grouping follows upstream split-group semantics",
-      () =>
-        // Locks in better-auth drizzle adapter's `convertWhereClause`
-        // semantics: AND-connector clauses and OR-connector clauses split
-        // into two groups, recombined as `(AND…) AND (OR…)`. For
-        // [{priority=1, AND}, {priority=10, OR}, {enabled=true, AND}],
-        // that's `(priority=1 AND enabled=true) AND (priority=10)` which
-        // can never match a single row — while a left-to-right fold
-        // would give `((priority=1 OR priority=10) AND enabled=true)`
-        // and return two rows. We assert the upstream reading.
-        withAdapter((adapter) =>
-          Effect.gen(function* () {
-            yield* adapter.createMany({
-              model: "source",
-              data: [
-                { name: "lhs", priority: 1, enabled: true },
-                { name: "rhs", priority: 10, enabled: true },
-                { name: "off", priority: 1, enabled: false },
-              ],
-            });
-            const rows = yield* adapter.findMany<{ name: string }>({
-              model: "source",
-              where: [
-                { field: "priority", value: 1, connector: "AND" },
-                { field: "priority", value: 10, connector: "OR" },
-                { field: "enabled", value: true, connector: "AND" },
-              ],
-            });
-            // Upstream split-group: (priority=1 AND enabled=true) AND
-            // (priority=10). `lhs` has priority=1 (fails the OR group's
-            // priority=10 check) and `rhs` has priority=10 (fails the
-            // AND group's priority=1 check) — both reject.
-            expect(rows.map((r) => r.name)).toEqual([]);
+    it.effect("where: mixed AND/OR grouping follows upstream split-group semantics", () =>
+      // Locks in better-auth drizzle adapter's `convertWhereClause`
+      // semantics: AND-connector clauses and OR-connector clauses split
+      // into two groups, recombined as `(AND…) AND (OR…)`. For
+      // [{priority=1, AND}, {priority=10, OR}, {enabled=true, AND}],
+      // that's `(priority=1 AND enabled=true) AND (priority=10)` which
+      // can never match a single row — while a left-to-right fold
+      // would give `((priority=1 OR priority=10) AND enabled=true)`
+      // and return two rows. We assert the upstream reading.
+      withAdapter((adapter) =>
+        Effect.gen(function* () {
+          yield* adapter.createMany({
+            model: "source",
+            data: [
+              { name: "lhs", priority: 1, enabled: true },
+              { name: "rhs", priority: 10, enabled: true },
+              { name: "off", priority: 1, enabled: false },
+            ],
+          });
+          const rows = yield* adapter.findMany<{ name: string }>({
+            model: "source",
+            where: [
+              { field: "priority", value: 1, connector: "AND" },
+              { field: "priority", value: 10, connector: "OR" },
+              { field: "enabled", value: true, connector: "AND" },
+            ],
+          });
+          // Upstream split-group: (priority=1 AND enabled=true) AND
+          // (priority=10). `lhs` has priority=1 (fails the OR group's
+          // priority=10 check) and `rhs` has priority=10 (fails the
+          // AND group's priority=1 check) — both reject.
+          expect(rows.map((r) => r.name)).toEqual([]);
 
-            // Sanity: a pure disjunction still works.
-            const both = yield* adapter.findMany<{ name: string }>({
-              model: "source",
-              where: [
-                { field: "priority", value: 1, connector: "OR" },
-                { field: "priority", value: 10, connector: "OR" },
-              ],
-              sortBy: { field: "name", direction: "asc" },
-            });
-            expect(both.map((r) => r.name)).toEqual(["lhs", "off", "rhs"]);
-          }),
-        ),
+          // Sanity: a pure disjunction still works.
+          const both = yield* adapter.findMany<{ name: string }>({
+            model: "source",
+            where: [
+              { field: "priority", value: 1, connector: "OR" },
+              { field: "priority", value: 10, connector: "OR" },
+            ],
+            sortBy: { field: "name", direction: "asc" },
+          });
+          expect(both.map((r) => r.name)).toEqual(["lhs", "off", "rhs"]);
+        }),
+      ),
     );
 
-    it.effect(
-      "findMany resolves join: source → source_tag (one-to-many)",
-      () =>
-        withAdapter((adapter) =>
-          Effect.gen(function* () {
-            const src = yield* adapter.create<{ id: string; name: string }>({
-              model: "source",
-              data: { name: "joined-source" },
-            });
-            yield* adapter.createMany({
-              model: "source_tag",
-              data: [
-                { sourceId: src.id, note: "first" },
-                { sourceId: src.id, note: "second" },
-              ],
-            });
+    it.effect("findMany resolves join: source → source_tag (one-to-many)", () =>
+      withAdapter((adapter) =>
+        Effect.gen(function* () {
+          const src = yield* adapter.create<{ id: string; name: string }>({
+            model: "source",
+            data: { name: "joined-source" },
+          });
+          yield* adapter.createMany({
+            model: "source_tag",
+            data: [
+              { sourceId: src.id, note: "first" },
+              { sourceId: src.id, note: "second" },
+            ],
+          });
 
-            const many = yield* adapter.findMany<{
-              id: string;
-              name: string;
-              source_tag: ReadonlyArray<{ note: string; sourceId: string }>;
-            }>({
-              model: "source",
-              where: [{ field: "id", value: src.id }],
-              join: { source_tag: true },
-            });
-            expect(many).toHaveLength(1);
-            const parent = many[0]!;
-            expect(parent.name).toBe("joined-source");
-            expect(Array.isArray(parent.source_tag)).toBe(true);
-            expect(parent.source_tag).toHaveLength(2);
-            expect(
-              parent.source_tag.map((t) => t.note).sort(),
-            ).toEqual(["first", "second"]);
-          }),
-        ),
+          const many = yield* adapter.findMany<{
+            id: string;
+            name: string;
+            source_tag: ReadonlyArray<{ note: string; sourceId: string }>;
+          }>({
+            model: "source",
+            where: [{ field: "id", value: src.id }],
+            join: { source_tag: true },
+          });
+          expect(many).toHaveLength(1);
+          const parent = many[0]!;
+          expect(parent.name).toBe("joined-source");
+          expect(Array.isArray(parent.source_tag)).toBe(true);
+          expect(parent.source_tag).toHaveLength(2);
+          expect(parent.source_tag.map((t) => t.note).sort()).toEqual(["first", "second"]);
+        }),
+      ),
     );
 
-    it.effect(
-      "findOne resolves join: source_tag → source (one-to-one)",
-      () =>
-        withAdapter((adapter) =>
-          Effect.gen(function* () {
-            const src = yield* adapter.create<{ id: string; name: string }>({
-              model: "source",
-              data: { name: "owner" },
-            });
-            const child = yield* adapter.create<{
-              id: string;
-              sourceId: string;
-              note: string;
-            }>({
-              model: "source_tag",
-              data: { sourceId: src.id, note: "only" },
-            });
+    it.effect("findOne resolves join: source_tag → source (one-to-one)", () =>
+      withAdapter((adapter) =>
+        Effect.gen(function* () {
+          const src = yield* adapter.create<{ id: string; name: string }>({
+            model: "source",
+            data: { name: "owner" },
+          });
+          const child = yield* adapter.create<{
+            id: string;
+            sourceId: string;
+            note: string;
+          }>({
+            model: "source_tag",
+            data: { sourceId: src.id, note: "only" },
+          });
 
-            const found = yield* adapter.findOne<{
-              id: string;
-              note: string;
-              sourceId: string;
-              source: { id: string; name: string } | null;
-            }>({
-              model: "source_tag",
-              where: [{ field: "id", value: child.id }],
-              join: { source: true },
-            });
-            expect(found).not.toBeNull();
-            expect(found!.note).toBe("only");
-            expect(found!.source).not.toBeNull();
-            expect(found!.source!.id).toBe(src.id);
-            expect(found!.source!.name).toBe("owner");
-          }),
-        ),
+          const found = yield* adapter.findOne<{
+            id: string;
+            note: string;
+            sourceId: string;
+            source: { id: string; name: string } | null;
+          }>({
+            model: "source_tag",
+            where: [{ field: "id", value: child.id }],
+            join: { source: true },
+          });
+          expect(found).not.toBeNull();
+          expect(found!.note).toBe("only");
+          expect(found!.source).not.toBeNull();
+          expect(found!.source!.id).toBe(src.id);
+          expect(found!.source!.name).toBe("owner");
+        }),
+      ),
     );
 
     it.effect("nested writes inside a transaction see the tx state", () =>
