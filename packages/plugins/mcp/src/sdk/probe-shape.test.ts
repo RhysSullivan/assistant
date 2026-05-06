@@ -8,16 +8,23 @@ type FetchStub = (
   init?: Parameters<typeof fetch>[1],
 ) => Promise<Response>;
 
+interface FetchFailure {
+  readonly failure: unknown;
+}
+
 const asFetch = (stub: FetchStub): typeof fetch => stub as typeof fetch;
 
 /**
  * Build a `fetch`-compatible stub that returns the given `Response` (or
- * throws the given error) regardless of input. `fetch`'s exact signature
+ * rejects with the given failure) regardless of input. `fetch`'s exact signature
  * is a union; a narrow closure is enough for the probe.
  */
-const stubFetch = (result: Response | Error): typeof fetch =>
+const stubFetch = (result: Response | FetchFailure): typeof fetch =>
   asFetch(async (_input, _init) => {
-    if (result instanceof Error) throw result;
+    if ("failure" in result) {
+      // oxlint-disable-next-line promise/prefer-await-to-then, executor/no-promise-reject -- boundary: fetch-compatible test stub must reject like fetch
+      return Promise.reject(result.failure);
+    }
     return result;
   });
 
@@ -25,7 +32,10 @@ const stubFetchSequence = (results: readonly Response[]): typeof fetch => {
   let index = 0;
   return asFetch(async (_input, _init) => {
     const result = results[index++];
-    if (!result) throw new Error("unexpected fetch");
+    if (!result) {
+      // oxlint-disable-next-line promise/prefer-await-to-then, executor/no-promise-reject -- boundary: fetch-compatible test stub must reject like fetch
+      return Promise.reject({ message: "unexpected fetch" });
+    }
     return result;
   });
 };
@@ -140,7 +150,7 @@ describe("probeMcpEndpointShape", () => {
   it.effect("reports transport failure as unreachable", () =>
     Effect.gen(function* () {
       const result = yield* probeMcpEndpointShape("https://missing/", {
-        fetch: stubFetch(new TypeError("fetch failed")),
+        fetch: stubFetch({ failure: { message: "fetch failed" } }),
       });
       expect(result.kind).toBe("unreachable");
     }),
