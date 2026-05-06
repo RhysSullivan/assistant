@@ -1,5 +1,6 @@
 import { useReducer, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
 
 import { useScope } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
@@ -268,8 +269,8 @@ export default function AddMcpSource(props: {
   );
 
   const scopeId = useScope();
-  const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promise" });
-  const doAdd = useAtomSet(addMcpSource, { mode: "promise" });
+  const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promiseExit" });
+  const doAdd = useAtomSet(addMcpSource, { mode: "promiseExit" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
@@ -333,24 +334,24 @@ export default function AddMcpSource(props: {
 
   const handleProbe = useCallback(async () => {
     dispatch({ type: "probe-start" });
-    try {
-      const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
-      const result = await doProbe({
-        params: { scopeId },
-        payload: {
-          endpoint: state.url.trim(),
-          ...(Object.keys(headers).length > 0 ? { headers } : {}),
-          ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
-        },
-      });
-      setRemoteAuthMode(result.requiresOAuth ? "oauth2" : "none");
-      dispatch({ type: "probe-ok", probe: result });
-    } catch (e) {
+    const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
+    const exit = await doProbe({
+      params: { scopeId },
+      payload: {
+        endpoint: state.url.trim(),
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+        ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+      },
+    });
+    if (Exit.isFailure(exit)) {
       dispatch({
         type: "probe-fail",
-        error: e instanceof Error ? e.message : "Failed to connect",
+        error: "Failed to connect",
       });
+      return;
     }
+    setRemoteAuthMode(exit.value.requiresOAuth ? "oauth2" : "none");
+    dispatch({ type: "probe-ok", probe: exit.value });
   }, [state.url, scopeId, doProbe, remoteCredentials]);
 
   // Keep the latest handleProbe in a ref so the debounced effect can call it
@@ -473,33 +474,32 @@ export default function AddMcpSource(props: {
       kind: "mcp",
       url: state.url.trim(),
     });
-    try {
-      await doAdd({
-        params: { scopeId },
-        payload: {
-          transport: "remote" as const,
-          name: displayName,
-          namespace: slugNamespace || undefined,
-          endpoint: state.url.trim(),
-          auth,
-          ...(Object.keys(remoteRequestHeaders).length > 0
-            ? { headers: remoteRequestHeaders }
-            : {}),
-          ...(Object.keys(credentials.queryParams).length > 0
-            ? { queryParams: credentials.queryParams }
-            : {}),
-        },
-        reactivityKeys: sourceWriteKeys,
-      });
-      props.onComplete();
-    } catch (e) {
+    const exit = await doAdd({
+      params: { scopeId },
+      payload: {
+        transport: "remote" as const,
+        name: displayName,
+        namespace: slugNamespace || undefined,
+        endpoint: state.url.trim(),
+        auth,
+        ...(Object.keys(remoteRequestHeaders).length > 0
+          ? { headers: remoteRequestHeaders }
+          : {}),
+        ...(Object.keys(credentials.queryParams).length > 0
+          ? { queryParams: credentials.queryParams }
+          : {}),
+      },
+      reactivityKeys: sourceWriteKeys,
+    });
+    placeholder.done();
+    if (Exit.isFailure(exit)) {
       dispatch({
         type: "add-fail",
-        error: e instanceof Error ? e.message : "Failed to add source",
+        error: "Failed to add source",
       });
-    } finally {
-      placeholder.done();
+      return;
     }
+    props.onComplete();
   }, [
     probe,
     remoteAuthMode,
@@ -553,26 +553,25 @@ export default function AddMcpSource(props: {
       name: displayName,
       kind: "mcp",
     });
-    try {
-      await doAdd({
-        params: { scopeId },
-        payload: {
-          transport: "stdio" as const,
-          name: displayName,
-          namespace: slugNamespace || undefined,
-          command: cmd,
-          args: parseStdioArgs(stdioArgs),
-          env: parseStdioEnv(stdioEnv),
-        },
-        reactivityKeys: sourceWriteKeys,
-      });
-      props.onComplete();
-    } catch (e) {
-      setStdioError(e instanceof Error ? e.message : "Failed to add source");
+    const exit = await doAdd({
+      params: { scopeId },
+      payload: {
+        transport: "stdio" as const,
+        name: displayName,
+        namespace: slugNamespace || undefined,
+        command: cmd,
+        args: parseStdioArgs(stdioArgs),
+        env: parseStdioEnv(stdioEnv),
+      },
+      reactivityKeys: sourceWriteKeys,
+    });
+    placeholder.done();
+    if (Exit.isFailure(exit)) {
+      setStdioError("Failed to add source");
       setStdioAdding(false);
-    } finally {
-      placeholder.done();
+      return;
     }
+    props.onComplete();
   }, [stdioCommand, stdioArgs, stdioEnv, stdioIdentity, doAdd, scopeId, props, beginAdd]);
 
   // ---- Render ----

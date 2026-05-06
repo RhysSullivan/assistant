@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
 
 import { cancelOAuth, startOAuth } from "../api/atoms";
 import { openOAuthPopup, type OAuthPopupResult } from "../api/oauth-popup";
@@ -80,8 +81,8 @@ export function useOAuthPopupFlow<
     startErrorMessage,
   } = options;
   const scopeId = useScope();
-  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
-  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promiseExit" });
+  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promiseExit" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -92,7 +93,7 @@ export function useOAuthPopupFlow<
       void doCancelOAuth({
         params: { scopeId },
         payload: { sessionId },
-      }).catch(() => undefined);
+      });
     },
     [doCancelOAuth, scopeId],
   );
@@ -122,6 +123,7 @@ export function useOAuthPopupFlow<
       cancel();
       setBusy(true);
       setError(null);
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: caller-provided Promise starts OAuth and reports a stable UI error
       try {
         const response = await input.run();
         if (response.authorizationUrl === null) {
@@ -151,11 +153,12 @@ export function useOAuthPopupFlow<
               return;
             }
 
+            // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: caller-provided success callback reports a stable UI error
             try {
               await input.onSuccess(result);
               setBusy(false);
-            } catch (e) {
-              const message = e instanceof Error ? e.message : "Failed to persist new connection";
+            } catch {
+              const message = "Failed to persist new connection";
               setBusy(false);
               setError(message);
               input.onError?.(message);
@@ -182,9 +185,8 @@ export function useOAuthPopupFlow<
             input.onError?.(message);
           },
         });
-      } catch (e) {
-        const message =
-          e instanceof Error ? e.message : (startErrorMessage ?? "Failed to start sign-in");
+      } catch {
+        const message = startErrorMessage ?? "Failed to start sign-in";
         setBusy(false);
         setError(message);
         input.onError?.(message);
@@ -203,21 +205,31 @@ export function useOAuthPopupFlow<
 
   const start = useCallback(
     async (input: StartOAuthPopupInput<TPayload>) => {
+      cancel();
+      setBusy(true);
+      setError(null);
+      const exit = await doStartOAuth({
+        params: { scopeId },
+        payload: {
+          ...input.payload,
+          redirectUrl: input.payload.redirectUrl ?? oauthCallbackUrl(callbackPath),
+        },
+      });
+      if (Exit.isFailure(exit)) {
+        const message = startErrorMessage ?? "Failed to start sign-in";
+        setBusy(false);
+        setError(message);
+        input.onError?.(message);
+        return;
+      }
       await openAuthorization({
         onSuccess: input.onSuccess,
         onError: input.onError,
         onAuthorizationStarted: input.onAuthorizationStarted,
-        run: () =>
-          doStartOAuth({
-            params: { scopeId },
-            payload: {
-              ...input.payload,
-              redirectUrl: input.payload.redirectUrl ?? oauthCallbackUrl(callbackPath),
-            },
-          }),
+        run: async () => exit.value,
       });
     },
-    [callbackPath, doStartOAuth, openAuthorization, scopeId],
+    [callbackPath, cancel, doStartOAuth, openAuthorization, scopeId, startErrorMessage],
   );
 
   return {
