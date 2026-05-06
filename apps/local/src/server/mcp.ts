@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -20,6 +20,18 @@ const jsonError = (status: number, code: number, message: string): Response =>
     headers: { "content-type": "application/json" },
   });
 
+const closeIgnoringFailure = (close: (() => Promise<void>) | undefined): Promise<void> =>
+  close
+    ? Effect.runPromise(
+        Effect.ignore(
+          Effect.tryPromise({
+            try: close,
+            catch: (cause) => cause,
+          }),
+        ),
+      )
+    : Promise.resolve();
+
 export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpRequestHandler => {
   const transports = new Map<string, WebStandardStreamableHTTPServerTransport>();
   const servers = new Map<string, McpServer>();
@@ -29,8 +41,8 @@ export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpReq
     const s = servers.get(id);
     transports.delete(id);
     servers.delete(id);
-    if (opts.transport) await t?.close().catch(() => undefined);
-    if (opts.server) await s?.close().catch(() => undefined);
+    if (opts.transport) await closeIgnoringFailure(t?.close.bind(t));
+    if (opts.server) await closeIgnoringFailure(s?.close.bind(s));
   };
 
   return {
@@ -59,24 +71,34 @@ export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpReq
         if (sid) void dispose(sid, { server: true });
       };
 
-      try {
-        created = await Effect.runPromise(createExecutorMcpServer(config));
-        await created.connect(transport);
-        const response = await transport.handleRequest(request);
+      const responseExit = await Effect.runPromiseExit(
+        Effect.gen(function* () {
+          created = yield* createExecutorMcpServer(config);
+          yield* Effect.tryPromise({
+            try: () => created!.connect(transport),
+            catch: (cause) => cause,
+          });
+          return yield* Effect.tryPromise({
+            try: () => transport.handleRequest(request),
+            catch: (cause) => cause,
+          });
+        }),
+      );
 
+      if (Exit.isSuccess(responseExit)) {
         if (!transport.sessionId) {
-          await transport.close().catch(() => undefined);
-          await created.close().catch(() => undefined);
+          await closeIgnoringFailure(transport.close.bind(transport));
+          await closeIgnoringFailure(created?.close.bind(created));
         }
-        return response;
-      } catch (error) {
-        console.error("[mcp] handleRequest error:", error instanceof Error ? error.stack : error);
-        if (!transport.sessionId) {
-          await transport.close().catch(() => undefined);
-          await created?.close().catch(() => undefined);
-        }
-        return jsonError(500, -32603, "Internal server error");
+        return responseExit.value;
       }
+
+      console.error("[mcp] handleRequest error:", Cause.pretty(responseExit.cause));
+      if (!transport.sessionId) {
+        await closeIgnoringFailure(transport.close.bind(transport));
+        await closeIgnoringFailure(created?.close.bind(created));
+      }
+      return jsonError(500, -32603, "Internal server error");
     },
 
     close: async () => {
@@ -109,11 +131,23 @@ export const runMcpStdioServer = async (config: ExecutorMcpServerConfig): Promis
       process.stdin.once("close", finish);
     });
 
-  try {
-    await server.connect(transport);
-    await waitForExit();
-  } finally {
-    await transport.close().catch(() => undefined);
-    await server.close().catch(() => undefined);
+  const exit = await Effect.runPromiseExit(
+    Effect.gen(function* () {
+      yield* Effect.tryPromise({
+        try: () => server.connect(transport),
+        catch: (cause) => cause,
+      });
+      yield* Effect.tryPromise({
+        try: waitForExit,
+        catch: (cause) => cause,
+      });
+    }),
+  );
+
+  await closeIgnoringFailure(transport.close.bind(transport));
+  await closeIgnoringFailure(server.close.bind(server));
+
+  if (Exit.isFailure(exit)) {
+    await Effect.runPromise(Effect.failCause(exit.cause));
   }
 };

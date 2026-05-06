@@ -16,7 +16,7 @@
 
 import { env } from "cloudflare:workers";
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { Cause, Context, Effect, Layer, Option, Schema } from "effect";
+import { Cause, Context, Effect, Layer, Option, Predicate, Result, Schema } from "effect";
 
 import { createCachedRemoteJWKSet } from "./jwks-cache";
 import { captureCause } from "./observability";
@@ -171,7 +171,7 @@ export const McpAuthLive = Layer.succeed(McpAuth)({
       }),
     );
     if (!verified) return mcpUnauthorized("invalid_token", "The access token is invalid");
-    if ("_tag" in verified) return verified;
+    if (isMcpUnauthorized(verified)) return verified;
     if (!verified.accountId) {
       yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_subject" });
       return mcpUnauthorized("invalid_token", "The access token is invalid");
@@ -285,22 +285,25 @@ const InitializeParams = Schema.Struct({
 const NamedParams = Schema.Struct({ name: Schema.optional(Schema.String) });
 const UriParams = Schema.Struct({ uri: Schema.optional(Schema.String) });
 
-const decodeJsonRpcEnvelope = Schema.decodeUnknownOption(JsonRpcEnvelope);
+const decodeJsonRpcEnvelopeJson = (text: string): Option.Option<JsonRpcEnvelope> =>
+  Schema.decodeUnknownOption(Schema.fromJsonString(JsonRpcEnvelope))(text);
 const decodeInitializeParams = Schema.decodeUnknownOption(InitializeParams);
 const decodeNamedParams = Schema.decodeUnknownOption(NamedParams);
 const decodeUriParams = Schema.decodeUnknownOption(UriParams);
 const decodeElicitationReplyResult = Schema.decodeUnknownOption(ElicitationReplyResult);
 
+const isMcpAuthorized = Predicate.isTagged("Authorized");
+const isMcpUnauthorized = Predicate.isTagged("Unauthorized");
+
 const readJsonRpcEnvelope = (request: Request): Effect.Effect<Option.Option<JsonRpcEnvelope>> =>
-  Effect.promise(async () => {
-    try {
-      const text = await request.clone().text();
-      if (!text) return Option.none();
-      return decodeJsonRpcEnvelope(JSON.parse(text));
-    } catch {
-      return Option.none();
-    }
-  }).pipe(Effect.withSpan("mcp.request.read_json_rpc"));
+  Effect.tryPromise({
+    try: () => request.clone().text(),
+    catch: () => undefined,
+  }).pipe(
+    Effect.map((text) => (text ? decodeJsonRpcEnvelopeJson(text) : Option.none())),
+    Effect.catchCause(() => Effect.succeed(Option.none())),
+    Effect.withSpan("mcp.request.read_json_rpc"),
+  );
 
 const methodAttrs = (envelope: JsonRpcEnvelope): Record<string, unknown> => {
   const params = envelope.params ?? {};
@@ -409,15 +412,14 @@ const protectedResourceMetadata = Effect.sync(() =>
   }),
 );
 
-const authorizationServerMetadata = Effect.promise(async () => {
-  try {
+const authorizationServerMetadata = Effect.tryPromise({
+  try: async () => {
     const res = await fetch(`${AUTHKIT_DOMAIN}/.well-known/oauth-authorization-server`);
     if (!res.ok) return jsonResponse({ error: "upstream_error" }, 502);
     return jsonResponse(await res.json());
-  } catch {
-    return jsonResponse({ error: "upstream_error" }, 502);
-  }
-});
+  },
+  catch: () => undefined,
+}).pipe(Effect.catchCause(() => Effect.succeed(jsonResponse({ error: "upstream_error" }, 502))));
 
 // ---------------------------------------------------------------------------
 // DO dispatch
@@ -545,7 +547,7 @@ const authorizeMcpOrganization = (
       Effect.catchCause((error) =>
         Effect.gen(function* () {
           yield* Effect.annotateCurrentSpan({
-            "mcp.auth.organization_authorize_error": String(error),
+            "mcp.auth.organization_authorize_error": Cause.pretty(error),
           });
           return false;
         }),
@@ -662,7 +664,7 @@ export const mcpApp: Effect.Effect<
   const auth = yield* McpAuth;
   const authResult = yield* auth.verifyBearer(request).pipe(Effect.result);
 
-  if (authResult._tag === "Failure") {
+  if (Result.isFailure(authResult)) {
     yield* annotateMcpRequest(request, {
       token: null,
       parseBody: request.method === "POST",
@@ -675,11 +677,11 @@ export const mcpApp: Effect.Effect<
   // POST bodies are JSON-RPC payloads worth parsing; GET (SSE) and DELETE
   // don't carry one.
   yield* annotateMcpRequest(request, {
-    token: authValue._tag === "Authorized" ? authValue.token : null,
+    token: isMcpAuthorized(authValue) ? authValue.token : null,
     parseBody: request.method === "POST",
   });
 
-  if (authValue._tag === "Unauthorized") {
+  if (isMcpUnauthorized(authValue)) {
     return unauthorized(authValue, PROTECTED_RESOURCE_METADATA_URL);
   }
   const token = authValue.token;
