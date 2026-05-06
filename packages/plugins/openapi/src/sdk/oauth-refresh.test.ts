@@ -20,7 +20,6 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 
 import {
   ConnectionId,
-  ConnectionReauthRequiredError,
   CreateConnectionInput,
   ScopeId,
   SecretId,
@@ -40,6 +39,13 @@ import { openApiPlugin } from "./plugin";
 import { OAuth2Auth } from "./types";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
+
+class OpenApiOauthTestSetupError extends Schema.TaggedErrorClass<OpenApiOauthTestSetupError>()(
+  "OpenApiOauthTestSetupError",
+  {
+    message: Schema.String,
+  },
+) {}
 
 // ---------------------------------------------------------------------------
 // Test API — one endpoint that echoes the Authorization header so we can
@@ -141,11 +147,15 @@ const makeExecutor = () =>
       storage: () => ({}),
       secretProviders: [memoryProvider],
     }));
-      const clientLayer = FetchHttpClient.layer;
-      const server = yield* HttpServer.HttpServer;
-      const address = server.address;
-      if (address._tag !== "TcpAddress") return yield* Effect.die("test server must bind to TCP");
-      const baseUrl = `http://127.0.0.1:${address.port}`;
+    const clientLayer = FetchHttpClient.layer;
+    const server = yield* HttpServer.HttpServer;
+    const address = server.address;
+    if (!("port" in address)) {
+      return yield* new OpenApiOauthTestSetupError({
+        message: "Test server must bind to TCP",
+      });
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
     const plugins = [
       openApiPlugin({ httpClientLayer: clientLayer }),
       memorySecretsPlugin(),
@@ -277,7 +287,7 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
 
         yield* executor.openapi.addSpec({
           spec: specJson,
-          scope: String(scopeId),
+          scope: scopeId,
           namespace: "petstore",
           baseUrl,
           oauth2: auth,
@@ -334,7 +344,7 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
 
         yield* executor.openapi.addSpec({
           spec: specJson,
-          scope: String(scopeId),
+          scope: scopeId,
           namespace: "petstore",
           baseUrl,
           oauth2: auth,
@@ -392,7 +402,7 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
 
         yield* executor.openapi.addSpec({
           spec: specJson,
-          scope: String(scopeId),
+          scope: scopeId,
           namespace: "petstore",
           baseUrl,
           oauth2: auth,
@@ -402,15 +412,23 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
         // generic Error (see openapi invokeTool), so we assert against
         // the `accessToken` call directly too — that's the surface
         // the UI bridges use to trigger re-auth.
-        const flipped = yield* executor.connections
+        const reauthRequired = yield* executor.connections
           .accessToken("conn-refresh-dead")
-          .pipe(Effect.flip);
-        expect(flipped._tag).toBe("ConnectionReauthRequiredError");
-        expect((flipped as ConnectionReauthRequiredError).provider).toBe(
+          .pipe(
+            Effect.flatMap(() =>
+              Effect.fail(
+                new OpenApiOauthTestSetupError({
+                  message: "Expected refresh to require re-auth",
+                }),
+              ),
+            ),
+            Effect.catchTag("ConnectionReauthRequiredError", Effect.succeed),
+          );
+        expect(reauthRequired.provider).toBe(
           "openapi:oauth2",
         );
         expect(
-          (flipped as ConnectionReauthRequiredError).message,
+          reauthRequired.message,
         ).toMatch(/invalid_grant|revoked/i);
       }),
   );
