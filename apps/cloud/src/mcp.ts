@@ -16,7 +16,7 @@
 
 import { env } from "cloudflare:workers";
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { Cause, Context, Effect, Layer, Option, Schema } from "effect";
+import { Cause, Context, Effect, Layer, Option, Predicate, Schema } from "effect";
 
 import { createCachedRemoteJWKSet } from "./jwks-cache";
 import { captureCause } from "./observability";
@@ -171,7 +171,7 @@ export const McpAuthLive = Layer.succeed(McpAuth)({
       }),
     );
     if (!verified) return mcpUnauthorized("invalid_token", "The access token is invalid");
-    if ("_tag" in verified) return verified;
+    if (Predicate.isTagged(verified, "Unauthorized")) return verified;
     if (!verified.accountId) {
       yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_subject" });
       return mcpUnauthorized("invalid_token", "The access token is invalid");
@@ -211,8 +211,7 @@ type CfRequestMetadata = {
 const requestWithCf = (request: Request): Request & { cf?: CfRequestMetadata } =>
   request as Request & { cf?: CfRequestMetadata };
 
-const getCfMeta = (request: Request): CfRequestMetadata =>
-  requestWithCf(request).cf ?? {};
+const getCfMeta = (request: Request): CfRequestMetadata => requestWithCf(request).cf ?? {};
 
 const HEADERS_TO_DUMP = [
   "accept",
@@ -285,22 +284,25 @@ const InitializeParams = Schema.Struct({
 const NamedParams = Schema.Struct({ name: Schema.optional(Schema.String) });
 const UriParams = Schema.Struct({ uri: Schema.optional(Schema.String) });
 
-const decodeJsonRpcEnvelope = Schema.decodeUnknownOption(JsonRpcEnvelope);
+const decodeJsonRpcEnvelopeJson = Schema.decodeUnknownOption(
+  Schema.fromJsonString(JsonRpcEnvelope),
+);
 const decodeInitializeParams = Schema.decodeUnknownOption(InitializeParams);
 const decodeNamedParams = Schema.decodeUnknownOption(NamedParams);
 const decodeUriParams = Schema.decodeUnknownOption(UriParams);
 const decodeElicitationReplyResult = Schema.decodeUnknownOption(ElicitationReplyResult);
 
 const readJsonRpcEnvelope = (request: Request): Effect.Effect<Option.Option<JsonRpcEnvelope>> =>
-  Effect.promise(async () => {
-    try {
-      const text = await request.clone().text();
-      if (!text) return Option.none();
-      return decodeJsonRpcEnvelope(JSON.parse(text));
-    } catch {
-      return Option.none();
-    }
-  }).pipe(Effect.withSpan("mcp.request.read_json_rpc"));
+  Effect.tryPromise({
+    try: () => request.clone().text(),
+    catch: () => undefined,
+  }).pipe(
+    Effect.match({
+      onFailure: () => Option.none(),
+      onSuccess: (text) => (text ? decodeJsonRpcEnvelopeJson(text) : Option.none()),
+    }),
+    Effect.withSpan("mcp.request.read_json_rpc"),
+  );
 
 const methodAttrs = (envelope: JsonRpcEnvelope): Record<string, unknown> => {
   const params = envelope.params ?? {};
@@ -409,14 +411,20 @@ const protectedResourceMetadata = Effect.sync(() =>
   }),
 );
 
-const authorizationServerMetadata = Effect.promise(async () => {
-  try {
-    const res = await fetch(`${AUTHKIT_DOMAIN}/.well-known/oauth-authorization-server`);
-    if (!res.ok) return jsonResponse({ error: "upstream_error" }, 502);
-    return jsonResponse(await res.json());
-  } catch {
-    return jsonResponse({ error: "upstream_error" }, 502);
-  }
+const authorizationServerMetadata = Effect.gen(function* () {
+  const res = yield* Effect.tryPromise({
+    try: () => fetch(`${AUTHKIT_DOMAIN}/.well-known/oauth-authorization-server`),
+    catch: () => undefined,
+  }).pipe(Effect.catchCause(() => Effect.succeed(null)));
+  if (!res?.ok) return jsonResponse({ error: "upstream_error" }, 502);
+
+  const body = yield* Effect.tryPromise({
+    try: () => res.json(),
+    catch: () => undefined,
+  }).pipe(Effect.catchCause(() => Effect.succeed(null)));
+  if (body === null) return jsonResponse({ error: "upstream_error" }, 502);
+
+  return jsonResponse(body);
 });
 
 // ---------------------------------------------------------------------------
@@ -542,10 +550,10 @@ const authorizeMcpOrganization = (
 
     const auth = yield* McpOrganizationAuth;
     const allowed = yield* auth.authorize(token.accountId, organizationId).pipe(
-      Effect.catchCause((error) =>
+      Effect.catchCause(() =>
         Effect.gen(function* () {
           yield* Effect.annotateCurrentSpan({
-            "mcp.auth.organization_authorize_error": String(error),
+            "mcp.auth.organization_authorize_error": "Organization authorization failed",
           });
           return false;
         }),
@@ -660,39 +668,43 @@ export const mcpApp: Effect.Effect<
   if (route === "oauth-authorization-server") return yield* authorizationServerMetadata;
 
   const auth = yield* McpAuth;
-  const authResult = yield* auth.verifyBearer(request).pipe(Effect.result);
+  return yield* auth.verifyBearer(request).pipe(
+    Effect.matchEffect({
+      onFailure: (failure) =>
+        Effect.gen(function* () {
+          yield* annotateMcpRequest(request, {
+            token: null,
+            parseBody: request.method === "POST",
+          });
+          return yield* authTemporarilyUnavailable(failure);
+        }),
+      onSuccess: (authValue) =>
+        Effect.gen(function* () {
+          // Annotate before dispatch so even 401s show up with what we know. Only
+          // POST bodies are JSON-RPC payloads worth parsing; GET (SSE) and DELETE
+          // don't carry one.
+          yield* annotateMcpRequest(request, {
+            token: Predicate.isTagged(authValue, "Authorized") ? authValue.token : null,
+            parseBody: request.method === "POST",
+          });
 
-  if (authResult._tag === "Failure") {
-    yield* annotateMcpRequest(request, {
-      token: null,
-      parseBody: request.method === "POST",
-    });
-    return yield* authTemporarilyUnavailable(authResult.failure);
-  }
-  const authValue = authResult.success;
-
-  // Annotate before dispatch so even 401s show up with what we know. Only
-  // POST bodies are JSON-RPC payloads worth parsing; GET (SSE) and DELETE
-  // don't carry one.
-  yield* annotateMcpRequest(request, {
-    token: authValue._tag === "Authorized" ? authValue.token : null,
-    parseBody: request.method === "POST",
-  });
-
-  if (authValue._tag === "Unauthorized") {
-    return unauthorized(authValue, PROTECTED_RESOURCE_METADATA_URL);
-  }
-  const token = authValue.token;
-  switch (request.method) {
-    case "POST":
-      return yield* dispatchPost(request, token);
-    case "GET":
-      return yield* dispatchGet(request, token);
-    case "DELETE":
-      return yield* dispatchDelete(request, token);
-    default:
-      return jsonRpcError(405, -32001, "Method not allowed");
-  }
+          if (Predicate.isTagged(authValue, "Unauthorized")) {
+            return unauthorized(authValue, PROTECTED_RESOURCE_METADATA_URL);
+          }
+          const token = authValue.token;
+          switch (request.method) {
+            case "POST":
+              return yield* dispatchPost(request, token);
+            case "GET":
+              return yield* dispatchGet(request, token);
+            case "DELETE":
+              return yield* dispatchDelete(request, token);
+            default:
+              return jsonRpcError(405, -32001, "Method not allowed");
+          }
+        }),
+    }),
+  );
 }).pipe(
   Effect.withSpan("mcp.request"),
   Effect.catchCause((cause) =>
