@@ -56,7 +56,7 @@ export default {
 
         context.report({
           node: call,
-          message: `Mutation ${mutation.mutationName} must pass reactivityKeys at the call site.`,
+          message: `Mutation ${mutation.mutationName} must pass reactivityKeys at the call site. Skill: wrdn-effect-atom-reactivity-keys.`,
         });
       },
     };

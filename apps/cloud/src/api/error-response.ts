@@ -1,4 +1,4 @@
-import { Cause, Data, Effect, Result } from "effect";
+import { Cause, Data, Effect, Predicate, Result } from "effect";
 import {
   HttpServerRespondable,
   HttpServerResponse,
@@ -38,9 +38,12 @@ const unwrapCause = (error: unknown): unknown => {
   return error;
 };
 
+const isHttpResponseError = (error: unknown): error is HttpResponseError =>
+  Predicate.isTagged(error, "HttpResponseError");
+
 const toHttpResponseError = (error: unknown): HttpResponseError => {
   const unwrapped = unwrapCause(error);
-  return unwrapped instanceof HttpResponseError
+  return isHttpResponseError(unwrapped)
     ? unwrapped
     : new HttpResponseError({
         status: 500,
@@ -62,7 +65,7 @@ export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpSe
   if (mapped.status >= 500) {
     console.error(
       "[api] toErrorServerResponse error:",
-      Cause.isCause(error) ? Cause.pretty(error) : error instanceof Error ? error.stack : error,
+      Cause.isCause(error) ? Cause.pretty(error) : error,
     );
     captureCause(error);
   }

@@ -85,6 +85,7 @@ export const openOAuthPopup = <TAuth>(input: OpenOAuthPopupInput<TAuth>): (() =>
   /** Close the popup window if it's still open. Swallows cross-origin errors. */
   const closePopup = (popup: Window | null) => {
     if (!popup) return;
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: cross-origin popup state can throw and cleanup is best-effort
     try {
       if (!popup.closed) popup.close();
     } catch {
@@ -129,6 +130,7 @@ export const openOAuthPopup = <TAuth>(input: OpenOAuthPopupInput<TAuth>): (() =>
   const pollMs = input.closedPollMs ?? 500;
   pollHandle = setInterval(() => {
     let isClosed = false;
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: browser popup.closed can throw while navigating cross-origin
     try {
       isClosed = popup.closed;
     } catch {

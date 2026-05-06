@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
 import { connectionsAtom, sourceAtom, startOAuth } from "@executor-js/react/api/atoms";
@@ -42,7 +45,21 @@ import {
   resolveOAuthUrl,
 } from "./AddOpenApiSource";
 import { oauth2ClientSecretSlot } from "../sdk/store";
-import type { OpenApiSourceBindingValue } from "../sdk/types";
+import {
+  OpenApiSourceBindingValue,
+  type OpenApiSourceBindingValue as OpenApiSourceBindingValueType,
+} from "../sdk/types";
+
+const ErrorMessage = Schema.Struct({ message: Schema.String });
+
+const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
+  Option.match(
+    Option.flatMap(Exit.findErrorOption(exit), Schema.decodeUnknownOption(ErrorMessage)),
+    {
+      onNone: () => fallback,
+      onSome: ({ message }) => message,
+    },
+  );
 
 type SlotDef =
   | {
@@ -79,7 +96,7 @@ const openApiOAuthConnectionId = (
   targetScope: ScopeId,
 ): ConnectionId =>
   ConnectionId.make(
-    `openapi-oauth-${slugify(sourceId)}-${slugify(securitySchemeName)}-${shortHash(targetScope as string)}`,
+    `openapi-oauth-${slugify(sourceId)}-${slugify(securitySchemeName)}-${shortHash(targetScope)}`,
   );
 
 const bindingSecretId = (sourceId: string, slot: string, scopeId: string): string =>
@@ -101,7 +118,7 @@ const exactBindingForScope = (
 ) => rows.find((row) => row.slot === slot && row.scopeId === scopeId) ?? null;
 
 const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: ScopeId): number =>
-  ranks.get(scopeId as string) ?? Number.MAX_SAFE_INTEGER;
+  ranks.get(scopeId) ?? Number.MAX_SAFE_INTEGER;
 
 const effectiveBindingForScope = (
   rows: readonly {
@@ -119,21 +136,13 @@ const effectiveBindingForScope = (
 
 const isSecretBindingValue = (
   value: unknown,
-): value is Extract<OpenApiSourceBindingValue, { readonly kind: "secret" }> =>
-  typeof value === "object" &&
-  value !== null &&
-  "kind" in value &&
-  (value as { kind?: unknown }).kind === "secret" &&
-  "secretId" in value;
+): value is Extract<OpenApiSourceBindingValueType, { readonly kind: "secret" }> =>
+  Schema.is(OpenApiSourceBindingValue)(value) && value.kind === "secret";
 
 const isConnectionBindingValue = (
   value: unknown,
-): value is Extract<OpenApiSourceBindingValue, { readonly kind: "connection" }> =>
-  typeof value === "object" &&
-  value !== null &&
-  "kind" in value &&
-  (value as { kind?: unknown }).kind === "connection" &&
-  "connectionId" in value;
+): value is Extract<OpenApiSourceBindingValueType, { readonly kind: "connection" }> =>
+  Schema.is(OpenApiSourceBindingValue)(value) && value.kind === "connection";
 
 export default function EditOpenApiSource(props: {
   readonly sourceId: string;
@@ -150,7 +159,7 @@ export default function EditOpenApiSource(props: {
   const sourceScopeId = sourceSummary?.scopeId ?? displayScope;
   const sourceScope = ScopeId.make(sourceScopeId);
   const scopeRanks = useMemo(
-    () => new Map(scopeStack.map((scope, index) => [scope.id as string, index] as const)),
+    () => new Map(scopeStack.map((scope, index) => [scope.id, index] as const)),
     [scopeStack],
   );
 
@@ -161,10 +170,10 @@ export default function EditOpenApiSource(props: {
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
   const secretList = useSecretPickerSecrets();
 
-  const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promise" });
-  const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
-  const doRemoveBinding = useAtomSet(removeOpenApiSourceBinding, { mode: "promise" });
-  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
+  const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promiseExit" });
+  const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promiseExit" });
+  const doRemoveBinding = useAtomSet(removeOpenApiSourceBinding, { mode: "promiseExit" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promiseExit" });
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
     popupName: OPENAPI_OAUTH_POPUP_NAME,
     popupBlockedMessage: "OAuth popup was blocked by the browser",
@@ -224,28 +233,28 @@ export default function EditOpenApiSource(props: {
       const seq = ++sourceSaveSeq.current;
       setSourceSaveState("saving");
       setError(null);
-      void doUpdate({
-        params: { scopeId: ScopeId.make(sourceScopeId), namespace: props.sourceId },
-        payload: {
-          name: nextName || undefined,
-          baseUrl: nextBaseUrl || undefined,
-          headers: source.config.headers,
-          oauth2: source.config.oauth2,
-        },
-        reactivityKeys: openApiWriteKeys,
-      })
-        .then(() => {
-          if (sourceSaveSeq.current !== seq) return;
-          setSourceSaveState("saved");
-          window.setTimeout(() => {
-            if (sourceSaveSeq.current === seq) setSourceSaveState("idle");
-          }, 1600);
-        })
-        .catch((e: unknown) => {
-          if (sourceSaveSeq.current !== seq) return;
-          setSourceSaveState("idle");
-          setError(e instanceof Error ? e.message : "Failed to save source details");
+      void (async () => {
+        const exit = await doUpdate({
+          params: { scopeId: ScopeId.make(sourceScopeId), namespace: props.sourceId },
+          payload: {
+            name: nextName || undefined,
+            baseUrl: nextBaseUrl || undefined,
+            headers: source.config.headers,
+            oauth2: source.config.oauth2,
+          },
+          reactivityKeys: openApiWriteKeys,
         });
+        if (sourceSaveSeq.current !== seq) return;
+        if (Exit.isFailure(exit)) {
+          setSourceSaveState("idle");
+          setError(errorMessageFromExit(exit, "Failed to save source details"));
+          return;
+        }
+        setSourceSaveState("saved");
+        window.setTimeout(() => {
+          if (sourceSaveSeq.current === seq) setSourceSaveState("idle");
+        }, 1600);
+      })();
     }, 600);
 
     return () => window.clearTimeout(timeout);
@@ -321,44 +330,40 @@ export default function EditOpenApiSource(props: {
     if (!trimmed) return;
     setBusyKey(inputKey);
     setError(null);
-    try {
-      await doSetBinding({
-        params: { scopeId: displayScope },
-        payload: {
-          sourceId: props.sourceId,
-          sourceScope,
-          scope: targetScope,
-          slot,
-          value: { kind: "secret", secretId: SecretId.make(trimmed) },
-        },
-        reactivityKeys: sourceWriteKeys,
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save credential binding");
-    } finally {
-      setBusyKey(null);
+    const exit = await doSetBinding({
+      params: { scopeId: displayScope },
+      payload: {
+        sourceId: props.sourceId,
+        sourceScope,
+        scope: targetScope,
+        slot,
+        value: { kind: "secret", secretId: SecretId.make(trimmed) },
+      },
+      reactivityKeys: sourceWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
+      setError(errorMessageFromExit(exit, "Failed to save credential binding"));
     }
+    setBusyKey(null);
   };
 
   const clearBinding = async (targetScope: ScopeId, slot: string) => {
     setBusyKey(`${targetScope}:${slot}:clear`);
     setError(null);
-    try {
-      await doRemoveBinding({
-        params: { scopeId: displayScope },
-        payload: {
-          sourceId: props.sourceId,
-          sourceScope,
-          slot,
-          scope: targetScope,
-        },
-        reactivityKeys: sourceWriteKeys,
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to clear credential binding");
-    } finally {
-      setBusyKey(null);
+    const exit = await doRemoveBinding({
+      params: { scopeId: displayScope },
+      payload: {
+        sourceId: props.sourceId,
+        sourceScope,
+        slot,
+        scope: targetScope,
+      },
+      reactivityKeys: sourceWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
+      setError(errorMessageFromExit(exit, "Failed to clear credential binding"));
     }
+    setBusyKey(null);
   };
 
   const connectOAuth = async (targetScope: ScopeId) => {
@@ -410,35 +415,112 @@ export default function EditOpenApiSource(props: {
     setPendingOAuthConnection({
       scopeId: targetScope,
       slot: oauth2.connectionSlot,
-      connectionId: connectionId as string,
+      connectionId: connectionId,
     });
     setError(null);
-    try {
-      const displayName = source.name;
-      const tokenUrl = resolveOAuthUrl(oauth2.tokenUrl, source.config.baseUrl ?? "");
-      if (oauth2.flow === "clientCredentials") {
-        const response = await doStartOAuth({
-          params: { scopeId: displayScope },
-          payload: {
-            endpoint: tokenUrl,
-            redirectUrl: tokenUrl,
-            connectionId: connectionId as string,
-            tokenScope: targetScope as string,
-            strategy: {
-              kind: "client-credentials",
-              tokenEndpoint: tokenUrl,
-              clientIdSecretId,
-              clientSecretSecretId: clientSecretValue!.secretId,
-              scopes: [...oauth2.scopes],
-            },
-            pluginId: "openapi",
-            identityLabel: `${displayName} OAuth`,
+    const failConnect = (message: string) => {
+      setError(message);
+      setPendingOAuthConnection(null);
+      setBusyKey(null);
+    };
+    const displayName = source.name;
+    const tokenUrl = resolveOAuthUrl(oauth2.tokenUrl, source.config.baseUrl ?? "");
+    if (oauth2.flow === "clientCredentials") {
+      const startOAuthExit = await doStartOAuth({
+        params: { scopeId: displayScope },
+        payload: {
+          endpoint: tokenUrl,
+          redirectUrl: tokenUrl,
+          connectionId: connectionId,
+          tokenScope: targetScope,
+          strategy: {
+            kind: "client-credentials",
+            tokenEndpoint: tokenUrl,
+            clientIdSecretId,
+            clientSecretSecretId: clientSecretValue!.secretId,
+            scopes: [...oauth2.scopes],
           },
-        });
-        if (!response.completedConnection) {
-          throw new Error("Unexpected OAuth response");
-        }
-        await doSetBinding({
+          pluginId: "openapi",
+          identityLabel: `${displayName} OAuth`,
+        },
+      });
+      if (Exit.isFailure(startOAuthExit)) {
+        failConnect(errorMessageFromExit(startOAuthExit, "Failed to connect OAuth"));
+        return;
+      }
+      const response = startOAuthExit.value;
+      if (!response.completedConnection) {
+        failConnect("Unexpected OAuth response");
+        return;
+      }
+      const setBindingExit = await doSetBinding({
+        params: { scopeId: displayScope },
+        payload: {
+          sourceId: props.sourceId,
+          sourceScope,
+          scope: targetScope,
+          slot: oauth2.connectionSlot,
+          value: {
+            kind: "connection",
+            connectionId: ConnectionId.make(response.completedConnection.connectionId),
+          },
+        },
+        reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
+      });
+      if (Exit.isFailure(setBindingExit)) {
+        failConnect(errorMessageFromExit(setBindingExit, "Failed to connect OAuth"));
+        return;
+      }
+      setPendingOAuthConnection(null);
+      setBusyKey(null);
+      return;
+    }
+
+    const authorizationUrl = resolveOAuthUrl(
+      oauth2.authorizationUrl ?? "",
+      source.config.baseUrl ?? "",
+    );
+    const issuerUrl = oauth2.issuerUrl ?? inferOAuthIssuerUrl(authorizationUrl);
+    const startOAuthExit = await doStartOAuth({
+      params: { scopeId: displayScope },
+      payload: {
+        endpoint: authorizationUrl,
+        connectionId,
+        tokenScope: targetScope,
+        redirectUrl: oauth2RedirectUrl,
+        strategy: {
+          kind: "authorization-code",
+          authorizationEndpoint: authorizationUrl,
+          tokenEndpoint: tokenUrl,
+          issuerUrl,
+          clientIdSecretId,
+          clientSecretSecretId:
+            clientSecretBinding && isSecretBindingValue(clientSecretBinding.value)
+              ? clientSecretBinding.value.secretId
+              : null,
+          scopes: [...oauth2.scopes],
+        },
+        pluginId: "openapi",
+        identityLabel: `${displayName} OAuth`,
+      },
+    });
+    if (Exit.isFailure(startOAuthExit)) {
+      failConnect(errorMessageFromExit(startOAuthExit, "Failed to connect OAuth"));
+      return;
+    }
+    const response = startOAuthExit.value;
+    if (response.authorizationUrl === null) {
+      failConnect("Unexpected OAuth response");
+      return;
+    }
+
+    await oauth.openAuthorization({
+      run: async () => ({
+        sessionId: response.sessionId,
+        authorizationUrl: response.authorizationUrl,
+      }),
+      onSuccess: async (result) => {
+        const setBindingExit = await doSetBinding({
           params: { scopeId: displayScope },
           payload: {
             sourceId: props.sourceId,
@@ -447,83 +529,24 @@ export default function EditOpenApiSource(props: {
             slot: oauth2.connectionSlot,
             value: {
               kind: "connection",
-              connectionId: ConnectionId.make(response.completedConnection.connectionId),
+              connectionId: ConnectionId.make(result.connectionId),
             },
           },
           reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
         });
+        if (Exit.isFailure(setBindingExit)) {
+          failConnect(errorMessageFromExit(setBindingExit, "Failed to connect OAuth"));
+          return;
+        }
         setPendingOAuthConnection(null);
         setBusyKey(null);
-        return;
-      }
-
-      const authorizationUrl = resolveOAuthUrl(
-        oauth2.authorizationUrl ?? "",
-        source.config.baseUrl ?? "",
-      );
-      const issuerUrl = oauth2.issuerUrl ?? inferOAuthIssuerUrl(authorizationUrl);
-      await oauth.openAuthorization({
-        run: async () => {
-          const response = await doStartOAuth({
-            params: { scopeId: displayScope },
-            payload: {
-              endpoint: authorizationUrl,
-              connectionId: connectionId as string,
-              tokenScope: targetScope as string,
-              redirectUrl: oauth2RedirectUrl,
-              strategy: {
-                kind: "authorization-code",
-                authorizationEndpoint: authorizationUrl,
-                tokenEndpoint: tokenUrl,
-                issuerUrl,
-                clientIdSecretId,
-                clientSecretSecretId:
-                  clientSecretBinding && isSecretBindingValue(clientSecretBinding.value)
-                    ? clientSecretBinding.value.secretId
-                    : null,
-                scopes: [...oauth2.scopes],
-              },
-              pluginId: "openapi",
-              identityLabel: `${displayName} OAuth`,
-            },
-          });
-          if (response.authorizationUrl === null) {
-            throw new Error("Unexpected OAuth response");
-          }
-          return {
-            sessionId: response.sessionId,
-            authorizationUrl: response.authorizationUrl,
-          };
-        },
-        onSuccess: async (result) => {
-          await doSetBinding({
-            params: { scopeId: displayScope },
-            payload: {
-              sourceId: props.sourceId,
-              sourceScope,
-              scope: targetScope,
-              slot: oauth2.connectionSlot,
-              value: {
-                kind: "connection",
-                connectionId: ConnectionId.make(result.connectionId),
-              },
-            },
-            reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
-          });
-          setPendingOAuthConnection(null);
-          setBusyKey(null);
-        },
-        onError: (message) => {
-          setError(message);
-          setPendingOAuthConnection(null);
-          setBusyKey(null);
-        },
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to connect OAuth");
-      setPendingOAuthConnection(null);
-      setBusyKey(null);
-    }
+      },
+      onError: (message) => {
+        setError(message);
+        setPendingOAuthConnection(null);
+        setBusyKey(null);
+      },
+    });
   };
 
   return (
@@ -590,10 +613,10 @@ export default function EditOpenApiSource(props: {
               </CardStackEntryContent>
               <FilterTabs
                 tabs={credentialScopes.map((entry) => ({
-                  value: entry.scopeId as string,
+                  value: entry.scopeId,
                   label: entry.label,
                 }))}
-                value={activeCredentialScopeId as string}
+                value={activeCredentialScopeId}
                 onChange={setSelectedCredentialScope}
               />
             </CardStackEntry>
@@ -618,9 +641,9 @@ export default function EditOpenApiSource(props: {
                 isSecretBindingValue(effective.value);
               const currentSecretId =
                 exact && isSecretBindingValue(exact.value)
-                  ? (exact.value.secretId as string)
+                  ? exact.value.secretId
                   : inherited && effective && isSecretBindingValue(effective.value)
-                    ? (effective.value.secretId as string)
+                    ? effective.value.secretId
                     : null;
               return (
                 <CardStackEntryField

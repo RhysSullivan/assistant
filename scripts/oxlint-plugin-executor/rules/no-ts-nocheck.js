@@ -18,7 +18,7 @@ export default {
 
         context.report({
           node,
-          message: `Do not use ${directiveName}; fix the types or narrow the file scope.`,
+          message: `Do not use ${directiveName}; fix the types or narrow the file scope. Skill: wrdn-typescript-type-safety.`,
         });
       },
     };

@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 
 import {
   OAUTH_POPUP_MESSAGE_TYPE,
@@ -169,16 +169,21 @@ describe("runOAuthCallback", () => {
   });
 
   it("renders a failure popup when completeOAuth fails and uses toErrorMessage", async () => {
-    class DomainError {
-      readonly _tag = "DomainError";
-      constructor(readonly message: string) {}
-    }
+    class DomainError extends Data.TaggedError("DomainError")<{
+      readonly message: string;
+    }> {}
+    const isDomainError = Schema.is(Schema.Struct({
+      _tag: Schema.Literal("DomainError"),
+      message: Schema.String,
+    }));
     const html = await Effect.runPromise(
       runOAuthCallback<GoogleAuth, DomainError, never>({
-        complete: () => Effect.fail(new DomainError("Code expired")),
+        complete: () => Effect.fail(new DomainError({ message: "Code expired" })),
         urlParams: { state: "s1" },
-        toErrorMessage: (error) =>
-          error instanceof DomainError ? error.message : "unknown",
+        toErrorMessage: (error) => {
+          // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: schema guard narrows the unknown popup callback error to the public test message
+          return isDomainError(error) ? error.message : "unknown";
+        },
         channelName: "c",
       }),
     );

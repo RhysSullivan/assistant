@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { Context, Effect, Layer, ManagedRuntime } from "effect";
+import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -107,6 +107,41 @@ class LocalExecutorTag extends Context.Service<LocalExecutorTag, LocalExecutorBu
 
 export type LocalExecutor = LocalExecutorBundle["executor"];
 
+class LocalExecutorDisposeError extends Data.TaggedError(
+  "LocalExecutorDisposeError",
+)<{
+  readonly operation: "createHandle" | "disposeExecutor" | "disposeRuntime";
+  readonly cause: unknown;
+}> {}
+
+const ignorePromiseFailure = (
+  operation: LocalExecutorDisposeError["operation"],
+  try_: () => Promise<unknown>,
+) =>
+  Effect.runPromise(
+    Effect.ignore(
+      Effect.tryPromise({
+        try: try_,
+        catch: (cause) => new LocalExecutorDisposeError({ operation, cause }),
+      }),
+    ),
+  );
+
+const handleOrNull = (promise: ReturnType<typeof createExecutorHandle>) =>
+  Effect.runPromise(
+    Effect.tryPromise({
+      try: () => promise,
+      catch: (cause) =>
+        new LocalExecutorDisposeError({ operation: "createHandle", cause }),
+    }).pipe(
+      Effect.catch(() =>
+        Effect.succeed<Awaited<ReturnType<typeof createExecutorHandle>> | null>(
+          null,
+        ),
+      ),
+    ),
+  );
+
 const createLocalExecutorLayer = () => {
   const { path: dbPath, legacySecrets } = resolveDbPath();
 
@@ -202,8 +237,8 @@ export const createExecutorHandle = async () => {
     executor: bundle.executor,
     plugins: bundle.plugins,
     dispose: async () => {
-      await Effect.runPromise(bundle.executor.close()).catch(() => undefined);
-      await runtime.dispose().catch(() => undefined);
+      await Effect.runPromise(Effect.ignore(bundle.executor.close()));
+      await ignorePromiseFailure("disposeRuntime", () => runtime.dispose());
     },
   };
 };
@@ -226,8 +261,12 @@ export const disposeExecutor = async (): Promise<void> => {
   const currentHandlePromise = sharedHandlePromise;
   sharedHandlePromise = null;
 
-  const handle = await currentHandlePromise?.catch(() => null);
-  await handle?.dispose().catch(() => undefined);
+  const handle = currentHandlePromise
+    ? await handleOrNull(currentHandlePromise)
+    : null;
+  if (handle) {
+    await ignorePromiseFailure("disposeExecutor", () => handle.dispose());
+  }
 };
 
 export const reloadExecutor = () => {

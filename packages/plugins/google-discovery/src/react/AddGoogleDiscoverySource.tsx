@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { useScope } from "@executor-js/react/api/scope-context";
@@ -48,6 +49,17 @@ import { IOSSpinner, Spinner } from "@executor-js/react/components/spinner";
 import { addGoogleDiscoverySourceOptimistic, probeGoogleDiscovery } from "./atoms";
 import { GOOGLE_DISCOVERY_OAUTH_POPUP_NAME, googleDiscoveryOAuthStrategy } from "./oauth";
 import { googleDiscoveryPresets, type GoogleDiscoveryPreset } from "../sdk/presets";
+
+const ErrorMessage = Schema.Struct({ message: Schema.String });
+
+const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
+  Option.match(
+    Option.flatMap(Exit.findErrorOption(exit), Schema.decodeUnknownOption(ErrorMessage)),
+    {
+      onNone: () => fallback,
+      onSome: ({ message }) => message,
+    },
+  );
 
 type GoogleAuthKind = "none" | "oauth2";
 
@@ -98,6 +110,7 @@ type GoogleDiscoveryTemplate = GoogleDiscoveryPreset & {
 const GOOGLE_G_ICON = "https://fonts.gstatic.com/s/i/productlogos/googleg/v6/192px.svg";
 
 function parseGoogleDiscoveryPreset(preset: GoogleDiscoveryPreset): GoogleDiscoveryTemplate {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor normalizes user-provided preset URLs
   try {
     const url = new URL(preset.url);
     const parts = url.pathname.split("/").filter(Boolean);
@@ -203,7 +216,7 @@ export default function AddGoogleDiscoverySource(props: {
     "google";
 
   const scopeId = useScope();
-  const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promise" });
+  const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promiseExit" });
   const doAdd = useAtomSet(addGoogleDiscoverySourceOptimistic(scopeId), {
     mode: "promiseExit",
   });
@@ -237,25 +250,26 @@ export default function AddGoogleDiscoverySource(props: {
     setError(null);
     setOauthAuth(null);
     setShowScopes(false);
-    try {
-      const result = await doProbe({
-        params: { scopeId },
-        payload: { discoveryUrl: discoveryUrl.trim() },
-      });
-      setProbe({
-        ...result,
-        scopes: [...result.scopes],
-        operations: [...result.operations],
-      });
-      if (result.scopes.length === 0) {
-        setAuthKind("none");
-      }
-    } catch (e) {
+    const exit = await doProbe({
+      params: { scopeId },
+      payload: { discoveryUrl: discoveryUrl.trim() },
+    });
+    if (Exit.isFailure(exit)) {
       setProbe(null);
-      setError(e instanceof Error ? e.message : "Failed to inspect discovery document");
-    } finally {
       setLoadingProbe(false);
+      setError(errorMessageFromExit(exit, "Failed to inspect discovery document"));
+      return;
     }
+    const result = exit.value;
+    setProbe({
+      ...result,
+      scopes: [...result.scopes],
+      operations: [...result.operations],
+    });
+    if (result.scopes.length === 0) {
+      setAuthKind("none");
+    }
+    setLoadingProbe(false);
   }, [discoveryUrl, doProbe, scopeId]);
 
   // Keep the latest handleProbe in a ref so the debounced effect can call it
@@ -348,12 +362,7 @@ export default function AddGoogleDiscoverySource(props: {
       reactivityKeys: [...sourceWriteKeys],
     });
     if (Exit.isFailure(exit)) {
-      const error = Exit.findErrorOption(exit);
-      setError(
-        Option.isSome(error) && error.value instanceof Error
-          ? error.value.message
-          : "Failed to add source",
-      );
+      setError(errorMessageFromExit(exit, "Failed to add source"));
       setAdding(false);
       return;
     }

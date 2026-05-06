@@ -27,7 +27,7 @@
 // SDK-level change — coverage for it belongs after the fix.
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 
 import { ScopeId, SecretId } from "@executor-js/sdk";
 
@@ -237,7 +237,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
           })
           .pipe(Effect.result),
       );
-      expect(result._tag).toBe("Failure");
+      expect(Result.isFailure(result)).toBe(true);
 
       // And nothing landed in the foreign org — a fresh session pointed
       // at that org must not see `wrong-scope`.

@@ -1,6 +1,8 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { sourcesAtom, sourcesOptimisticAtom, toolsAtom } from "@executor-js/react/api/atoms";
 import { useScope, useScopeInfo } from "@executor-js/react/api/scope-context";
@@ -94,15 +96,20 @@ function useLatestVersion(currentVersion: string) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(EXECUTOR_DIST_TAGS_PATH)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Failed to load dist tags: ${res.status}`);
-        return res.json() as Promise<Partial<Record<UpdateChannel, string>>>;
-      })
-      .then((data) => {
-        if (!cancelled) setLatestVersion(data[channel] ?? null);
-      })
-      .catch(() => {});
+    void Effect.runPromiseExit(
+      Effect.tryPromise({
+        try: async () => {
+          const res = await fetch(EXECUTOR_DIST_TAGS_PATH);
+          if (!res.ok) return null;
+          return (await res.json()) as Partial<Record<UpdateChannel, string>>;
+        },
+        catch: (cause) => cause,
+      }),
+    ).then((exit) => {
+      if (!cancelled && Exit.isSuccess(exit)) {
+        setLatestVersion(exit.value?.[channel] ?? null);
+      }
+    });
     return () => {
       cancelled = true;
     };

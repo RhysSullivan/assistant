@@ -5,7 +5,7 @@
 // plugin in executor.ts.
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { join } from "node:path";
 import * as fs from "node:fs";
 import * as jsonc from "jsonc-parser";
@@ -88,7 +88,7 @@ const addSourceFromConfig = (
   // aware of per-user tenancy. Pin replayed sources to the outermost
   // scope so a future `[user, org]` stack still sees them via org
   // fall-through.
-  const scope = executor.scopes.at(-1)!.id as string;
+  const scope = executor.scopes.at(-1)!.id;
   switch (source.kind) {
     case "openapi":
       return executor.openapi.addSpec({
@@ -157,11 +157,11 @@ export const syncFromConfig = (
       (source) =>
         addSourceFromConfig(executor, source).pipe(
           Effect.map(() => true as const),
-          Effect.catchCause((e) => {
+          Effect.catchCause((cause) => {
             const ns = "namespace" in source ? source.namespace : ("name" in source ? source.name : "unknown");
             console.warn(
               `[config-sync] Failed to load source "${ns}":`,
-              e instanceof Error ? e.message : String(e),
+              Cause.pretty(cause),
             );
             return Effect.succeed(false as const);
           }),

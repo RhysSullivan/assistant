@@ -2,6 +2,7 @@ import { useReducer, useCallback, useEffect, useRef, useState, type ReactNode } 
 import { useAtomSet } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import { useScope } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
@@ -53,6 +54,17 @@ type RemoteAuthMode = "none" | "header" | "oauth2";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { probeMcpEndpoint, addMcpSourceOptimistic } from "./atoms";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
+
+const ErrorMessage = Schema.Struct({ message: Schema.String });
+
+const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
+  Option.match(
+    Option.flatMap(Exit.findErrorOption(exit), Schema.decodeUnknownOption(ErrorMessage)),
+    {
+      onNone: () => fallback,
+      onSome: ({ message }) => message,
+    },
+  );
 
 // ---------------------------------------------------------------------------
 // Preset lookup
@@ -269,7 +281,7 @@ export default function AddMcpSource(props: {
   );
 
   const scopeId = useScope();
-  const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promise" });
+  const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promiseExit" });
   const doAdd = useAtomSet(addMcpSourceOptimistic(scopeId), { mode: "promiseExit" });
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
@@ -333,24 +345,24 @@ export default function AddMcpSource(props: {
 
   const handleProbe = useCallback(async () => {
     dispatch({ type: "probe-start" });
-    try {
-      const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
-      const result = await doProbe({
-        params: { scopeId },
-        payload: {
-          endpoint: state.url.trim(),
-          ...(Object.keys(headers).length > 0 ? { headers } : {}),
-          ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
-        },
-      });
-      setRemoteAuthMode(result.requiresOAuth ? "oauth2" : "none");
-      dispatch({ type: "probe-ok", probe: result });
-    } catch (e) {
+    const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
+    const exit = await doProbe({
+      params: { scopeId },
+      payload: {
+        endpoint: state.url.trim(),
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+        ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+      },
+    });
+    if (Exit.isFailure(exit)) {
       dispatch({
         type: "probe-fail",
-        error: e instanceof Error ? e.message : "Failed to connect",
+        error: errorMessageFromExit(exit, "Failed to connect"),
       });
+      return;
     }
+    setRemoteAuthMode(exit.value.requiresOAuth ? "oauth2" : "none");
+    dispatch({ type: "probe-ok", probe: exit.value });
   }, [state.url, scopeId, doProbe, remoteCredentials]);
 
   // Keep the latest handleProbe in a ref so the debounced effect can call it
@@ -482,13 +494,9 @@ export default function AddMcpSource(props: {
       reactivityKeys: sourceWriteKeys,
     });
     if (Exit.isFailure(exit)) {
-      const error = Exit.findErrorOption(exit);
       dispatch({
         type: "add-fail",
-        error:
-          Option.isSome(error) && error.value instanceof Error
-            ? error.value.message
-            : "Failed to add source",
+        error: errorMessageFromExit(exit, "Failed to add source"),
       });
       return;
     }
@@ -552,12 +560,7 @@ export default function AddMcpSource(props: {
       reactivityKeys: sourceWriteKeys,
     });
     if (Exit.isFailure(exit)) {
-      const error = Exit.findErrorOption(exit);
-      setStdioError(
-        Option.isSome(error) && error.value instanceof Error
-          ? error.value.message
-          : "Failed to add source",
-      );
+      setStdioError(errorMessageFromExit(exit, "Failed to add source"));
       setStdioAdding(false);
       return;
     }

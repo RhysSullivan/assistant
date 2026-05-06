@@ -139,6 +139,7 @@ export const recoverExecutionBody = (code: string): string => {
   const source = extractCandidateSource(code);
   if (!source) return "";
 
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Babel parser throws for malformed candidate code, then recovery falls back to heuristics
   try {
     return renderParsedBody(source);
   } catch {

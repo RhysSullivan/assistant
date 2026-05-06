@@ -1,10 +1,6 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
-import {
-  defineSchema,
-  type StorageDeps,
-  type StorageFailure,
-} from "@executor-js/sdk/core";
+import { defineSchema, type StorageDeps, type StorageFailure } from "@executor-js/sdk/core";
 
 import {
   OperationBinding,
@@ -114,53 +110,63 @@ export interface StoredOperation {
   readonly binding: OperationBinding;
 }
 
-// Persisted JSON shape for an OperationBinding. Reconstructed into a
-// Schema.Class instance on read.
-interface BindingJson {
-  readonly kind: "query" | "mutation";
-  readonly fieldName: string;
-  readonly operationString: string;
-  readonly variableNames: readonly string[];
-}
-
 const decodeBinding = (value: unknown): OperationBinding => {
-  const data =
-    typeof value === "string"
-      ? (JSON.parse(value) as BindingJson)
-      : (value as BindingJson);
-  return new OperationBinding({
-    kind: data.kind,
-    fieldName: data.fieldName,
-    operationString: data.operationString,
-    variableNames: [...data.variableNames],
-  });
+  if (typeof value === "string") {
+    return Schema.decodeUnknownSync(Schema.fromJsonString(OperationBinding))(value);
+  }
+  return Schema.decodeUnknownSync(OperationBinding)(value);
 };
 
-const encodeBinding = (binding: OperationBinding): BindingJson => ({
-  kind: binding.kind,
-  fieldName: binding.fieldName,
-  operationString: binding.operationString,
-  variableNames: [...binding.variableNames],
+const encodeBinding = Schema.encodeSync(OperationBinding);
+
+const toJsonRecord = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
+
+const SourceRow = Schema.Struct({
+  id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+  endpoint: Schema.String,
+  auth_kind: Schema.Literals(["none", "oauth2"]),
+  auth_connection_id: Schema.NullOr(Schema.String).pipe(Schema.optionalKey),
 });
 
-const toJsonRecord = (value: unknown): Record<string, unknown> =>
-  value as Record<string, unknown>;
+const ChildValueRow = Schema.Struct({
+  name: Schema.String,
+  kind: Schema.Literals(["text", "secret"]),
+  text_value: Schema.NullOr(Schema.String).pipe(Schema.optionalKey),
+  secret_id: Schema.NullOr(Schema.String).pipe(Schema.optionalKey),
+  secret_prefix: Schema.NullOr(Schema.String).pipe(Schema.optionalKey),
+});
+
+const OperationRow = Schema.Struct({
+  id: Schema.String,
+  source_id: Schema.String,
+  binding: Schema.Unknown,
+});
+
+const ChildUsageRowSchema = Schema.Struct({
+  source_id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+});
+
+const decodeSourceRow = Schema.decodeUnknownSync(SourceRow);
+const decodeChildValueRow = Schema.decodeUnknownSync(ChildValueRow);
+const decodeOperationRow = Schema.decodeUnknownSync(OperationRow);
+const decodeChildUsageRow = Schema.decodeUnknownSync(ChildUsageRowSchema);
 
 // Header / query-param rows: collapse the flat columns back into a
 // `SecretBackedValue` map keyed by header name. `kind` discriminates the
 // shape; `secret_prefix` is optional and only populated when present in
 // the original config.
-const rowsToValueMap = (
-  rows: readonly Record<string, unknown>[],
-): Record<string, HeaderValue> => {
+const rowsToValueMap = (rows: readonly Record<string, unknown>[]): Record<string, HeaderValue> => {
   const out: Record<string, HeaderValue> = {};
-  for (const row of rows) {
-    const name = row.name as string;
+  for (const rawRow of rows) {
+    const row = decodeChildValueRow(rawRow);
+    const name = row.name;
     if (row.kind === "secret" && typeof row.secret_id === "string") {
-      const prefix = row.secret_prefix as string | undefined | null;
-      out[name] = prefix
-        ? { secretId: row.secret_id, prefix }
-        : { secretId: row.secret_id };
+      const prefix = row.secret_prefix;
+      out[name] = prefix ? { secretId: row.secret_id, prefix } : { secretId: row.secret_id };
     } else if (row.kind === "text" && typeof row.text_value === "string") {
       out[name] = row.text_value;
     }
@@ -201,11 +207,8 @@ const valueToChildRow = (
   };
 };
 
-const rowToAuth = (row: Record<string, unknown>): GraphqlSourceAuth => {
-  if (
-    row.auth_kind === "oauth2" &&
-    typeof row.auth_connection_id === "string"
-  ) {
+const rowToAuth = (row: typeof SourceRow.Type): GraphqlSourceAuth => {
+  if (row.auth_kind === "oauth2" && typeof row.auth_connection_id === "string") {
     return { kind: "oauth2", connectionId: row.auth_connection_id };
   }
   return { kind: "none" };
@@ -229,11 +232,7 @@ const rowToAuth = (row: Record<string, unknown>): GraphqlSourceAuth => {
 /** Flat row shape returned by the usage-lookup helpers. Mirrors the new
  *  child-table columns so callers can build a `Usage` without
  *  re-decoding. */
-export interface ChildUsageRow {
-  readonly source_id: string;
-  readonly scope_id: string;
-  readonly name: string;
-}
+export type ChildUsageRow = typeof ChildUsageRowSchema.Type;
 
 export interface GraphqlStore {
   readonly upsertSource: (
@@ -258,10 +257,7 @@ export interface GraphqlStore {
     scope: string,
   ) => Effect.Effect<StoredGraphqlSource | null, StorageFailure>;
 
-  readonly listSources: () => Effect.Effect<
-    readonly StoredGraphqlSource[],
-    StorageFailure
-  >;
+  readonly listSources: () => Effect.Effect<readonly StoredGraphqlSource[], StorageFailure>;
 
   readonly getOperationByToolId: (
     toolId: string,
@@ -273,10 +269,7 @@ export interface GraphqlStore {
     scope: string,
   ) => Effect.Effect<readonly StoredOperation[], StorageFailure>;
 
-  readonly removeSource: (
-    namespace: string,
-    scope: string,
-  ) => Effect.Effect<void, StorageFailure>;
+  readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
 
   // ---------------------------------------------------------------------
   // Usage lookups — power `usagesForSecret` / `usagesForConnection`.
@@ -340,26 +333,30 @@ export const makeDefaultGraphqlStore = ({
     row: Record<string, unknown>,
   ): Effect.Effect<StoredGraphqlSource, StorageFailure> =>
     Effect.gen(function* () {
-      const sourceId = row.id as string;
-      const scope = row.scope_id as string;
+      const source = decodeSourceRow(row);
+      const sourceId = source.id;
+      const scope = source.scope_id;
       const headers = yield* loadHeaders(sourceId, scope);
       const queryParams = yield* loadQueryParams(sourceId, scope);
       return {
         namespace: sourceId,
         scope,
-        name: row.name as string,
-        endpoint: row.endpoint as string,
+        name: source.name,
+        endpoint: source.endpoint,
         headers,
         queryParams,
-        auth: rowToAuth(row),
+        auth: rowToAuth(source),
       };
     });
 
-  const rowToOperation = (row: Record<string, unknown>): StoredOperation => ({
-    toolId: row.id as string,
-    sourceId: row.source_id as string,
-    binding: decodeBinding(row.binding),
-  });
+  const rowToOperation = (row: Record<string, unknown>): StoredOperation => {
+    const operation = decodeOperationRow(row);
+    return {
+      toolId: operation.id,
+      sourceId: operation.source_id,
+      binding: decodeBinding(operation.binding),
+    };
+  };
 
   // Replace child rows for a source by deleting then bulk-inserting. Used
   // by both upsertSource (full rewrite) and updateSourceMeta (partial
@@ -382,9 +379,7 @@ export const makeDefaultGraphqlStore = ({
       if (entries.length === 0) return;
       yield* db.createMany({
         model,
-        data: entries.map(([name, value]) =>
-          valueToChildRow(sourceId, scope, name, value),
-        ),
+        data: entries.map(([name, value]) => valueToChildRow(sourceId, scope, name, value)),
         forceAllowId: true,
       });
     });
@@ -433,8 +428,7 @@ export const makeDefaultGraphqlStore = ({
             name: input.name,
             endpoint: input.endpoint,
             auth_kind: input.auth.kind,
-            auth_connection_id:
-              input.auth.kind === "oauth2" ? input.auth.connectionId : undefined,
+            auth_connection_id: input.auth.kind === "oauth2" ? input.auth.connectionId : undefined,
           },
           forceAllowId: true,
         });
@@ -479,8 +473,7 @@ export const makeDefaultGraphqlStore = ({
         if (patch.endpoint !== undefined) update.endpoint = patch.endpoint;
         if (patch.auth !== undefined) {
           update.auth_kind = patch.auth.kind;
-          update.auth_connection_id =
-            patch.auth.kind === "oauth2" ? patch.auth.connectionId : null;
+          update.auth_connection_id = patch.auth.kind === "oauth2" ? patch.auth.connectionId : null;
         }
         if (Object.keys(update).length > 0) {
           yield* db.update({
@@ -493,20 +486,10 @@ export const makeDefaultGraphqlStore = ({
           });
         }
         if (patch.headers !== undefined) {
-          yield* replaceChildren(
-            "graphql_source_header",
-            namespace,
-            scope,
-            patch.headers,
-          );
+          yield* replaceChildren("graphql_source_header", namespace, scope, patch.headers);
         }
         if (patch.queryParams !== undefined) {
-          yield* replaceChildren(
-            "graphql_source_query_param",
-            namespace,
-            scope,
-            patch.queryParams,
-          );
+          yield* replaceChildren("graphql_source_query_param", namespace, scope, patch.queryParams);
         }
       }),
 
@@ -561,17 +544,7 @@ export const makeDefaultGraphqlStore = ({
           model: "graphql_source_header",
           where: [{ field: "secret_id", value: secretId }],
         })
-        .pipe(
-          Effect.map((rows) =>
-            rows.map(
-              (r): ChildUsageRow => ({
-                source_id: r.source_id as string,
-                scope_id: r.scope_id as string,
-                name: r.name as string,
-              }),
-            ),
-          ),
-        ),
+        .pipe(Effect.map((rows) => rows.map((row): ChildUsageRow => decodeChildUsageRow(row)))),
 
     findQueryParamRowsBySecret: (secretId) =>
       db
@@ -579,41 +552,30 @@ export const makeDefaultGraphqlStore = ({
           model: "graphql_source_query_param",
           where: [{ field: "secret_id", value: secretId }],
         })
-        .pipe(
-          Effect.map((rows) =>
-            rows.map(
-              (r): ChildUsageRow => ({
-                source_id: r.source_id as string,
-                scope_id: r.scope_id as string,
-                name: r.name as string,
-              }),
-            ),
-          ),
-        ),
+        .pipe(Effect.map((rows) => rows.map((row): ChildUsageRow => decodeChildUsageRow(row)))),
 
     findSourcesByConnection: (connectionId) =>
       Effect.gen(function* () {
         const rows = yield* db.findMany({
           model: "graphql_source",
-          where: [
-            { field: "auth_connection_id", value: connectionId },
-          ],
+          where: [{ field: "auth_connection_id", value: connectionId }],
         });
         // Skip the children load — usage callers only need the parent
         // row's name + scope. Synthesize a minimal StoredGraphqlSource
         // shape with empty headers/params so the type matches without
         // a wasted child fetch.
-        return rows.map(
-          (row): StoredGraphqlSource => ({
-            namespace: row.id as string,
-            scope: row.scope_id as string,
-            name: row.name as string,
-            endpoint: row.endpoint as string,
+        return rows.map((rawRow): StoredGraphqlSource => {
+          const row = decodeSourceRow(rawRow);
+          return {
+            namespace: row.id,
+            scope: row.scope_id,
+            name: row.name,
+            endpoint: row.endpoint,
             headers: {},
             queryParams: {},
             auth: rowToAuth(row),
-          }),
-        );
+          };
+        });
       }),
 
     lookupSourceNames: (keys) =>
@@ -626,9 +588,10 @@ export const makeDefaultGraphqlStore = ({
         const rows = yield* db.findMany({ model: "graphql_source" });
         const requested = new Set(keys);
         const out = new Map<string, string>();
-        for (const r of rows) {
-          const key = `${r.scope_id as string}:${r.id as string}`;
-          if (requested.has(key)) out.set(key, r.name as string);
+        for (const rawRow of rows) {
+          const row = decodeSourceRow(rawRow);
+          const key = `${row.scope_id}:${row.id}`;
+          if (requested.has(key)) out.set(key, row.name);
         }
         return out;
       }),

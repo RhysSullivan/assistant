@@ -158,7 +158,7 @@ const isStatusError = (error: WorkOSVaultClientError, status: number): boolean =
   error.status === status;
 
 const isKekNotReadyError = (error: WorkOSVaultClientError): boolean =>
-  error.message.includes("KEK was created but is not yet ready");
+  error.retryKind === "kek_not_ready";
 
 // Default context builder. Each semantic piece of a scope id lives in
 // its own vault-context key so WorkOS's KEK matcher sees individual
@@ -302,9 +302,6 @@ const deleteSecretValue = (
     return true;
   });
 
-const formatVaultError = (error: WorkOSVaultClientError): StorageError =>
-  new StorageError({ message: error.message, cause: error.cause });
-
 // ---------------------------------------------------------------------------
 // makeWorkOSVaultSecretProvider — builds a SecretProvider backed by
 // WorkOS Vault for values and the plugin's own metadata table for
@@ -343,7 +340,13 @@ export const makeWorkOSVaultSecretProvider = (
         const meta = yield* store.get(id, scope);
         if (!meta) return null;
         const object = yield* loadSecretObject(client, prefix, scope, id).pipe(
-          Effect.mapError(formatVaultError),
+          Effect.mapError(
+            (error) =>
+              new StorageError({
+                message: "WorkOS Vault secret read failed",
+                cause: error,
+              }),
+          ),
         );
         if (!object || !object.value) return null;
         return object.value;
@@ -353,7 +356,13 @@ export const makeWorkOSVaultSecretProvider = (
       Effect.gen(function* () {
         const existing = yield* store.get(id, scope);
         yield* upsertSecretValue(client, prefix, scope, id, value, contextForScope).pipe(
-          Effect.mapError(formatVaultError),
+          Effect.mapError(
+            (error) =>
+              new StorageError({
+                message: "WorkOS Vault secret write failed",
+                cause: error,
+              }),
+          ),
         );
         yield* store.upsert({
           id,
@@ -369,7 +378,13 @@ export const makeWorkOSVaultSecretProvider = (
         const meta = yield* store.get(id, scope);
         if (!meta) return false;
         yield* deleteSecretValue(client, prefix, scope, id).pipe(
-          Effect.mapError(formatVaultError),
+          Effect.mapError(
+            (error) =>
+              new StorageError({
+                message: "WorkOS Vault secret delete failed",
+                cause: error,
+              }),
+          ),
         );
         yield* store.remove(id, scope);
         return true;

@@ -16,13 +16,9 @@
 // and is owned by `ctx.oauth`.
 // ---------------------------------------------------------------------------
 
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 
-import {
-  defineSchema,
-  type StorageDeps,
-  type StorageFailure,
-} from "@executor-js/sdk/core";
+import { defineSchema, type StorageDeps, type StorageFailure } from "@executor-js/sdk/core";
 
 import {
   McpToolBinding,
@@ -119,15 +115,18 @@ const encodeSourceData = Schema.encodeSync(McpStoredSourceData);
 
 const decodeBinding = Schema.decodeUnknownSync(McpToolBinding);
 const encodeBinding = Schema.encodeSync(McpToolBinding);
+const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 
 const coerceJson = (value: unknown): unknown => {
   if (typeof value !== "string") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
+  return Option.getOrElse(decodeJson(value), () => value);
 };
+
+const hasStringFields = <const Fields extends readonly string[]>(
+  row: Record<string, unknown>,
+  fields: Fields,
+): row is Record<Fields[number], string> & Record<string, unknown> =>
+  fields.every((field) => typeof row[field] === "string");
 
 // --- auth column packing/unpacking ------------------------------------------
 
@@ -162,7 +161,7 @@ const authToColumns = (auth: McpConnectionAuth): AuthColumns => {
 };
 
 const columnsToAuth = (row: Record<string, unknown>): McpConnectionAuth => {
-  const kind = row.auth_kind as string;
+  const kind = row.auth_kind;
   if (kind === "header" && typeof row.auth_secret_id === "string") {
     const prefix = row.auth_secret_prefix as string | null | undefined;
     return {
@@ -179,9 +178,7 @@ const columnsToAuth = (row: Record<string, unknown>): McpConnectionAuth => {
       kind: "oauth2",
       connectionId: row.auth_connection_id,
       ...(cid ? { clientIdSecretId: cid } : {}),
-      ...(csec !== undefined && csec !== null
-        ? { clientSecretSecretId: csec }
-        : {}),
+      ...(csec !== undefined && csec !== null ? { clientSecretSecretId: csec } : {}),
     };
   }
   return { kind: "none" };
@@ -236,12 +233,11 @@ const rowsToValueMap = (
 ): Record<string, SecretBackedValue> => {
   const out: Record<string, SecretBackedValue> = {};
   for (const row of rows) {
-    const name = row.name as string;
+    if (typeof row.name !== "string") continue;
+    const name = row.name;
     if (row.kind === "secret" && typeof row.secret_id === "string") {
       const prefix = row.secret_prefix as string | undefined | null;
-      out[name] = prefix
-        ? { secretId: row.secret_id, prefix }
-        : { secretId: row.secret_id };
+      out[name] = prefix ? { secretId: row.secret_id, prefix } : { secretId: row.secret_id };
     } else if (row.kind === "text" && typeof row.text_value === "string") {
       out[name] = row.text_value;
     }
@@ -288,7 +284,10 @@ export interface McpBindingStore {
     namespace: string,
     scope: string,
   ) => Effect.Effect<
-    ReadonlyArray<{ readonly toolId: string; readonly binding: McpToolBinding }>,
+    ReadonlyArray<{
+      readonly toolId: string;
+      readonly binding: McpToolBinding;
+    }>,
     StorageFailure
   >;
 
@@ -303,7 +302,10 @@ export interface McpBindingStore {
   readonly putBindings: (
     namespace: string,
     scope: string,
-    entries: ReadonlyArray<{ readonly toolId: string; readonly binding: McpToolBinding }>,
+    entries: ReadonlyArray<{
+      readonly toolId: string;
+      readonly binding: McpToolBinding;
+    }>,
   ) => Effect.Effect<void, StorageFailure>;
 
   readonly removeBindingsByNamespace: (
@@ -320,10 +322,7 @@ export interface McpBindingStore {
     scope: string,
   ) => Effect.Effect<McpStoredSourceData | null, StorageFailure>;
   readonly putSource: (source: McpStoredSource) => Effect.Effect<void, StorageFailure>;
-  readonly removeSource: (
-    namespace: string,
-    scope: string,
-  ) => Effect.Effect<void, StorageFailure>;
+  readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
 
   // ---------------------------------------------------------------------
   // Usage lookups — back `usagesForSecret` / `usagesForConnection`.
@@ -332,9 +331,7 @@ export interface McpBindingStore {
   /** Source rows whose flattened auth columns reference the given
    *  secret id. The `slot` field on each result tags which column
    *  matched so the caller can produce a precise Usage.slot. */
-  readonly findSourcesBySecret: (
-    secretId: string,
-  ) => Effect.Effect<
+  readonly findSourcesBySecret: (secretId: string) => Effect.Effect<
     readonly {
       readonly namespace: string;
       readonly scope_id: string;
@@ -345,9 +342,7 @@ export interface McpBindingStore {
   >;
 
   /** Source rows whose oauth2 auth points at the given connection id. */
-  readonly findSourcesByConnection: (
-    connectionId: string,
-  ) => Effect.Effect<
+  readonly findSourcesByConnection: (connectionId: string) => Effect.Effect<
     readonly {
       readonly namespace: string;
       readonly scope_id: string;
@@ -379,9 +374,7 @@ export interface McpBindingStore {
 // Factory
 // ---------------------------------------------------------------------------
 
-export const makeMcpStore = ({
-  adapter: db,
-}: StorageDeps<McpSchema>): McpBindingStore => {
+export const makeMcpStore = ({ adapter: db }: StorageDeps<McpSchema>): McpBindingStore => {
   return {
     listBindingsBySource: (namespace, scope) =>
       Effect.gen(function* () {
@@ -486,18 +479,11 @@ export const makeMcpStore = ({
         yield* deleteSourceChildren(source.namespace, source.scope);
 
         const auth: McpConnectionAuth =
-          source.config.transport === "remote"
-            ? source.config.auth
-            : { kind: "none" };
+          source.config.transport === "remote" ? source.config.auth : { kind: "none" };
         const authCols = authToColumns(auth);
-        const headers =
-          source.config.transport === "remote"
-            ? source.config.headers
-            : undefined;
+        const headers = source.config.transport === "remote" ? source.config.headers : undefined;
         const queryParams =
-          source.config.transport === "remote"
-            ? source.config.queryParams
-            : undefined;
+          source.config.transport === "remote" ? source.config.queryParams : undefined;
 
         // The encoded config keeps every plugin-private field but
         // strips auth/headers/queryParams — those moved to columns/
@@ -520,11 +506,7 @@ export const makeMcpStore = ({
           forceAllowId: true,
         });
 
-        const headerRows = valueMapToRows(
-          source.namespace,
-          source.scope,
-          headers,
-        );
+        const headerRows = valueMapToRows(source.namespace, source.scope, headers);
         if (headerRows.length > 0) {
           yield* db.createMany({
             model: "mcp_source_header",
@@ -532,11 +514,7 @@ export const makeMcpStore = ({
             forceAllowId: true,
           });
         }
-        const paramRows = valueMapToRows(
-          source.namespace,
-          source.scope,
-          queryParams,
-        );
+        const paramRows = valueMapToRows(source.namespace, source.scope, queryParams);
         if (paramRows.length > 0) {
           yield* db.createMany({
             model: "mcp_source_query_param",
@@ -579,15 +557,11 @@ export const makeMcpStore = ({
             }),
             db.findMany({
               model: "mcp_source",
-              where: [
-                { field: "auth_client_id_secret_id", value: secretId },
-              ],
+              where: [{ field: "auth_client_id_secret_id", value: secretId }],
             }),
             db.findMany({
               model: "mcp_source",
-              where: [
-                { field: "auth_client_secret_secret_id", value: secretId },
-              ],
+              where: [{ field: "auth_client_secret_secret_id", value: secretId }],
             }),
           ],
           { concurrency: "unbounded" },
@@ -596,19 +570,18 @@ export const makeMcpStore = ({
         for (const r of [...byHeader, ...byClientId, ...byClientSecret]) {
           dedup.set(`${r.scope_id}:${r.id}`, r);
         }
-        return [...dedup.values()].map((row) => ({
-          namespace: row.id as string,
-          scope_id: row.scope_id as string,
-          name: row.name as string,
-          slot:
-            (byHeader as readonly Record<string, unknown>[]).includes(row)
+        return [...dedup.values()]
+          .filter((row) => hasStringFields(row, ["id", "scope_id", "name"]))
+          .map((row) => ({
+            namespace: row.id,
+            scope_id: row.scope_id,
+            name: row.name,
+            slot: (byHeader as readonly Record<string, unknown>[]).includes(row)
               ? "auth.header"
-              : (byClientId as readonly Record<string, unknown>[]).includes(
-                    row,
-                  )
+              : (byClientId as readonly Record<string, unknown>[]).includes(row)
                 ? "auth.oauth2.client_id"
                 : "auth.oauth2.client_secret",
-        }));
+          }));
       }),
 
     findSourcesByConnection: (connectionId) =>
@@ -620,9 +593,9 @@ export const makeMcpStore = ({
         .pipe(
           Effect.map((rows) =>
             rows.map((r) => ({
-              namespace: r.id as string,
-              scope_id: r.scope_id as string,
-              name: r.name as string,
+              namespace: r.id,
+              scope_id: r.scope_id,
+              name: r.name,
               slot: "auth.oauth2.connection",
             })),
           ),
@@ -646,15 +619,15 @@ export const makeMcpStore = ({
         return [
           ...headers.map((r) => ({
             kind: "header" as const,
-            source_id: r.source_id as string,
-            scope_id: r.scope_id as string,
-            name: r.name as string,
+            source_id: r.source_id,
+            scope_id: r.scope_id,
+            name: r.name,
           })),
           ...params.map((r) => ({
             kind: "query_param" as const,
-            source_id: r.source_id as string,
-            scope_id: r.scope_id as string,
-            name: r.name as string,
+            source_id: r.source_id,
+            scope_id: r.scope_id,
+            name: r.name,
           })),
         ];
       }),
@@ -666,8 +639,8 @@ export const makeMcpStore = ({
         const requested = new Set(keys);
         const out = new Map<string, string>();
         for (const r of rows) {
-          const key = `${r.scope_id as string}:${r.id as string}`;
-          if (requested.has(key)) out.set(key, r.name as string);
+          const key = `${r.scope_id}:${r.id}`;
+          if (requested.has(key)) out.set(key, r.name);
         }
         return out;
       }),
@@ -679,10 +652,7 @@ export const makeMcpStore = ({
 
   function deleteSourceChildren(namespace: string, scope: string) {
     return Effect.gen(function* () {
-      for (const model of [
-        "mcp_source_header",
-        "mcp_source_query_param",
-      ] as const) {
+      for (const model of ["mcp_source_header", "mcp_source_query_param"] as const) {
         yield* db.deleteMany({
           model,
           where: [
@@ -740,9 +710,7 @@ export const makeMcpStore = ({
 // Keeps the remaining structural fields (transport, endpoint, etc.) in
 // the JSON config column. Per-transport: only the remote variant has
 // these fields, so this is a no-op for stdio.
-const stripExtractedFields = (
-  encoded: Record<string, unknown>,
-): Record<string, unknown> => {
+const stripExtractedFields = (encoded: Record<string, unknown>): Record<string, unknown> => {
   if (encoded.transport !== "remote") return encoded;
   const { auth, headers, queryParams, ...rest } = encoded;
   void auth;

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import {
   HttpRouter,
   HttpServerRequest,
@@ -30,13 +30,11 @@ const handler = Effect.gen(function* () {
   const session = yield* workos.authenticateRequest(webRequest);
 
   if (!session || !session.organizationId) {
-    return yield* Effect.fail(
-      new HttpResponseError({
-        status: 401,
-        code: "unauthorized",
-        message: "Unauthorized",
-      }),
-    );
+    return yield* new HttpResponseError({
+      status: 401,
+      code: "unauthorized",
+      message: "Unauthorized",
+    });
   }
 
   const url = new URL(webRequest.url);
@@ -74,20 +72,18 @@ const handler = Effect.gen(function* () {
 
   if (statusCode >= 400) {
     console.error("[autumn] upstream error:", statusCode, response);
-    return yield* Effect.fail(
-      new HttpResponseError({
-        status: statusCode,
-        code: "billing_request_failed",
-        message: "Billing request failed",
-      }),
-    );
+    return yield* new HttpResponseError({
+      status: statusCode,
+      code: "billing_request_failed",
+      message: "Billing request failed",
+    });
   }
 
   return HttpServerResponse.jsonUnsafe(response, { status: statusCode });
 }).pipe(
   Effect.catchCause((err) => {
     if (isServerError(err)) {
-      console.error("[autumn] request failed:", err instanceof Error ? err.stack : err);
+      console.error("[autumn] request failed:", Cause.pretty(err));
     }
     return Effect.succeed(toErrorServerResponse(err));
   }),

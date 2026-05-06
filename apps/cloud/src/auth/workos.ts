@@ -3,11 +3,17 @@
 // ---------------------------------------------------------------------------
 
 import { env } from "cloudflare:workers";
-import { Context, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import { GeneratePortalLinkIntent, WorkOS } from "@workos-inc/node/worker";
 import { WorkOSError, tryPromiseService, withServiceLogging } from "./errors";
 
 const COOKIE_NAME = "wos-session";
+const INVALID_COOKIE_PASSWORD_MESSAGE =
+  "WORKOS_COOKIE_PASSWORD must be at least 32 characters";
+
+class WorkOSAuthConfigurationError extends Data.TaggedError("WorkOSAuthConfigurationError")<{
+  readonly message: string;
+}> {}
 
 // ---------------------------------------------------------------------------
 // Service
@@ -19,7 +25,9 @@ const make = Effect.gen(function* () {
   const cookiePassword = env.WORKOS_COOKIE_PASSWORD;
 
   if (!cookiePassword || cookiePassword.length < 32) {
-    return yield* Effect.die(new Error("WORKOS_COOKIE_PASSWORD must be at least 32 characters"));
+    return yield* new WorkOSAuthConfigurationError({
+      message: INVALID_COOKIE_PASSWORD_MESSAGE,
+    });
   }
 
   const workos = new WorkOS({ apiKey, clientId });

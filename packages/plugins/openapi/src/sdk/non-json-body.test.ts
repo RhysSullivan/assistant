@@ -11,7 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -28,6 +28,11 @@ import { openApiPlugin } from "./plugin";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 const TEST_SCOPE = "test-scope";
+const JsonNameBody = Schema.fromJsonString(
+  Schema.Struct({
+    name: Schema.String,
+  }),
+);
 
 const memoryProvider: SecretProvider = (() => {
   const store = new Map<string, string>();
@@ -223,7 +228,7 @@ describe("OpenAPI non-JSON request body dispatch", () => {
       expect(captured.contentType).toBe("text/xml");
       const body = captured.body.toString("utf8");
       expect(body).not.toBe("[object Object]");
-      expect(JSON.parse(body)).toEqual({ name: "Acme" });
+      expect(Schema.decodeUnknownSync(JsonNameBody)(body)).toEqual({ name: "Acme" });
     }),
   );
 
@@ -383,7 +388,9 @@ describe("OpenAPI non-JSON request body dispatch", () => {
       );
 
       expect(captured.contentType).toBe("application/json");
-      expect(JSON.parse(captured.body.toString("utf8"))).toEqual({ name: "Acme" });
+      expect(Schema.decodeUnknownSync(JsonNameBody)(captured.body.toString("utf8"))).toEqual({
+        name: "Acme",
+      });
     }),
   );
 

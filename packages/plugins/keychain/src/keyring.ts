@@ -54,20 +54,23 @@ const loadEntryCtor = async (): Promise<EntryConstructor> => {
 };
 
 const loadEntry = (): Effect.Effect<EntryConstructor, KeychainError> =>
-  Effect.tryPromise({
-    try: async () => {
-      if (!isSupportedPlatform()) {
-        throw new Error(`unsupported platform '${process.platform}'`);
-      }
-      entryCtorPromise ??= loadEntryCtor();
-      return await entryCtorPromise;
-    },
-    catch: (cause) =>
-      new KeychainError({
-        message: `Failed loading native keyring: ${cause instanceof Error ? cause.message : String(cause)}`,
-        cause,
-      }),
-  });
+  isSupportedPlatform()
+    ? Effect.tryPromise({
+        try: async () => {
+          entryCtorPromise ??= loadEntryCtor();
+          return await entryCtorPromise;
+        },
+        catch: (cause) =>
+          new KeychainError({
+            message: "Failed loading native keyring",
+            cause,
+          }),
+      })
+    : Effect.fail(
+        new KeychainError({
+          message: `Failed loading native keyring: unsupported platform '${process.platform}'`,
+        }),
+      );
 
 const createEntry = (serviceName: string, account: string) =>
   Effect.flatMap(loadEntry(), (Entry) =>
@@ -75,7 +78,7 @@ const createEntry = (serviceName: string, account: string) =>
       try: () => new Entry(serviceName, account),
       catch: (cause) =>
         new KeychainError({
-          message: `Failed creating keyring entry: ${cause instanceof Error ? cause.message : String(cause)}`,
+          message: "Failed creating keyring entry",
           cause,
         }),
     }),
@@ -106,7 +109,7 @@ export const setPassword = (
       try: () => entry.setPassword(value),
       catch: (cause) =>
         new KeychainError({
-          message: `Failed writing secret: ${cause instanceof Error ? cause.message : String(cause)}`,
+          message: "Failed writing secret",
           cause,
         }),
     }).pipe(Effect.asVoid),

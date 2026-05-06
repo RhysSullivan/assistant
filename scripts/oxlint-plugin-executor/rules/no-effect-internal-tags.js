@@ -71,7 +71,7 @@ function reportIfEffectTagComparison(
 
   context.report({
     node: access,
-    message: `Use Effect's public helpers instead of checking internal _tag "${tag}".`,
+    message: `Use Effect's public helpers instead of checking internal _tag "${tag}". Skill: wrdn-effect-typed-errors.`,
   });
 }
 

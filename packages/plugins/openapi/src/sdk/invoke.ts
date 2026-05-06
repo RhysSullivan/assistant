@@ -117,13 +117,13 @@ export const resolveHeaders = (
         typeof value === "string"
           ? Effect.succeed({ name, value })
           : secrets.get(value.secretId).pipe(
-              Effect.mapError((err) =>
-                "_tag" in err && err._tag === "SecretOwnedByConnectionError"
-                  ? new OpenApiInvocationError({
-                      message: `Failed to resolve secret "${value.secretId}" for header "${name}"`,
-                      statusCode: Option.none(),
-                    })
-                  : err,
+              Effect.catchTag("SecretOwnedByConnectionError", () =>
+                Effect.fail(
+                  new OpenApiInvocationError({
+                    message: `Failed to resolve secret "${value.secretId}" for header "${name}"`,
+                    statusCode: Option.none(),
+                  }),
+                ),
               ),
               Effect.flatMap((secret) =>
                 secret === null
@@ -585,7 +585,7 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
     Effect.mapError(
       (err) =>
         new OpenApiInvocationError({
-          message: `HTTP request failed: ${err.message}`,
+          message: "HTTP request failed",
           statusCode: Option.none(),
           cause: err,
         }),
@@ -600,9 +600,9 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
 
   const contentType = response.headers["content-type"] ?? null;
   const mapBodyError = Effect.mapError(
-    (err: { readonly message?: string }) =>
+    (err: unknown) =>
       new OpenApiInvocationError({
-        message: `Failed to read response body: ${err.message ?? String(err)}`,
+        message: "Failed to read response body",
         statusCode: Option.some(status),
         cause: err,
       }),

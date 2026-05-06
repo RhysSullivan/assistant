@@ -23,7 +23,7 @@ export default {
 
         context.report({
           node: node.source,
-          message: `Import ${target.name} via its package export instead of a relative path.`,
+          message: `Import ${target.name} via its package export instead of a relative path. Skill: wrdn-package-boundaries.`,
         });
       },
     };

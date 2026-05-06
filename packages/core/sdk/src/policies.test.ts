@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Result } from "effect";
+import { Effect, Predicate, Result } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 
 import type { ToolPolicyRow } from "./core-schema";
@@ -149,7 +149,7 @@ describe("resolveToolPolicy", () => {
       ROW("outer", "vercel.*", "block", "a0", "org"),
       ROW("inner", "vercel.dns.create", "approve", "a0", "user"),
     ];
-    const rank = (row: { scope_id: unknown }) =>
+    const rank = (row: Pick<ToolPolicyRow, "scope_id">) =>
       row.scope_id === "user" ? 0 : 1;
     const result = resolveToolPolicy(
       "vercel.dns.create",
@@ -274,8 +274,8 @@ const policyTestPlugin = definePlugin(() => ({
     for (const row of toolRows) {
       // Make tools whose name contains "delete" require approval by
       // default — mirrors openapi's HTTP-method heuristic in spirit.
-      out[row.id as string] = {
-        requiresApproval: (row.name as string).toLowerCase().includes("delete"),
+      out[row.id] = {
+        requiresApproval: row.name.toLowerCase().includes("delete"),
       };
     }
     return Effect.succeed(out);
@@ -526,10 +526,11 @@ describe("blocked tools", () => {
       );
       expect(Result.isFailure(result)).toBe(true);
       if (!Result.isFailure(result)) return;
-      expect((result.failure as { _tag?: string })._tag).toBe(
-        "ToolBlockedError",
+      expect(Predicate.isTagged("ToolBlockedError")(result.failure)).toBe(
+        true,
       );
-      expect((result.failure as { pattern?: string }).pattern).toBe("vercel.*");
+      if (!Predicate.isTagged("ToolBlockedError")(result.failure)) return;
+      expect(result.failure.pattern).toBe("vercel.*");
     }),
   );
 });
@@ -583,9 +584,9 @@ describe("approve / require_approval interaction with annotations", () => {
       );
       expect(Result.isFailure(result)).toBe(true);
       if (!Result.isFailure(result)) return;
-      expect((result.failure as { _tag?: string })._tag).toBe(
-        "ElicitationDeclinedError",
-      );
+      expect(
+        Predicate.isTagged("ElicitationDeclinedError")(result.failure),
+      ).toBe(true);
     }),
   );
 

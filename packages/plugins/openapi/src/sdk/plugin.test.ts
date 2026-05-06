@@ -1,5 +1,5 @@
 import { expect, layer } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Predicate, Schema } from "effect";
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { HttpClient, HttpRouter, HttpServerRequest } from "effect/unstable/http";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
@@ -373,8 +373,10 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         executor.tools.invoke("noauth.items.listItems", {}, autoApprove),
       );
 
-      expect((error as { _tag: string })._tag).toBe("ToolInvocationError");
-      expect((error as { message: string }).message).toContain("missing-token");
+      expect(Predicate.isTagged(error, "ToolInvocationError")).toBe(true);
+      expect(error).toMatchObject({
+        message: expect.stringContaining("missing-token"),
+      });
     }),
   );
 
@@ -606,7 +608,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       // Org-level base source
       yield* executor.openapi.addSpec({
         spec: specJson,
-        scope: ORG_SCOPE as string,
+        scope: String(ORG_SCOPE),
         namespace: "shared",
         baseUrl: "",
         name: "Org Source",
@@ -615,20 +617,20 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       // Per-user shadow with the same namespace
       yield* executor.openapi.addSpec({
         spec: specJson,
-        scope: USER_SCOPE as string,
+        scope: String(USER_SCOPE),
         namespace: "shared",
         name: "User Source",
       });
 
-      const userView = yield* executor.openapi.getSource("shared", USER_SCOPE as string);
-      const orgView = yield* executor.openapi.getSource("shared", ORG_SCOPE as string);
+      const userView = yield* executor.openapi.getSource("shared", String(USER_SCOPE));
+      const orgView = yield* executor.openapi.getSource("shared", String(ORG_SCOPE));
 
       // Both rows must coexist — innermost-wins reads come from the
       // executor; the store's scope-pinned getters return the exact row.
       expect(userView?.name).toBe("User Source");
-      expect(userView?.scope).toBe(USER_SCOPE as string);
+      expect(userView?.scope).toBe(String(USER_SCOPE));
       expect(orgView?.name).toBe("Org Source");
-      expect(orgView?.scope).toBe(ORG_SCOPE as string);
+      expect(orgView?.scope).toBe(String(ORG_SCOPE));
     }),
   );
 
@@ -652,20 +654,20 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       yield* executor.openapi.addSpec({
         spec: specJson,
-        scope: ORG_SCOPE as string,
+        scope: String(ORG_SCOPE),
         namespace: "shared",
         baseUrl: "https://org.example.com",
         name: "Org Source",
       });
       yield* executor.openapi.addSpec({
         spec: specJson,
-        scope: USER_SCOPE as string,
+        scope: String(USER_SCOPE),
         namespace: "shared",
         name: "User Source",
       });
 
       findManyCalls.length = 0;
-      const userView = yield* executor.openapi.getSource("shared", USER_SCOPE as string);
+      const userView = yield* executor.openapi.getSource("shared", String(USER_SCOPE));
 
       expect(userView?.config.baseUrl).toBe("https://org.example.com");
       expect(findManyCalls.some((call) => call.model === "openapi_source")).toBe(false);
@@ -689,23 +691,23 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       yield* executor.openapi.addSpec({
         spec: specJson,
-        scope: ORG_SCOPE as string,
+        scope: String(ORG_SCOPE),
         namespace: "shared",
         baseUrl: "",
         name: "Org Source",
       });
       yield* executor.openapi.addSpec({
         spec: specJson,
-        scope: USER_SCOPE as string,
+        scope: String(USER_SCOPE),
         namespace: "shared",
         baseUrl: "",
         name: "User Source",
       });
 
-      yield* executor.openapi.removeSpec("shared", USER_SCOPE as string);
+      yield* executor.openapi.removeSpec("shared", String(USER_SCOPE));
 
-      const userView = yield* executor.openapi.getSource("shared", USER_SCOPE as string);
-      const orgView = yield* executor.openapi.getSource("shared", ORG_SCOPE as string);
+      const userView = yield* executor.openapi.getSource("shared", String(USER_SCOPE));
+      const orgView = yield* executor.openapi.getSource("shared", String(ORG_SCOPE));
 
       expect(userView).toBeNull();
       expect(orgView?.name).toBe("Org Source");
@@ -729,26 +731,26 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       yield* executor.openapi.addSpec({
         spec: specJson,
-        scope: ORG_SCOPE as string,
+        scope: String(ORG_SCOPE),
         namespace: "shared",
         baseUrl: "https://org.example.com",
         name: "Org Source",
       });
       yield* executor.openapi.addSpec({
         spec: specJson,
-        scope: USER_SCOPE as string,
+        scope: String(USER_SCOPE),
         namespace: "shared",
         baseUrl: "https://user.example.com",
         name: "User Source",
       });
 
-      yield* executor.openapi.updateSource("shared", USER_SCOPE as string, {
+      yield* executor.openapi.updateSource("shared", String(USER_SCOPE), {
         name: "User Renamed",
         baseUrl: "https://user-new.example.com",
       });
 
-      const userView = yield* executor.openapi.getSource("shared", USER_SCOPE as string);
-      const orgView = yield* executor.openapi.getSource("shared", ORG_SCOPE as string);
+      const userView = yield* executor.openapi.getSource("shared", String(USER_SCOPE));
+      const orgView = yield* executor.openapi.getSource("shared", String(ORG_SCOPE));
 
       expect(userView?.name).toBe("User Renamed");
       expect(userView?.config.baseUrl).toBe("https://user-new.example.com");
@@ -939,7 +941,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const failure = yield* executor.secrets
         .remove(SecretId.make("locked"))
         .pipe(Effect.flip);
-      expect((failure as { _tag: string })._tag).toBe("SecretInUseError");
+      expect(Predicate.isTagged(failure, "SecretInUseError")).toBe(true);
 
       // Detach the binding, then remove succeeds.
       yield* executor.openapi.removeSourceBinding(

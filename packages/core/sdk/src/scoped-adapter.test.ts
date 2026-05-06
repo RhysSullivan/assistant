@@ -45,7 +45,11 @@ describe("scopeAdapter — write rejection on scoped tables", () => {
       const reason = result.cause.reasons.find(Cause.isFailReason);
       const err = reason?.error ?? null;
       expect(err).toBeInstanceOf(StorageError);
-      expect((err as StorageError).message).toContain("not in the executor");
+      expect(err).toEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("not in the executor"),
+        }),
+      );
     }),
   );
 
@@ -70,7 +74,11 @@ describe("scopeAdapter — write rejection on scoped tables", () => {
       const reason = result.cause.reasons.find(Cause.isFailReason);
       const err = reason?.error ?? null;
       expect(err).toBeInstanceOf(StorageError);
-      expect((err as StorageError).message).toContain("missing required");
+      expect(err).toEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("missing required"),
+        }),
+      );
     }),
   );
 

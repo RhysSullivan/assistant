@@ -34,6 +34,7 @@ describe("CLI tooling helpers", () => {
   it.effect("rejects non-object JSON input", () =>
     Effect.gen(function* () {
       const error = yield* parseJsonObjectInput('[1,2,3]').pipe(Effect.flip);
+      // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: helper contract returns a native Error for CLI input parsing
       expect(error.message).toContain("must decode to a JSON object");
     }),
   );

@@ -11,7 +11,7 @@
 //     generation, encode/decode all happen in storage-core
 // ---------------------------------------------------------------------------
 
-import { Effect, Result, Schedule } from "effect";
+import { Effect, Predicate, Result, Schedule } from "effect";
 import {
   and,
   asc,
@@ -41,11 +41,7 @@ import type {
   DBSchema,
   JoinConfig,
 } from "@executor-js/storage-core";
-import {
-  StorageError,
-  UniqueViolationError,
-  createAdapter,
-} from "@executor-js/storage-core";
+import { StorageError, UniqueViolationError, createAdapter } from "@executor-js/storage-core";
 
 // Mirrors `StorageFailure` from @executor-js/storage-core/adapter — kept
 // local so we don't force a new named export on the public index. Both
@@ -59,8 +55,7 @@ type DrizzleTransactionCapable = {
   transaction: <A>(fn: (tx: unknown) => Promise<A>) => Promise<A>;
 };
 const rowAs = <T>(row: Record<string, unknown>): T => row as T;
-const rowsAs = <T>(rows: readonly Record<string, unknown>[]): T[] =>
-  rows.map(rowAs<T>);
+const rowsAs = <T>(rows: readonly Record<string, unknown>[]): T[] => rows.map(rowAs<T>);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,11 +96,9 @@ const ilikeOrLike = (col: AnyTable, pattern: string, provider: DrizzleProvider) 
   return sql`LOWER(${col}) LIKE LOWER(${pattern})`;
 };
 
-const insensitiveEq = (col: AnyTable, value: string) =>
-  sql`LOWER(${col}) = LOWER(${value})`;
+const insensitiveEq = (col: AnyTable, value: string) => sql`LOWER(${col}) = LOWER(${value})`;
 
-const insensitiveNe = (col: AnyTable, value: string) =>
-  sql`LOWER(${col}) <> LOWER(${value})`;
+const insensitiveNe = (col: AnyTable, value: string) => sql`LOWER(${col}) <> LOWER(${value})`;
 
 // ---------------------------------------------------------------------------
 // Where compiler — CleanedWhere[] → drizzle-orm SQL
@@ -123,109 +116,114 @@ const buildCond = (
   table: AnyTable,
   w: CleanedWhere,
   provider: DrizzleProvider,
-): SQL | undefined => {
-  const col = table[w.field];
-  if (!col) {
-    throw new Error(
-      `[storage-drizzle] unknown column "${w.field}" on drizzle table`,
-    );
-  }
-  const mode = w.mode;
-  const isInsensitive =
-    mode === "insensitive" &&
-    (typeof w.value === "string" ||
-      (Array.isArray(w.value) &&
-        (w.value as unknown[]).every((v) => typeof v === "string")));
+): Effect.Effect<SQL | undefined, StorageFailure> =>
+  Effect.gen(function* () {
+    const col = table[w.field];
+    if (!col) {
+      return yield* new StorageError({
+        message: `[storage-drizzle] unknown column "${w.field}" on drizzle table`,
+        cause: undefined,
+      });
+    }
+    const mode = w.mode;
+    const isInsensitive =
+      mode === "insensitive" &&
+      (typeof w.value === "string" ||
+        (Array.isArray(w.value) && (w.value as unknown[]).every((v) => typeof v === "string")));
 
-  switch (w.operator) {
-    case "in":
-      if (!Array.isArray(w.value))
-        throw new Error("Value must be an array for `in`");
-      if (isInsensitive) {
-        const values = w.value as readonly string[];
-        if (values.length === 0) return sql`1 = 0`;
-        const lowered = values.map((v) => v.toLowerCase());
-        return sql`LOWER(${col}) IN ${lowered}`;
-      }
-      return inArray(col, w.value as unknown[]);
-    case "not_in":
-      if (!Array.isArray(w.value))
-        throw new Error("Value must be an array for `not_in`");
-      if (isInsensitive) {
-        const values = w.value as readonly string[];
-        if (values.length === 0) return sql`1 = 1`;
-        const lowered = values.map((v) => v.toLowerCase());
-        return sql`LOWER(${col}) NOT IN ${lowered}`;
-      }
-      return notInArray(col, w.value as unknown[]);
-    case "contains":
-      if (isInsensitive && typeof w.value === "string") {
-        return ilikeOrLike(col, `%${w.value}%`, provider);
-      }
-      return like(col, `%${w.value}%`);
-    case "starts_with":
-      if (isInsensitive && typeof w.value === "string") {
-        return ilikeOrLike(col, `${w.value}%`, provider);
-      }
-      return like(col, `${w.value}%`);
-    case "ends_with":
-      if (isInsensitive && typeof w.value === "string") {
-        return ilikeOrLike(col, `%${w.value}`, provider);
-      }
-      return like(col, `%${w.value}`);
-    case "lt":
-      return lt(col, w.value);
-    case "lte":
-      return lte(col, w.value);
-    case "gt":
-      return gt(col, w.value);
-    case "gte":
-      return gte(col, w.value);
-    case "ne":
-      if (w.value === null) return isNotNull(col);
-      if (isInsensitive && typeof w.value === "string") {
-        return insensitiveNe(col, w.value);
-      }
-      return ne(col, w.value);
-    case "eq":
-    default:
-      if (w.value === null) return isNull(col);
-      if (isInsensitive && typeof w.value === "string") {
-        return insensitiveEq(col, w.value);
-      }
-      return eq(col, w.value);
-  }
-};
+    switch (w.operator) {
+      case "in":
+        if (!Array.isArray(w.value)) {
+          return yield* new StorageError({
+            message: "Value must be an array for `in`",
+            cause: w,
+          });
+        }
+        if (isInsensitive) {
+          const values = w.value as readonly string[];
+          if (values.length === 0) return sql`1 = 0`;
+          const lowered = values.map((v) => v.toLowerCase());
+          return sql`LOWER(${col}) IN ${lowered}`;
+        }
+        return inArray(col, w.value as unknown[]);
+      case "not_in":
+        if (!Array.isArray(w.value)) {
+          return yield* new StorageError({
+            message: "Value must be an array for `not_in`",
+            cause: w,
+          });
+        }
+        if (isInsensitive) {
+          const values = w.value as readonly string[];
+          if (values.length === 0) return sql`1 = 1`;
+          const lowered = values.map((v) => v.toLowerCase());
+          return sql`LOWER(${col}) NOT IN ${lowered}`;
+        }
+        return notInArray(col, w.value as unknown[]);
+      case "contains":
+        if (isInsensitive && typeof w.value === "string") {
+          return ilikeOrLike(col, `%${w.value}%`, provider);
+        }
+        return like(col, `%${w.value}%`);
+      case "starts_with":
+        if (isInsensitive && typeof w.value === "string") {
+          return ilikeOrLike(col, `${w.value}%`, provider);
+        }
+        return like(col, `${w.value}%`);
+      case "ends_with":
+        if (isInsensitive && typeof w.value === "string") {
+          return ilikeOrLike(col, `%${w.value}`, provider);
+        }
+        return like(col, `%${w.value}`);
+      case "lt":
+        return lt(col, w.value);
+      case "lte":
+        return lte(col, w.value);
+      case "gt":
+        return gt(col, w.value);
+      case "gte":
+        return gte(col, w.value);
+      case "ne":
+        if (w.value === null) return isNotNull(col);
+        if (isInsensitive && typeof w.value === "string") {
+          return insensitiveNe(col, w.value);
+        }
+        return ne(col, w.value);
+      case "eq":
+      default:
+        if (w.value === null) return isNull(col);
+        if (isInsensitive && typeof w.value === "string") {
+          return insensitiveEq(col, w.value);
+        }
+        return eq(col, w.value);
+    }
+  });
 
 const compileWhere = (
   table: AnyTable,
   where: readonly CleanedWhere[] | undefined,
   provider: DrizzleProvider,
-): SQL | undefined => {
-  if (!where || where.length === 0) return undefined;
-  if (where.length === 1) {
-    return buildCond(table, where[0]!, provider);
-  }
-  const andGroup = where.filter(
-    (w) => w.connector === "AND" || !w.connector,
-  );
-  const orGroup = where.filter((w) => w.connector === "OR");
-  const andClause =
-    andGroup.length > 0
-      ? and(...andGroup.map((w) => buildCond(table, w, provider)))
-      : undefined;
-  const orClause =
-    orGroup.length > 0
-      ? or(...orGroup.map((w) => buildCond(table, w, provider)))
-      : undefined;
-  if (andClause && orClause) return and(andClause, orClause);
-  return andClause ?? orClause;
-};
+): Effect.Effect<SQL | undefined, StorageFailure> =>
+  Effect.gen(function* () {
+    if (!where || where.length === 0) return undefined;
+    if (where.length === 1) {
+      return yield* buildCond(table, where[0]!, provider);
+    }
+    const andGroup = where.filter((w) => w.connector === "AND" || !w.connector);
+    const orGroup = where.filter((w) => w.connector === "OR");
+    const andClause =
+      andGroup.length > 0
+        ? and(...(yield* Effect.all(andGroup.map((w) => buildCond(table, w, provider)))))
+        : undefined;
+    const orClause =
+      orGroup.length > 0
+        ? or(...(yield* Effect.all(orGroup.map((w) => buildCond(table, w, provider)))))
+        : undefined;
+    if (andClause && orClause) return and(andClause, orClause);
+    return andClause ?? orClause;
+  });
 
-const rowIdentityClause = (
-  table: AnyTable,
-  row: Record<string, unknown>,
-): SQL => {
+const rowIdentityClause = (table: AnyTable, row: Record<string, unknown>): SQL => {
   const idClause = eq(table.id, row.id);
   if (table.scope_id && typeof row.scope_id === "string") {
     return and(eq(table.scope_id, row.scope_id), idClause) as SQL;
@@ -301,19 +299,23 @@ const unwrapDriverCause = (cause: unknown): unknown => {
   return cur;
 };
 
-const classifyError = (
-  op: string,
-  model: string | undefined,
-  cause: unknown,
-): StorageFailure => {
+const hasStringMessage = (value: unknown): value is { readonly message: string } =>
+  typeof value === "object" &&
+  value !== null &&
+  "message" in value &&
+  typeof value.message === "string";
+
+const readStringMessage = (value: { readonly message: string }): string => value.message;
+
+const classifyError = (op: string, model: string | undefined, cause: unknown): StorageFailure => {
   const driverCause = unwrapDriverCause(cause);
   if (isUniqueViolation(driverCause)) {
-    return model !== undefined
-      ? new UniqueViolationError({ model })
-      : new UniqueViolationError({});
+    return model !== undefined ? new UniqueViolationError({ model }) : new UniqueViolationError({});
   }
   return new StorageError({
-    message: `[storage-drizzle] ${op} failed: ${driverCause instanceof Error ? driverCause.message : String(driverCause)}`,
+    message: `[storage-drizzle] ${op} failed${
+      hasStringMessage(driverCause) ? `: ${readStringMessage(driverCause)}` : ""
+    }`,
     cause: driverCause,
   });
 };
@@ -326,8 +328,9 @@ const classifyError = (
 // retry transient errors twice with short exponential backoff. Unique
 // violations and anything else fail fast.
 export const isTransientStorageError = (err: StorageFailure): boolean => {
-  if (err._tag !== "StorageError") return false;
-  const msg = err.message;
+  if (!Predicate.isTagged(err, "StorageError")) return false;
+  if (!hasStringMessage(err)) return false;
+  const msg = readStringMessage(err);
   return (
     msg.includes("Network connection lost") ||
     msg.includes("CONNECTION_CLOSED") ||
@@ -387,21 +390,16 @@ const withReturning = (
           model,
         )) as Record<string, unknown>[];
         if (!rows[0])
-          return yield* Effect.fail(
-            new StorageError({
-              message: "[storage-drizzle] mysql insert: no row returned",
-              cause: undefined,
-            }),
-          );
+          return yield* new StorageError({
+            message: "[storage-drizzle] mysql insert: no row returned",
+            cause: undefined,
+          });
         return rows[0];
       }
-      return yield* Effect.fail(
-        new StorageError({
-          message:
-            "[storage-drizzle] mysql insert: id not provided, cannot recover row",
-          cause: undefined,
-        }),
-      );
+      return yield* new StorageError({
+        message: "[storage-drizzle] mysql insert: id not provided, cannot recover row",
+        cause: undefined,
+      });
     }
     const rows = (yield* runPromise(
       "insert returning",
@@ -409,12 +407,10 @@ const withReturning = (
       model,
     )) as Record<string, unknown>[];
     if (!rows[0])
-      return yield* Effect.fail(
-        new StorageError({
-          message: "[storage-drizzle] insert returned no rows",
-          cause: undefined,
-        }),
-      );
+      return yield* new StorageError({
+        message: "[storage-drizzle] insert returned no rows",
+        cause: undefined,
+      });
     return rows[0];
   });
 
@@ -426,15 +422,18 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
   const { db, provider } = options;
   const fullSchema: Record<string, AnyTable> = db._.fullSchema ?? {};
 
-  const getTable = (model: string): AnyTable => {
-    const t = fullSchema[model];
-    if (!t)
-      throw new Error(
-        `[storage-drizzle] unknown model "${model}" — not found in db._.fullSchema. ` +
-          `Make sure the table is exported from the generated schema and passed to drizzle().`,
-      );
-    return t;
-  };
+  const getTable = (model: string): Effect.Effect<AnyTable, StorageFailure> =>
+    Effect.gen(function* () {
+      const t = fullSchema[model];
+      if (!t)
+        return yield* new StorageError({
+          message:
+            `[storage-drizzle] unknown model "${model}" - not found in db._.fullSchema. ` +
+            `Make sure the table is exported from the generated schema and passed to drizzle().`,
+          cause: undefined,
+        });
+      return t;
+    });
 
   const backendAttrs = (model: string) => ({
     "executor.storage.backend": "drizzle" as const,
@@ -450,23 +449,16 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
     data: T;
     select?: string[] | undefined;
   }) =>
-      Effect.gen(function* () {
-        const table = getTable(model);
-        const builder = db.insert(table).values(data);
-        const row = yield* withReturning(
-          db,
-          provider,
-          table,
-          builder,
-          data,
-          model,
-        );
-        return rowAs<typeof data>(row);
-      }).pipe(
-        Effect.withSpan("executor.storage.backend.create", {
-          attributes: backendAttrs(model),
-        }),
-      );
+    Effect.gen(function* () {
+      const table = yield* getTable(model);
+      const builder = db.insert(table).values(data);
+      const row = yield* withReturning(db, provider, table, builder, data, model);
+      return rowAs<typeof data>(row);
+    }).pipe(
+      Effect.withSpan("executor.storage.backend.create", {
+        attributes: backendAttrs(model),
+      }),
+    );
 
   const createMany: CustomAdapter["createMany"] = <T extends Record<string, unknown>>({
     model,
@@ -477,7 +469,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
   }) =>
     Effect.gen(function* () {
       if (data.length === 0) return [];
-      const table = getTable(model);
+      const table = yield* getTable(model);
       const CHUNK = 500;
       const all: Record<string, unknown>[] = [];
       for (let i = 0; i < data.length; i += CHUNK) {
@@ -510,8 +502,8 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
     join?: JoinConfig | undefined;
   }) =>
     Effect.gen(function* () {
-      const table = getTable(model);
-      const clause = compileWhere(table, where, provider);
+      const table = yield* getTable(model);
+      const clause = yield* compileWhere(table, where, provider);
       if (join && db.query && db.query[model]) {
         const includes = buildIncludes(join);
         const rows = (yield* runPromise(
@@ -529,11 +521,10 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
       }
       let q = db.select().from(table);
       if (clause) q = q.where(clause);
-      const rows = (yield* runPromise(
-        "findOne select",
-        () => q.limit(1),
-        model,
-      )) as Record<string, unknown>[];
+      const rows = (yield* runPromise("findOne select", () => q.limit(1), model)) as Record<
+        string,
+        unknown
+      >[];
       return rows[0] ? rowAs<T>(rows[0]) : null;
     }).pipe(
       Effect.withSpan("executor.storage.backend.find_one", {
@@ -558,8 +549,8 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
     join?: JoinConfig | undefined;
   }) =>
     Effect.gen(function* () {
-      const table = getTable(model);
-      const clause = compileWhere(table, where, provider);
+      const table = yield* getTable(model);
+      const clause = yield* compileWhere(table, where, provider);
       if (join && db.query && db.query[model]) {
         const includes = buildIncludes(join);
         const opts: Record<string, unknown> = {
@@ -588,8 +579,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         q = q.orderBy(fn(col));
       }
       if (limit !== undefined) q = q.limit(limit);
-      else if (offset !== undefined && provider === "sqlite")
-        q = q.limit(Number.MAX_SAFE_INTEGER);
+      else if (offset !== undefined && provider === "sqlite") q = q.limit(Number.MAX_SAFE_INTEGER);
       if (offset !== undefined) q = q.offset(offset);
       const rows = (yield* runPromise(
         "findMany select",
@@ -603,14 +593,18 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
       }),
     );
 
-  const updateOne: CustomAdapter["update"] = <T>({ model, where, update }: {
+  const updateOne: CustomAdapter["update"] = <T>({
+    model,
+    where,
+    update,
+  }: {
     model: string;
     where: CleanedWhere[];
     update: T;
   }) =>
     Effect.gen(function* () {
-      const table = getTable(model);
-      const clause = compileWhere(table, where, provider);
+      const table = yield* getTable(model);
+      const clause = yield* compileWhere(table, where, provider);
       let findQ = db.select().from(table);
       if (clause) findQ = findQ.where(clause);
       const matched = (yield* runPromise(
@@ -631,11 +625,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         )) as Record<string, unknown>[];
         return rows[0] ? rowAs<T>(rows[0]) : null;
       }
-      yield* runPromise(
-        "mysql update execute",
-        () => updQ.execute(),
-        model,
-      );
+      yield* runPromise("mysql update execute", () => updQ.execute(), model);
       const reread = (yield* runPromise(
         "mysql update reread",
         () => db.select().from(table).where(identity).limit(1),
@@ -667,15 +657,13 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
 
     count: ({ model, where }) =>
       Effect.gen(function* () {
-        const table = getTable(model);
-        const clause = compileWhere(table, where, provider);
+        const table = yield* getTable(model);
+        const clause = yield* compileWhere(table, where, provider);
         let q = db.select({ c: count() }).from(table);
         if (clause) q = q.where(clause);
-        const rows = (yield* runPromise(
-          "count select",
-          () => Promise.resolve(q),
-          model,
-        )) as { c: number | string | bigint }[];
+        const rows = (yield* runPromise("count select", () => Promise.resolve(q), model)) as {
+          c: number | string | bigint;
+        }[];
         const raw = rows[0]?.c ?? 0;
         return typeof raw === "number" ? raw : Number(raw);
       }).pipe(
@@ -688,8 +676,8 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
 
     updateMany: ({ model, where, update }) =>
       Effect.gen(function* () {
-        const table = getTable(model);
-        const clause = compileWhere(table, where, provider);
+        const table = yield* getTable(model);
+        const clause = yield* compileWhere(table, where, provider);
         // Count first for the return value (sqlite's .run returns changes
         // but we don't want to rely on that in the generic path)
         let countQ = db.select({ c: count() }).from(table);
@@ -703,11 +691,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         if (n === 0) return 0;
         let updQ = db.update(table).set(update);
         if (clause) updQ = updQ.where(clause);
-        yield* runPromise(
-          "updateMany execute",
-          () => Promise.resolve(updQ),
-          model,
-        );
+        yield* runPromise("updateMany execute", () => Promise.resolve(updQ), model);
         return n;
       }).pipe(
         Effect.withSpan("executor.storage.backend.update_many", {
@@ -717,8 +701,8 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
 
     delete: ({ model, where }) =>
       Effect.gen(function* () {
-        const table = getTable(model);
-        const clause = compileWhere(table, where, provider);
+        const table = yield* getTable(model);
+        const clause = yield* compileWhere(table, where, provider);
         // Mirror in-memory semantics: delete first matching row only
         let findQ = db.select().from(table);
         if (clause) findQ = findQ.where(clause);
@@ -742,8 +726,8 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
 
     deleteMany: ({ model, where }) =>
       Effect.gen(function* () {
-        const table = getTable(model);
-        const clause = compileWhere(table, where, provider);
+        const table = yield* getTable(model);
+        const clause = yield* compileWhere(table, where, provider);
         let countQ = db.select({ c: count() }).from(table);
         if (clause) countQ = countQ.where(clause);
         const rows = (yield* runPromise(
@@ -755,11 +739,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         if (n === 0) return 0;
         let delQ = db.delete(table);
         if (clause) delQ = delQ.where(clause);
-        yield* runPromise(
-          "deleteMany exec",
-          () => Promise.resolve(delQ),
-          model,
-        );
+        yield* runPromise("deleteMany exec", () => Promise.resolve(delQ), model);
         return n;
       }).pipe(
         Effect.withSpan("executor.storage.backend.delete_many", {
@@ -783,11 +763,9 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
   //   mysql: same raw-statement path as sqlite, untested in-tree.
   const txFn: DBAdapterFactoryConfig["transaction"] = options.supportsTransaction
     ? <R, E>(
-        cb: (trx: Parameters<DBAdapter["transaction"]>[0] extends (
-          t: infer T,
-        ) => unknown
-          ? T
-          : never) => Effect.Effect<R, E>,
+        cb: (
+          trx: Parameters<DBAdapter["transaction"]>[0] extends (t: infer T) => unknown ? T : never,
+        ) => Effect.Effect<R, E>,
       ) => {
         if (provider === "pg") {
           // Wrap drizzle's real transaction. The nested adapter runs
@@ -810,6 +788,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
                   supportsTransaction: false,
                 }) as TxShape;
                 const exit = await Effect.runPromise(Effect.result(cb(nested)));
+                // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: drizzle transaction callbacks require throwing to trigger rollback
                 if (Result.isFailure(exit)) throw new TxFailure(exit.failure);
                 return exit.success;
               }),
@@ -837,18 +816,23 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
               ? dbAny.execute.bind(dbAny)
               : undefined;
           const runStmt = (stmt: string) =>
-            Effect.try({
-              try: () => {
-                if (!runner) {
-                  throw new Error("drizzle db has neither run() nor execute()");
-                }
-                const res = runner(sql.raw(stmt));
-                if (res && typeof (res as { then?: unknown }).then === "function") {
-                  return res as Promise<unknown>;
-                }
-                return res;
-              },
-              catch: (cause) => classifyError(stmt, undefined, cause),
+            Effect.gen(function* () {
+              if (!runner) {
+                return yield* new StorageError({
+                  message: "drizzle db has neither run() nor execute()",
+                  cause: undefined,
+                });
+              }
+              return yield* Effect.try({
+                try: () => {
+                  const res = runner(sql.raw(stmt));
+                  if (res && typeof (res as { then?: unknown }).then === "function") {
+                    return res as Promise<unknown>;
+                  }
+                  return res;
+                },
+                catch: (cause) => classifyError(stmt, undefined, cause),
+              });
             });
           const maybePromise = yield* runStmt("BEGIN");
           if (maybePromise && typeof (maybePromise as { then?: unknown }).then === "function") {

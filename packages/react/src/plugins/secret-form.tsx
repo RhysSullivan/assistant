@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
 
 import { setSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
@@ -25,10 +26,7 @@ import {
 } from "../components/select";
 import type { VariantProps } from "class-variance-authority";
 
-import {
-  getUniqueSecretId,
-  isSecretIdTaken,
-} from "./secret-id";
+import { getUniqueSecretId, isSecretIdTaken } from "./secret-id";
 
 // ---------------------------------------------------------------------------
 // Context
@@ -78,6 +76,7 @@ const SecretFormContext = createContext<SecretFormContextValue | null>(null);
 function useSecretForm(): SecretFormContextValue {
   const ctx = use(SecretFormContext);
   if (!ctx) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: React context invariant surfaces programmer misuse during render
     throw new Error("SecretForm parts must be rendered inside <SecretForm.Provider>");
   }
   return ctx;
@@ -110,7 +109,7 @@ function SecretFormProvider(props: SecretFormProviderProps) {
 
   const defaultScope = useScope();
   const scopeId = scopeIdProp ?? defaultScope;
-  const doSet = useAtomSet(setSecret, { mode: "promise" });
+  const doSet = useAtomSet(setSecret, { mode: "promiseExit" });
 
   const [state, setState] = useState<SecretFormState>(() => ({
     name: "",
@@ -142,27 +141,27 @@ function SecretFormProvider(props: SecretFormProviderProps) {
   const submit = async () => {
     if (!canSubmit) return;
     setState((s) => ({ ...s, status: { kind: "submitting" } }));
-    try {
-      await doSet({
-        params: { scopeId },
-        payload: {
-          id: SecretId.make(id.trim()),
-          name: displayName || id.trim(),
-          value: state.value.trim(),
-          provider: state.provider === "auto" ? undefined : state.provider,
-        },
-        reactivityKeys: secretWriteKeys,
-      });
-      onCreated(id.trim());
-    } catch (e) {
+    const exit = await doSet({
+      params: { scopeId },
+      payload: {
+        id: SecretId.make(id.trim()),
+        name: displayName || id.trim(),
+        value: state.value.trim(),
+        provider: state.provider === "auto" ? undefined : state.provider,
+      },
+      reactivityKeys: secretWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
       setState((s) => ({
         ...s,
         status: {
           kind: "error",
-          message: e instanceof Error ? e.message : "Failed to save secret",
+          message: "Failed to save secret",
         },
       }));
+      return;
     }
+    onCreated(id.trim());
   };
 
   const value: SecretFormContextValue = {
@@ -255,7 +254,9 @@ function ValueField(props: { revealable?: boolean; placeholder?: string }) {
           </Button>
         )}
       </div>
-      {errored && <FieldError>{state.status.kind === "error" ? state.status.message : ""}</FieldError>}
+      {errored && (
+        <FieldError>{state.status.kind === "error" ? state.status.message : ""}</FieldError>
+      )}
     </Field>
   );
 }

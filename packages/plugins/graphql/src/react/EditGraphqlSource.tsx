@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { graphqlSourceAtom, updateGraphqlSource } from "./atoms";
 import { useScope } from "@executor-js/react/api/scope-context";
@@ -41,7 +42,7 @@ const graphqlOAuthConnectionId = (namespaceSlug: string): string =>
 
 function EditForm(props: { sourceId: string; initial: EditableSource; onSave: () => void }) {
   const scopeId = useScope();
-  const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promise" });
+  const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promiseExit" });
   const secretList = useSecretPickerSecrets();
 
   const identity = useSourceIdentity({
@@ -71,34 +72,36 @@ function EditForm(props: { sourceId: string; initial: EditableSource; onSave: ()
     setSaving(true);
     setError(null);
     const { headers, queryParams } = serializeHttpCredentials(credentials);
-    try {
-      await doUpdate({
-        params: { scopeId, namespace: props.sourceId },
-        payload: {
-          name: identity.name.trim() || undefined,
-          endpoint: endpoint.trim() || undefined,
-          headers,
-          queryParams: queryParams as Record<string, HeaderValue>,
-          auth:
-            authMode === "oauth2"
-              ? {
-                  kind: "oauth2",
-                  connectionId:
-                    props.initial.auth.kind === "oauth2"
-                      ? props.initial.auth.connectionId
-                      : graphqlOAuthConnectionId(props.initial.namespace),
-                }
-              : { kind: "none" },
-        },
-        reactivityKeys: sourceWriteKeys,
-      });
-      setDirty(false);
-      props.onSave();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to update source");
-    } finally {
+    const exit = await doUpdate({
+      params: { scopeId, namespace: props.sourceId },
+      payload: {
+        name: identity.name.trim() || undefined,
+        endpoint: endpoint.trim() || undefined,
+        headers,
+        queryParams: queryParams as Record<string, HeaderValue>,
+        auth:
+          authMode === "oauth2"
+            ? {
+                kind: "oauth2",
+                connectionId:
+                  props.initial.auth.kind === "oauth2"
+                    ? props.initial.auth.connectionId
+                    : graphqlOAuthConnectionId(props.initial.namespace),
+              }
+            : { kind: "none" },
+      },
+      reactivityKeys: sourceWriteKeys,
+    });
+
+    if (Exit.isFailure(exit)) {
+      setError("Failed to update source");
       setSaving(false);
+      return;
     }
+
+    setDirty(false);
+    props.onSave();
+    setSaving(false);
   };
 
   return (

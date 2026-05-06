@@ -2,6 +2,7 @@ import { Suspense, useCallback, useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Exit from "effect/Exit";
 import { PlusIcon } from "lucide-react";
 import type { SourceDetectionResult } from "@executor-js/sdk";
 import { useSourcePlugins, type SourcePlugin, type SourcePreset } from "@executor-js/sdk/client";
@@ -133,7 +134,7 @@ const looksLikeUrl = (raw: string): boolean => {
 function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const sourcePlugins = useSourcePlugins();
   const scopeId = useScope();
-  const doDetect = useAtomSet(detectSource, { mode: "promise" });
+  const doDetect = useAtomSet(detectSource, { mode: "promiseExit" });
   const navigate = useNavigate();
 
   const [query, setQuery] = useState("");
@@ -155,36 +156,37 @@ function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
     if (!trimmed) return;
     setDetecting(true);
     setError(null);
-    try {
-      const results = await doDetect({
-        params: { scopeId },
-        payload: { url: trimmed },
-      });
-      if (results.length === 0) {
-        setError("Could not detect a source type from this URL. Try adding manually.");
-        setDetecting(false);
-        return;
-      }
-      const detected = bestDetection(results);
-      if (!detected) {
-        setError("Could not detect a source type from this URL. Try adding manually.");
-        setDetecting(false);
-        return;
-      }
-      const pluginKey = KIND_TO_PLUGIN_KEY[detected.kind];
-      if (pluginKey) {
-        closeAndReset();
-        void navigate({
-          to: "/sources/add/$pluginKey",
-          params: { pluginKey },
-          search: { url: trimmed, namespace: detected.namespace },
-        });
-      } else {
-        setError(`Detected source type "${detected.kind}" but no plugin is available for it.`);
-        setDetecting(false);
-      }
-    } catch {
+    const exit = await doDetect({
+      params: { scopeId },
+      payload: { url: trimmed },
+    });
+    if (Exit.isFailure(exit)) {
       setError("Detection failed. Try adding a source manually.");
+      setDetecting(false);
+      return;
+    }
+    const results = exit.value;
+    if (results.length === 0) {
+      setError("Could not detect a source type from this URL. Try adding manually.");
+      setDetecting(false);
+      return;
+    }
+    const detected = bestDetection(results);
+    if (!detected) {
+      setError("Could not detect a source type from this URL. Try adding manually.");
+      setDetecting(false);
+      return;
+    }
+    const pluginKey = KIND_TO_PLUGIN_KEY[detected.kind];
+    if (pluginKey) {
+      closeAndReset();
+      void navigate({
+        to: "/sources/add/$pluginKey",
+        params: { pluginKey },
+        search: { url: trimmed, namespace: detected.namespace },
+      });
+    } else {
+      setError(`Detected source type "${detected.kind}" but no plugin is available for it.`);
       setDetecting(false);
     }
   }, [query, doDetect, navigate, scopeId, closeAndReset]);

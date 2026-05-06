@@ -137,7 +137,7 @@ const seedOrg = async (id: string, name = "MCP Flow Org"): Promise<void> => {
 beforeAll(() => {
   // Env presence guard — avoids confusing errors downstream if the test
   // wrangler forgot to bind something the DO needs.
-  if (!env.MCP_SESSION) throw new Error("MCP_SESSION binding missing from test wrangler");
+  expect(env.MCP_SESSION, "MCP_SESSION binding missing from test wrangler").toBeDefined();
 });
 
 afterAll(() => undefined);
@@ -384,18 +384,32 @@ describe("/mcp session restore", () => {
     const getResponse = await mcpGet({ bearer, sessionId: sessionId! });
     expect(getResponse.status).toBe(200);
     expect(getResponse.headers.get("content-type") ?? "").toContain("text/event-stream");
-    await getResponse.body?.cancel().catch(() => undefined);
+    const responseBody = getResponse.body;
+    if (responseBody) {
+      await Effect.runPromise(
+        Effect.ignore(
+          Effect.tryPromise({
+            try: () => responseBody.cancel(),
+            catch: () => "ResponseBodyCancelFailed" as const,
+          }),
+        ),
+      );
+    }
 
-    const response = await Promise.race([
+    const postResult = await Promise.race([
       mcpPost({
         bearer,
         sessionId,
         body: TOOLS_LIST_REQUEST,
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("POST did not return after GET restore")), 5_000),
+      }).then((response) => ({ kind: "response" as const, response })),
+      new Promise<{ readonly kind: "timeout" }>((resolve) =>
+        setTimeout(() => resolve({ kind: "timeout" }), 5_000),
       ),
     ]);
+    expect(postResult).toEqual(expect.objectContaining({ kind: "response" }));
+    if (postResult.kind !== "response") return;
+
+    const response = postResult.response;
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type") ?? "").toContain("application/json");
     const body = (await response.json()) as {

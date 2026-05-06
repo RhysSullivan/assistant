@@ -86,9 +86,9 @@ export default function OpenApiSourceSummary(props: {
     return props.variant === "panel" ? null : <CheckingCredentialsBadge />;
   }
   const connections = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : [];
-  const liveConnectionIds = new Set(connections.map((connection) => connection.id as string));
+  const liveConnectionIds = new Set(connections.map((connection) => connection.id));
   const scopeRanks = new Map(
-    scopeStack.map((scope, index) => [scope.id as string, index] as const),
+    scopeStack.map((scope, index) => [scope.id, index] as const),
   );
   const credentialTargetScope = userScope;
   const missing = missingCredentialLabels(source, bindings, credentialTargetScope, scopeRanks, {

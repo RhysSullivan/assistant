@@ -4,7 +4,7 @@
 // single org.
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Result, Schema } from "effect";
 import http from "node:http";
 import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
@@ -173,6 +173,11 @@ const GRAPHQL_INTROSPECTION_RESPONSE = {
   },
 };
 
+const GraphqlRequestSchema = Schema.Struct({
+  query: Schema.optional(Schema.String),
+  variables: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+});
+
 const startGraphqlServer = () => {
   const requests: Array<{ readonly query: string; readonly variables: unknown }> = [];
   const server = http.createServer(async (req, res) => {
@@ -182,10 +187,9 @@ const startGraphqlServer = () => {
       return;
     }
 
-    const parsed = JSON.parse(await readBody(req)) as {
-      readonly query?: string;
-      readonly variables?: Record<string, unknown>;
-    };
+    const parsed = await Schema.decodeUnknownPromise(Schema.fromJsonString(GraphqlRequestSchema))(
+      await readBody(req),
+    );
     const query = parsed.query ?? "";
     requests.push({ query, variables: parsed.variables ?? null });
 
@@ -411,9 +415,8 @@ describe("sources api (HTTP)", () => {
         }),
       );
 
-      if (execution.status !== "completed") {
-        throw new Error(`Expected completed execution, got ${execution.status}`);
-      }
+      expect(execution.status).toBe("completed");
+      if (execution.status !== "completed") return;
       expect(execution.isError).toBe(false);
       expect(execution.structured).toMatchObject({
         status: "completed",
@@ -448,7 +451,7 @@ describe("sources api (HTTP)", () => {
           })
           .pipe(Effect.result),
       );
-      expect(addResult._tag).toBe("Failure");
+      expect(Result.isFailure(addResult)).toBe(true);
 
       const fetched = yield* asOrg(org, (client) =>
         client.mcp.getSource({ params: { scopeId, namespace } }),
@@ -518,9 +521,8 @@ describe("sources api (HTTP)", () => {
         }),
       );
 
-      if (execution.status !== "completed") {
-        throw new Error(`Expected completed execution, got ${execution.status}`);
-      }
+      expect(execution.status).toBe("completed");
+      if (execution.status !== "completed") return;
       expect(execution.isError).toBe(false);
       expect(execution.structured).toMatchObject({
         status: "completed",
@@ -587,9 +589,8 @@ describe("sources api (HTTP)", () => {
         }),
       );
 
-      if (execution.status !== "completed") {
-        throw new Error(`Expected completed execution, got ${execution.status}`);
-      }
+      expect(execution.status).toBe("completed");
+      if (execution.status !== "completed") return;
       expect(execution.isError).toBe(false);
       expect(execution.structured).toMatchObject({
         status: "completed",
@@ -635,7 +636,7 @@ describe("sources api (HTTP)", () => {
           .remove({ params: { scopeId: ScopeId.make(org), sourceId: ghost } })
           .pipe(Effect.result),
       );
-      expect(result._tag).toBe("Success");
+      expect(Result.isSuccess(result)).toBe(true);
     }),
   );
 
@@ -651,7 +652,7 @@ describe("sources api (HTTP)", () => {
           .remove({ params: { scopeId: ScopeId.make(org), sourceId: "openapi" } })
           .pipe(Effect.result),
       );
-      expect(result._tag).toBe("Failure");
+      expect(Result.isFailure(result)).toBe(true);
     }),
   );
 

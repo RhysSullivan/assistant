@@ -114,7 +114,7 @@ export const invoke = Effect.fn("GraphQL.invoke")(function* (
     Effect.mapError(
       (err) =>
         new GraphqlInvocationError({
-          message: `GraphQL request failed: ${err.message}`,
+          message: "GraphQL request failed",
           statusCode: Option.none(),
           cause: err,
         }),
@@ -159,15 +159,6 @@ export const invokeWithLayer = (
 ) =>
   invoke(operation, args, endpoint, resolvedHeaders, resolvedQueryParams).pipe(
     Effect.provide(httpClientLayer),
-    Effect.mapError((err) =>
-      err instanceof GraphqlInvocationError
-        ? err
-        : new GraphqlInvocationError({
-            message: err instanceof Error ? err.message : String(err),
-            statusCode: Option.none(),
-            cause: err,
-          }),
-    ),
     Effect.withSpan("plugin.graphql.invoke", {
       attributes: {
         "plugin.graphql.endpoint": endpoint,

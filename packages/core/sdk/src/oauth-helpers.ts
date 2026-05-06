@@ -134,7 +134,7 @@ const toOAuth2Error = (cause: unknown): OAuth2Error => {
     });
   }
   return new OAuth2Error({
-    message: `OAuth token exchange failed: ${String(cause)}`,
+    message: "OAuth token exchange failed",
     cause,
   });
 };
@@ -173,20 +173,17 @@ const asFromTokenUrlAndIssuer = (
 };
 
 const isLoopbackHttpUrl = (value: string): boolean => {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "http:") return false;
-    const hostname = url.hostname.toLowerCase();
-    return (
-      hostname === "localhost" ||
-      hostname === "0.0.0.0" ||
-      hostname === "::1" ||
-      hostname === "[::1]" ||
-      hostname.startsWith("127.")
-    );
-  } catch {
-    return false;
-  }
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  if (url.protocol !== "http:") return false;
+  const hostname = url.hostname.toLowerCase();
+  return (
+    hostname === "localhost" ||
+    hostname === "0.0.0.0" ||
+    hostname === "::1" ||
+    hostname === "[::1]" ||
+    hostname.startsWith("127.")
+  );
 };
 
 const oauth4webapiRequestOptions = (
@@ -230,10 +227,10 @@ const tokenResponseFrom = (
 // its claims against the AS metadata and rejects mismatches we don't care
 // about. Strip the field before delegation.
 const stripIdToken = async (response: Response): Promise<Response> => {
-  const body = await response
-    .clone()
-    .json()
-    .catch(() => null);
+  const body = await response.clone().json().then(
+    (value: unknown) => value,
+    () => null,
+  );
   if (
     !body ||
     typeof body !== "object" ||

@@ -21,6 +21,7 @@ import * as fs from "node:fs";
 export const isPreScopeSchema = (dbPath: string): boolean => {
   if (!fs.existsSync(dbPath)) return false;
   const db = new Database(dbPath, { readonly: true });
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: local SQLite schema probe must close the DB handle
   try {
     const tableExists = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='source'")
@@ -73,6 +74,7 @@ export interface LegacySecret {
 export const readLegacySecrets = (dbPath: string): readonly LegacySecret[] => {
   if (!fs.existsSync(dbPath)) return [];
   const db = new Database(dbPath, { readonly: true });
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: local SQLite legacy-row read must close the DB handle
   try {
     const tableExists = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='secret'")

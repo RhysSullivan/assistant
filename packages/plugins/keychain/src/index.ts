@@ -46,16 +46,7 @@ export interface KeychainPluginConfig {
 // Plugin extension — public API on executor.keychain
 // ---------------------------------------------------------------------------
 
-export interface KeychainExtension {
-  /** Human-readable name for the keychain on this platform */
-  readonly displayName: string;
-
-  /** Whether the current platform supports system keychain */
-  readonly isSupported: boolean;
-
-  /** Check if a secret exists in the system keychain */
-  readonly has: (id: string) => Effect.Effect<boolean>;
-}
+export type KeychainExtension = ReturnType<typeof makeKeychainExtension>;
 
 // ---------------------------------------------------------------------------
 // Plugin definition
@@ -69,25 +60,35 @@ const scopedServiceName = (
   ctx: PluginCtx<unknown>,
   options: KeychainPluginConfig | undefined,
 ): string =>
-  `${resolveServiceName(options?.serviceName)}/${ctx.scopes[0]!.id as string}`;
+  `${resolveServiceName(options?.serviceName)}/${ctx.scopes[0]!.id}`;
+
+const makeKeychainExtension = (
+  ctx: PluginCtx<unknown>,
+  options: KeychainPluginConfig | undefined,
+) => {
+  const serviceName = scopedServiceName(ctx, options);
+  return {
+    /** Human-readable name for the keychain on this platform */
+    displayName: displayName(),
+
+    /** Whether the current platform supports system keychain */
+    isSupported: isSupportedPlatform(),
+
+    /** Check if a secret exists in the system keychain */
+    has: (id: string) =>
+      getPassword(serviceName, id).pipe(
+        Effect.map((v) => v !== null),
+        Effect.orElseSucceed(() => false),
+      ),
+  };
+};
 
 export const keychainPlugin = definePlugin(
   (options?: KeychainPluginConfig) => ({
     id: "keychain" as const,
     storage: () => ({}),
 
-    extension: (ctx): KeychainExtension => {
-      const serviceName = scopedServiceName(ctx, options);
-      return {
-        displayName: displayName(),
-        isSupported: isSupportedPlatform(),
-        has: (id) =>
-          getPassword(serviceName, id).pipe(
-            Effect.map((v) => v !== null),
-            Effect.orElseSucceed(() => false),
-          ),
-      };
-    },
+    extension: (ctx): KeychainExtension => makeKeychainExtension(ctx, options),
 
     secretProviders: (ctx): Effect.Effect<readonly SecretProvider[]> =>
       Effect.gen(function* () {
@@ -103,9 +104,9 @@ export const keychainPlugin = definePlugin(
             ),
           ),
           Effect.as(true),
-          Effect.catch((cause) =>
+          Effect.catch(() =>
             Effect.logWarning(
-              `keychain unavailable, skipping provider registration: ${cause.message}`,
+              "keychain unavailable, skipping provider registration",
             ).pipe(Effect.as(false)),
           ),
         );

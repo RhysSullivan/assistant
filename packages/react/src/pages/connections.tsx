@@ -3,6 +3,7 @@ import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { ConnectionId, ConnectionInUseError, type ScopeId } from "@executor-js/sdk";
 import { toast } from "sonner";
 
@@ -45,6 +46,8 @@ const providerDisplayNames: Record<string, string> = {
 };
 
 const displayProvider = (provider: string): string => providerDisplayNames[provider] ?? provider;
+
+const isConnectionInUseError = Schema.is(ConnectionInUseError);
 
 const connectionScopeLabel = (
   scopeId: string,
@@ -169,7 +172,7 @@ export function ConnectionsPage() {
     });
     if (Exit.isFailure(exit)) {
       const error = Exit.findErrorOption(exit);
-      if (Option.isSome(error) && error.value instanceof ConnectionInUseError) {
+      if (Option.isSome(error) && isConnectionInUseError(error.value)) {
         const count = error.value.usageCount;
         toast.error(
           `Connection is used by ${count} ${count === 1 ? "source" : "sources"}. Detach it before removing it.`,

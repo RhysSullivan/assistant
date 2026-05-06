@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { SlackService } from "../services/slack";
@@ -15,13 +15,11 @@ const handler = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
 
   if (request.method !== "POST") {
-    return yield* Effect.fail(
-      new HttpResponseError({
-        status: 405,
-        code: "method_not_allowed",
-        message: "Method not allowed",
-      }),
-    );
+    return yield* new HttpResponseError({
+      status: 405,
+      code: "method_not_allowed",
+      message: "Method not allowed",
+    });
   }
 
   const body = (yield* Effect.mapError(
@@ -44,30 +42,26 @@ const handler = Effect.gen(function* () {
   const organization = trimmed(body.organization, 200);
 
   if (!isValidEmail(email)) {
-    return yield* Effect.fail(
-      new HttpResponseError({
-        status: 400,
-        code: "invalid_email",
-        message: "A valid email is required",
-      }),
-    );
+    return yield* new HttpResponseError({
+      status: 400,
+      code: "invalid_email",
+      message: "A valid email is required",
+    });
   }
 
   // Global rate limit — single shared bucket keyed at "global". Per-IP gating
   // belongs at the edge (Cloudflare Rules).
   const limit = yield* Effect.tryPromise({
     try: () => env.SLACK_INVITE_LIMITER.limit({ key: "global" }),
-    catch: (cause) => ({ success: false as const, fetchError: String(cause) }),
+    catch: (cause) => ({ success: false as const, fetchError: cause }),
   });
   if (!limit.success) {
     console.error("[slack] global rate limit hit");
-    return yield* Effect.fail(
-      new HttpResponseError({
-        status: 429,
-        code: "rate_limited",
-        message: "We're getting more contact requests than usual. Please try again later.",
-      }),
-    );
+    return yield* new HttpResponseError({
+      status: 429,
+      code: "rate_limited",
+      message: "We're getting more contact requests than usual. Please try again later.",
+    });
   }
 
   const slack = yield* SlackService;
@@ -91,7 +85,7 @@ const handler = Effect.gen(function* () {
 }).pipe(
   Effect.catchCause((err) => {
     if (isServerError(err)) {
-      console.error("[slack] request failed:", err instanceof Error ? err.stack : err);
+      console.error("[slack] request failed:", Cause.pretty(err));
     }
     return Effect.succeed(toErrorServerResponse(err));
   }),

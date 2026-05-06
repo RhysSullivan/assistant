@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import { useScope } from "@executor-js/react/api/scope-context";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
@@ -37,6 +38,17 @@ import { Spinner } from "@executor-js/react/components/spinner";
 import { addGraphqlSourceOptimistic } from "./atoms";
 import { initialGraphqlCredentials } from "./defaults";
 import type { HeaderValue } from "../sdk/types";
+
+const ErrorMessage = Schema.Struct({ message: Schema.String });
+
+const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
+  Option.match(
+    Option.flatMap(Exit.findErrorOption(exit), Schema.decodeUnknownOption(ErrorMessage)),
+    {
+      onNone: () => fallback,
+      onSome: ({ message }) => message,
+    },
+  );
 
 type AuthMode = "none" | "oauth2";
 
@@ -134,12 +146,7 @@ export default function AddGraphqlSource(props: {
       reactivityKeys: sourceWriteKeys,
     });
     if (Exit.isFailure(exit)) {
-      const error = Exit.findErrorOption(exit);
-      setAddError(
-        Option.isSome(error) && error.value instanceof Error
-          ? error.value.message
-          : "Failed to add source",
-      );
+      setAddError(errorMessageFromExit(exit, "Failed to add source"));
       setAdding(false);
       return;
     }

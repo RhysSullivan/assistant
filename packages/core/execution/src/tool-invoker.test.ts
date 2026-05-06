@@ -522,19 +522,16 @@ describe("pause/resume with multiple elicitations", () => {
         // Resume first pause — execution continues to second elicitation.
         // resume() must not hang; it should return (either a new paused
         // result or the completion).
-        const outcome2 = yield* Effect.promise(() =>
-          Promise.race([
-            Effect.runPromise(engine.resume(paused1.execution.id, { action: "accept" })),
-            new Promise<never>((_, reject) =>
-              setTimeout(
-                () => reject(new Error("resume hung — second elicitation not surfaced")),
-                5000,
-              ),
-            ),
-          ]),
+        const outcome2 = yield* Effect.race(
+          engine
+            .resume(paused1.execution.id, { action: "accept" })
+            .pipe(Effect.map((outcome) => ({ kind: "resumed" as const, outcome }))),
+          Effect.sleep("5 seconds").pipe(Effect.as({ kind: "hung" as const })),
         );
 
-        expect(outcome2).not.toBeNull();
+        expect(outcome2.kind).toBe("resumed");
+        if (outcome2.kind !== "resumed") return;
+        expect(outcome2.outcome).not.toBeNull();
       }),
     { timeout: 10000 },
   );
@@ -568,15 +565,19 @@ describe("pause/resume with multiple elicitations", () => {
     );
     expect(exitProbe).toBe("still-running");
 
-    const outcome2 = await Promise.race([
-      Effect.runPromise(engine.resume(paused1.execution.id, { action: "accept" })),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("resume hung across runPromise boundaries")), 2000),
+    const outcome2 = await Effect.runPromise(
+      Effect.race(
+        engine
+          .resume(paused1.execution.id, { action: "accept" })
+          .pipe(Effect.map((outcome) => ({ kind: "resumed" as const, outcome }))),
+        Effect.sleep("2 seconds").pipe(Effect.as({ kind: "hung" as const })),
       ),
-    ]);
+    );
 
-    expect(outcome2).not.toBeNull();
-    const resumed = outcome2 as NonNullable<typeof outcome2>;
+    expect(outcome2.kind).toBe("resumed");
+    if (outcome2.kind !== "resumed") return;
+    expect(outcome2.outcome).not.toBeNull();
+    const resumed = outcome2.outcome as NonNullable<typeof outcome2.outcome>;
     expect(resumed.status).toBe("completed");
     if (resumed.status !== "completed") return;
     expect(resumed.result.error).toBeUndefined();

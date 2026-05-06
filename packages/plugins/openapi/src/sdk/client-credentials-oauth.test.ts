@@ -31,6 +31,13 @@ import { OAuth2Auth } from "./types";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
+class OpenApiClientCredentialsTestSetupError extends Schema.TaggedErrorClass<OpenApiClientCredentialsTestSetupError>()(
+  "OpenApiClientCredentialsTestSetupError",
+  {
+    message: Schema.String,
+  },
+) {}
+
 // ---------------------------------------------------------------------------
 // Test API — single endpoint that echoes the Authorization header.
 // ---------------------------------------------------------------------------
@@ -147,7 +154,11 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
       const clientLayer = FetchHttpClient.layer;
       const server = yield* HttpServer.HttpServer;
       const address = server.address;
-      if (address._tag !== "TcpAddress") return yield* Effect.die("test server must bind to TCP");
+      if (!("port" in address)) {
+        return yield* new OpenApiClientCredentialsTestSetupError({
+          message: "Test server must bind to TCP",
+        });
+      }
       const baseUrl = `http://127.0.0.1:${address.port}`;
       const plugins = [
         openApiPlugin({ httpClientLayer: clientLayer }),
@@ -231,12 +242,15 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         },
       });
 
-      if (!started.completedConnection) {
-        throw new Error("expected completed clientCredentials connection");
+      const completedConnection = started.completedConnection;
+      if (!completedConnection) {
+        return yield* new OpenApiClientCredentialsTestSetupError({
+          message: "Expected completed clientCredentials connection",
+        });
       }
       const auth = new OAuth2Auth({
         kind: "oauth2",
-        connectionId: started.completedConnection.connectionId,
+        connectionId: completedConnection.connectionId,
         securitySchemeName: "oauth2",
         flow: "clientCredentials",
         tokenUrl: "https://token.example.com/token",
@@ -257,7 +271,7 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
       // Add the source with OAuth2Auth pointing at the completed connection.
       yield* userExec.openapi.addSpec({
         spec: specJson,
-        scope: userScope.id as string,
+        scope: userScope.id,
         namespace: "petstore",
         baseUrl,
         oauth2: auth,

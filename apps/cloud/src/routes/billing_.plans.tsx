@@ -332,6 +332,7 @@ function SlackContactCta() {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: browser fetch submit path maps network failures to public UI copy
     try {
       const res = await fetch("/api/contact/slack", {
         method: "POST",
@@ -341,7 +342,10 @@ function SlackContactCta() {
           organization: orgName || undefined,
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      const data = (await res.json().then(
+        (value) => value,
+        () => ({}),
+      )) as { url?: string; error?: string };
       if (!res.ok) {
         setError(data.error ?? "Something went wrong. Please try again.");
         return;

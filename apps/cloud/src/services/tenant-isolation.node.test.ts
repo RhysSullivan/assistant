@@ -76,15 +76,13 @@ describe("tenant isolation (HTTP)", () => {
         }),
       );
 
-      const result = yield* asOrg(orgB, (client) =>
-        client.openapi
-          .getSource({ params: { scopeId: ScopeId.make(orgB), namespace: namespaceA } })
-          .pipe(Effect.result),
+      const source = yield* asOrg(orgB, (client) =>
+        client.openapi.getSource({
+          params: { scopeId: ScopeId.make(orgB), namespace: namespaceA },
+        }),
       );
 
-      expect(result._tag).toBe("Success");
-      if (result._tag !== "Success") return;
-      expect(result.success).toBeNull();
+      expect(source).toBeNull();
     }),
   );
 
@@ -121,15 +119,13 @@ describe("tenant isolation (HTTP)", () => {
         }),
       );
 
-      const result = yield* asOrg(orgB, (client) =>
-        client.secrets
-          .status({ params: { scopeId: ScopeId.make(orgB), secretId: SecretId.make(secretIdA) } })
-          .pipe(Effect.result),
+      const status = yield* asOrg(orgB, (client) =>
+        client.secrets.status({
+          params: { scopeId: ScopeId.make(orgB), secretId: SecretId.make(secretIdA) },
+        }),
       );
 
-      expect(result._tag).toBe("Success");
-      if (result._tag !== "Success") return;
-      expect(result.success.status).toBe("missing");
+      expect(status.status).toBe("missing");
     }),
   );
 

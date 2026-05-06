@@ -31,7 +31,7 @@ import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 
 import { HttpApi, HttpApiBuilder, HttpApiClient } from "effect/unstable/httpapi";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 
 import { addGroup, observabilityMiddleware } from "@executor-js/api";
 import {
@@ -79,6 +79,15 @@ interface FakeServer {
   readonly close: () => Promise<void>;
 }
 
+const RegistrationBody = Schema.Struct({
+  redirect_uris: Schema.optional(Schema.Array(Schema.String)),
+  grant_types: Schema.optional(Schema.Array(Schema.String)),
+  response_types: Schema.optional(Schema.Array(Schema.String)),
+});
+const decodeRegistrationBody = Schema.decodeUnknownOption(
+  Schema.fromJsonString(RegistrationBody),
+);
+
 const startFakeServer = async (): Promise<FakeServer> => {
   const clients = new Map<string, { redirect_uris: readonly string[] }>();
   const codes = new Map<
@@ -115,6 +124,7 @@ const startFakeServer = async (): Promise<FakeServer> => {
       res.end(payload);
     };
 
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake HTTP server returns stable 500 responses for unexpected handler failures
     try {
       if (url.pathname === "/.well-known/oauth-protected-resource") {
         const origin = `http://${req.headers.host}`;
@@ -141,11 +151,11 @@ const startFakeServer = async (): Promise<FakeServer> => {
 
       if (url.pathname === "/register" && req.method === "POST") {
         const body = await readBody(req);
-        const parsed = JSON.parse(body) as {
-          readonly redirect_uris?: readonly string[];
-          readonly grant_types?: readonly string[];
-          readonly response_types?: readonly string[];
-        };
+        const parsedOption = decodeRegistrationBody(body);
+        if (Option.isNone(parsedOption)) {
+          return send(400, { error: "invalid_registration" });
+        }
+        const parsed = parsedOption.value;
         const clientId = next("client");
         clients.set(clientId, { redirect_uris: parsed.redirect_uris ?? [] });
         return send(201, {
@@ -225,8 +235,8 @@ const startFakeServer = async (): Promise<FakeServer> => {
       }
 
       send(404, { error: "not_found", path: url.pathname });
-    } catch (e) {
-      send(500, { error: "server_error", message: String(e) });
+    } catch {
+      send(500, { error: "server_error", message: "fake server failed" });
     }
   });
 
@@ -318,8 +328,16 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
       )) as typeof globalThis.fetch,
     scopeId,
     dispose: async () => {
-      await disposeHandler().catch(() => undefined);
-      await Effect.runPromise(executor.close()).catch(() => undefined);
+      await Effect.runPromise(
+        Effect.ignore(
+          Effect.tryPromise(() => disposeHandler()),
+        ),
+      );
+      await Effect.runPromise(
+        Effect.ignore(
+          Effect.tryPromise(() => Effect.runPromise(executor.close())),
+        ),
+      );
       sqlite.close();
     },
   };
@@ -355,12 +373,15 @@ const followAuthorize = async (
   const response = await fetch(authorizationUrl, { redirect: "manual" });
   expect(response.status).toBe(302);
   const location = response.headers.get("location");
+  // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: browser redirect helper rejects malformed fake OAuth responses
   if (!location) throw new Error("no location header on authorize redirect");
   const dest = new URL(location);
   const code = dest.searchParams.get("code");
   const state = dest.searchParams.get("state");
-  if (!code || !state)
+  if (!code || !state) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: browser redirect helper rejects malformed fake OAuth responses
     throw new Error(`redirect missing code/state: ${location}`);
+  }
   return { code, state };
 };
 

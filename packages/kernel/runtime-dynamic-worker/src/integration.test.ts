@@ -18,6 +18,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { env } from "cloudflare:workers";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
 import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/unstable/http";
 
 import {
@@ -85,15 +86,17 @@ const makeRecordingHttpClient = () => {
         const headers = { ...request.headers };
         let bytes = new Uint8Array();
         let contentType = headers["content-type"] ?? "";
-        const tag = request.body._tag;
+        const isRaw = Predicate.isTagged(request.body, "Raw");
+        const isUint8Array = Predicate.isTagged(request.body, "Uint8Array");
+        const isFormData = Predicate.isTagged(request.body, "FormData");
 
-        if (tag === "Raw" || tag === "Uint8Array") {
+        if (isRaw || isUint8Array) {
           const wire = new Request("http://capture/", {
             method: "POST",
             body: request.body.body as BodyInit,
           });
           bytes = new Uint8Array(yield* Effect.promise(() => wire.arrayBuffer()));
-        } else if (tag === "FormData") {
+        } else if (isFormData) {
           // Letting `Response` realize the FormData yields the actual
           // multipart wire bytes plus a generated boundary in its
           // content-type header — exactly what the upstream server sees.
@@ -106,7 +109,7 @@ const makeRecordingHttpClient = () => {
           url: request.url,
           method: request.method,
           contentType,
-          bodyKind: tag,
+          bodyKind: isRaw ? "Raw" : isUint8Array ? "Uint8Array" : isFormData ? "FormData" : "",
           body: bytes,
         });
 

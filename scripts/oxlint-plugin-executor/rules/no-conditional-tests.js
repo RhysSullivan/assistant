@@ -57,7 +57,8 @@ export default {
         if (name !== "expect") return;
         context.report({
           node,
-          message: "Avoid conditional expect calls; split the test or assert both branches explicitly.",
+          message:
+            "Avoid conditional expect calls; split the test or assert both branches explicitly. Skill: wrdn-effect-vitest-tests.",
         });
       },
       FunctionDeclaration: enterFunction,

@@ -32,11 +32,21 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 const isString = (v: unknown): v is string => typeof v === "string";
 
 const JsonObject = Schema.Record(Schema.String, Schema.Unknown);
+const JsonObjectFromString = Schema.fromJsonString(JsonObject);
 
 const decodeUnknownOptionAs =
   <A>(schema: Schema.Decoder<A>) =>
   (input: unknown): Option.Option<A> =>
     Schema.decodeUnknownOption(schema)(input);
+
+const decodeJsonObjectString = Schema.decodeUnknownOption(JsonObjectFromString);
+
+const formatBoundaryError = (error: unknown): string => {
+  // oxlint-disable-next-line executor/no-instanceof-error, executor/no-unknown-error-message -- boundary: sqlite transaction throws expose only an unknown JS error value for logging
+  if (error instanceof Error) return error.message;
+  // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: fallback log formatting for unknown sqlite transaction failures
+  return String(error);
+};
 
 /** Pre-flight: bail unless the drizzle migration that added the Connection
  *  table + `secret.owned_by_connection_id` has completed. */
@@ -280,20 +290,14 @@ const migrateOpenApi = async (sqlite: Database): Promise<void> => {
   for (const row of rows) {
     let invocation: Record<string, unknown> = {};
     if (row.invocation_config) {
-      try {
-        const parsed = JSON.parse(row.invocation_config) as unknown;
-        if (isRecord(parsed)) invocation = parsed;
-      } catch {
-        continue;
-      }
+      const parsed = decodeJsonObjectString(row.invocation_config);
+      if (Option.isNone(parsed)) continue;
+      invocation = parsed.value;
     }
     let oauth2Col: unknown = null;
     if (row.oauth2) {
-      try {
-        oauth2Col = JSON.parse(row.oauth2) as unknown;
-      } catch {
-        // fall through
-      }
+      const parsed = decodeJsonObjectString(row.oauth2);
+      if (Option.isSome(parsed)) oauth2Col = parsed.value;
     }
     const primary = invocation.oauth2 ?? oauth2Col;
     if (primary == null) continue;
@@ -355,6 +359,7 @@ const migrateOpenApi = async (sqlite: Database): Promise<void> => {
         providerState,
       });
       const err = rewireSecrets(sqlite, row.scope_id, connectionId, secretIds, secretNames);
+      // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: bun:sqlite transaction callback must throw to roll back
       if (err) throw new Error(err);
       if (hasInvocationConfig) {
         const nextInvocation = { ...invocation, oauth2: oauth2Pointer };
@@ -372,6 +377,7 @@ const migrateOpenApi = async (sqlite: Database): Promise<void> => {
         );
       }
     });
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: bun:sqlite transaction reports rollback failures by throwing
     try {
       txn();
       console.log(
@@ -379,7 +385,7 @@ const migrateOpenApi = async (sqlite: Database): Promise<void> => {
       );
     } catch (err) {
       console.warn(
-        `[migrate-connections] fail openapi ${row.scope_id}/${row.id}: ${err instanceof Error ? err.message : String(err)}`,
+        `[migrate-connections] fail openapi ${row.scope_id}/${row.id}: ${formatBoundaryError(err)}`,
       );
     }
   }
@@ -450,14 +456,9 @@ const migrateMcp = (sqlite: Database): void => {
     : null;
 
   for (const row of rows) {
-    let config: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(row.config) as unknown;
-      if (!isRecord(parsed)) continue;
-      config = parsed;
-    } catch {
-      continue;
-    }
+    const parsedConfig = decodeJsonObjectString(row.config);
+    if (Option.isNone(parsedConfig)) continue;
+    const config = parsedConfig.value;
     if (config.transport !== "remote") continue;
     const auth = config.auth;
     if (!isRecord(auth) || auth.kind !== "oauth2") continue;
@@ -514,6 +515,7 @@ const migrateMcp = (sqlite: Database): void => {
         providerState,
       });
       const err = rewireSecrets(sqlite, row.scope_id, connectionId, secretIds, secretNames);
+      // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: bun:sqlite transaction callback must throw to roll back
       if (err) throw new Error(err);
       if (updateConfigAndAuth) {
         updateConfigAndAuth.run(
@@ -526,6 +528,7 @@ const migrateMcp = (sqlite: Database): void => {
         updateConfig.run(JSON.stringify(nextConfig), row.scope_id, row.id);
       }
     });
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: bun:sqlite transaction reports rollback failures by throwing
     try {
       txn();
       console.log(
@@ -533,7 +536,7 @@ const migrateMcp = (sqlite: Database): void => {
       );
     } catch (err) {
       console.warn(
-        `[migrate-connections] fail mcp ${row.scope_id}/${row.id}: ${err instanceof Error ? err.message : String(err)}`,
+        `[migrate-connections] fail mcp ${row.scope_id}/${row.id}: ${formatBoundaryError(err)}`,
       );
     }
   }
@@ -591,14 +594,9 @@ const migrateGoogleDiscovery = (sqlite: Database): void => {
   );
 
   for (const row of rows) {
-    let config: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(row.config) as unknown;
-      if (!isRecord(parsed)) continue;
-      config = parsed;
-    } catch {
-      continue;
-    }
+    const parsedConfig = decodeJsonObjectString(row.config);
+    if (Option.isNone(parsedConfig)) continue;
+    const config = parsedConfig.value;
     const auth = config.auth;
     if (!isRecord(auth) || auth.kind !== "oauth2") continue;
 
@@ -643,9 +641,11 @@ const migrateGoogleDiscovery = (sqlite: Database): void => {
         providerState,
       });
       const err = rewireSecrets(sqlite, row.scope_id, connectionId, secretIds, secretNames);
+      // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: bun:sqlite transaction callback must throw to roll back
       if (err) throw new Error(err);
       updateSource.run(JSON.stringify(nextConfig), Date.now(), row.scope_id, row.id);
     });
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: bun:sqlite transaction reports rollback failures by throwing
     try {
       txn();
       console.log(
@@ -653,7 +653,7 @@ const migrateGoogleDiscovery = (sqlite: Database): void => {
       );
     } catch (err) {
       console.warn(
-        `[migrate-connections] fail google-discovery ${row.scope_id}/${row.id}: ${err instanceof Error ? err.message : String(err)}`,
+        `[migrate-connections] fail google-discovery ${row.scope_id}/${row.id}: ${formatBoundaryError(err)}`,
       );
     }
   }

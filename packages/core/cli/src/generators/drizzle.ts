@@ -38,6 +38,7 @@ const getType = (
         mysql: `mysqlEnum([${type.map((x) => `'${x}'`).join(", ")}])`,
       }[dialect];
     }
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: generator rejects invalid schema input through the SchemaGenerator promise API
     throw new TypeError(
       `Invalid field type for field ${name}`,
     );
@@ -95,8 +96,9 @@ const getType = (
     },
   };
 
-  const dbTypeMap = typeMap[type as string];
+  const dbTypeMap = typeMap[type];
   if (!dbTypeMap) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: generator rejects unsupported schema input through the SchemaGenerator promise API
     throw new Error(
       `Unsupported field type '${field.type}' for field '${name}'.`,
     );

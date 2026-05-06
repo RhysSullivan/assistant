@@ -5,7 +5,7 @@ import { FileSystem } from "effect";
 import { join } from "node:path";
 
 import { ExecutorFileConfig } from "./schema";
-import { loadConfig } from "./load";
+import { ConfigParseError, loadConfig } from "./load";
 import {
   addSourceToConfig,
   removeSourceFromConfig,
@@ -128,8 +128,10 @@ describe("loadConfig", () => {
         const path = join(dir, "executor.jsonc");
         yield* fs.writeFileString(path, "{ invalid json }");
 
-        const result = yield* loadConfig(path).pipe(Effect.flip);
-        expect(result._tag).toBe("ConfigParseError");
+        const result = yield* loadConfig(path).pipe(
+          Effect.catchTag("ConfigParseError", (error) => Effect.succeed(error)),
+        );
+        expect(result).toBeInstanceOf(ConfigParseError);
       }),
     ),
   );

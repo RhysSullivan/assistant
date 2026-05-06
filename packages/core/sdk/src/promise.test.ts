@@ -102,24 +102,21 @@ describe("promise/createExecutor", () => {
     const ran = await executor.tools.invoke("ap.ctl.go", {});
     expect(ran).toBe("ran");
 
-    // Override with a declining handler → rejects with ElicitationDeclinedError.
-    // Effect.runPromise rejects with a FiberFailure that wraps the typed
-    // error; both `name` and `message` carry the tag.
-    let caught: unknown;
-    try {
-      await executor.tools.invoke(
+    // Override with a declining handler -> rejects with ElicitationDeclinedError.
+    // Effect.runPromise rejects with a FiberFailure that carries the tag in
+    // the error name.
+    await expect(
+      executor.tools.invoke(
         "ap.ctl.go",
         {},
         {
           onElicitation: () =>
             Effect.succeed({ action: "decline" as const }) as any,
         },
-      );
-    } catch (e) {
-      caught = e;
-    }
-    expect(caught).toBeDefined();
-    expect((caught as Error).name).toMatch(/ElicitationDeclinedError/);
+      ),
+    ).rejects.toMatchObject({
+      name: expect.stringMatching(/ElicitationDeclinedError/),
+    });
 
     await executor.close();
   });

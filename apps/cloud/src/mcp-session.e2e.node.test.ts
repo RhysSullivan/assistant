@@ -146,10 +146,19 @@ const openSession = (
       return { client, clientTransport, serverTransport };
     }),
     ({ clientTransport, serverTransport }) =>
-      Effect.promise(async () => {
-        await clientTransport.close().catch(() => undefined);
-        await serverTransport.close().catch(() => undefined);
-      }),
+      Effect.all(
+        [
+          Effect.tryPromise({
+            try: () => clientTransport.close(),
+            catch: (cause) => cause,
+          }).pipe(Effect.ignore),
+          Effect.tryPromise({
+            try: () => serverTransport.close(),
+            catch: (cause) => cause,
+          }).pipe(Effect.ignore),
+        ],
+        { discard: true },
+      ),
   ).pipe(Effect.map(({ client }) => ({ client })));
 
 const nextOrgId = (() => {

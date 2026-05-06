@@ -42,7 +42,7 @@ describe("keychain plugin", () => {
         return;
       }
 
-      try {
+      yield* Effect.gen(function* () {
         // Store through SDK, pinned to keychain provider
         yield* executor.secrets.set(
           new SetSecretInput({
@@ -61,9 +61,9 @@ describe("keychain plugin", () => {
         // SDK routes through the core secret table → pinned provider
         const resolved = yield* executor.secrets.get(testId);
         expect(resolved).toBe("keychain-test-value");
-      } finally {
-        yield* executor.secrets.remove(testId).pipe(Effect.orElseSucceed(() => undefined));
-      }
+      }).pipe(
+        Effect.ensuring(executor.secrets.remove(testId).pipe(Effect.orElseSucceed(() => undefined))),
+      );
     }),
   );
 

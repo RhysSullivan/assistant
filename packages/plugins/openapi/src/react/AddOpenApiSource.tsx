@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import { ConnectionId, ScopeId, SecretId } from "@executor-js/sdk/core";
 import { startOAuth } from "@executor-js/react/api/atoms";
@@ -84,6 +85,17 @@ import {
 export const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
 export const OPENAPI_OAUTH_CALLBACK_PATH = "/api/oauth/callback";
 
+const ErrorMessage = Schema.Struct({ message: Schema.String });
+
+const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
+  Option.match(
+    Option.flatMap(Exit.findErrorOption(exit), Schema.decodeUnknownOption(ErrorMessage)),
+    {
+      onNone: () => fallback,
+      onSome: ({ message }) => message,
+    },
+  );
+
 const substituteUrlVariables = (url: string, values: Record<string, string>): string => {
   let out = url;
   for (const [name, value] of Object.entries(values)) {
@@ -109,11 +121,13 @@ export const openApiOAuthConnectionId = (
  */
 export function resolveOAuthUrl(url: string, baseUrl: string): string {
   if (!url) return url;
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor normalizes provider metadata URLs
   try {
     new URL(url);
     return url;
   } catch {
     if (!baseUrl) return url;
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor resolves relative provider metadata URLs
     try {
       return new URL(url, baseUrl).toString();
     } catch {
@@ -123,6 +137,7 @@ export function resolveOAuthUrl(url: string, baseUrl: string): string {
 }
 
 export function inferOAuthIssuerUrl(authorizationUrl: string): string | null {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor normalizes provider metadata URLs
   try {
     return new URL(authorizationUrl).origin;
   } catch {
@@ -242,9 +257,9 @@ export default function AddOpenApiSource(props: {
 
   const scopeId = useScope();
   const userScope = useUserScope();
-  const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promise" });
+  const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promiseExit" });
   const doAdd = useAtomSet(addOpenApiSpecOptimistic(scopeId), { mode: "promiseExit" });
-  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promiseExit" });
   const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promiseExit" });
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
@@ -370,16 +385,21 @@ export default function AddOpenApiSource(props: {
     setAnalyzing(true);
     setAnalyzeError(null);
     setAddError(null);
-    try {
-      const credentials = serializeHttpCredentials(specFetchCredentials);
-      const result = await doPreview({
-        params: { scopeId },
-        payload: {
-          spec: specUrl,
-          specFetchCredentials: credentials,
-        },
-      });
-      setPreview(result);
+    const credentials = serializeHttpCredentials(specFetchCredentials);
+    const exit = await doPreview({
+      params: { scopeId },
+      payload: {
+        spec: specUrl,
+        specFetchCredentials: credentials,
+      },
+    });
+    if (Exit.isFailure(exit)) {
+      setAnalyzeError(errorMessageFromExit(exit, "Failed to parse spec"));
+      setAnalyzing(false);
+      return;
+    }
+    const result = exit.value;
+    setPreview(result);
 
       const firstServer = result.servers[0];
       if (firstServer) {
@@ -404,11 +424,7 @@ export default function AddOpenApiSource(props: {
         setStrategy({ kind: "custom" });
         setCustomHeaders([]);
       }
-    } catch (e) {
-      setAnalyzeError(e instanceof Error ? e.message : "Failed to parse spec");
-    } finally {
-      setAnalyzing(false);
-    }
+    setAnalyzing(false);
   };
 
   handleAnalyzeRef.current = handleAnalyze;
@@ -469,12 +485,11 @@ export default function AddOpenApiSource(props: {
     if (!selectedOAuth2Preset || !oauth2ClientIdSecretId || !preview) return;
     oauth.cancel();
     setOauth2Error(null);
-    try {
-      const displayName = identity.name.trim() || selectedOAuth2Preset.securitySchemeName;
+    const displayName = identity.name.trim() || selectedOAuth2Preset.securitySchemeName;
 
-      const tokenUrl = resolveOAuthUrl(selectedOAuth2Preset.tokenUrl, resolvedBaseUrl);
+    const tokenUrl = resolveOAuthUrl(selectedOAuth2Preset.tokenUrl, resolvedBaseUrl);
 
-      if (selectedOAuth2Preset.flow === "clientCredentials") {
+    if (selectedOAuth2Preset.flow === "clientCredentials") {
         // RFC 6749 §4.4: no user-interactive consent step. The client_secret
         // is mandatory; the backend exchanges tokens inline and returns a
         // completed OAuth2Auth we can attach to the source directly.
@@ -484,13 +499,13 @@ export default function AddOpenApiSource(props: {
         }
         setStartingOAuth(true);
         const connectionId = openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow);
-        const response = await doStartOAuth({
+        const exit = await doStartOAuth({
           params: { scopeId },
           payload: {
             endpoint: tokenUrl,
             redirectUrl: tokenUrl,
             connectionId,
-            tokenScope: scopeId as string,
+            tokenScope: scopeId,
             strategy: {
               kind: "client-credentials",
               tokenEndpoint: tokenUrl,
@@ -503,6 +518,11 @@ export default function AddOpenApiSource(props: {
           },
         });
         setStartingOAuth(false);
+        if (Exit.isFailure(exit)) {
+          setOauth2Error(errorMessageFromExit(exit, "Failed to start OAuth"));
+          return;
+        }
+        const response = exit.value;
         if (!response.completedConnection) {
           setOauth2Error("client_credentials flow did not mint a connection");
           return;
@@ -523,22 +543,22 @@ export default function AddOpenApiSource(props: {
         });
         setOauth2Error(null);
         return;
-      }
+    }
 
-      const authorizationUrl = resolveOAuthUrl(
-        Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
-        resolvedBaseUrl,
-      );
-      const issuerUrl = inferOAuthIssuerUrl(authorizationUrl);
+    const authorizationUrl = resolveOAuthUrl(
+      Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
+      resolvedBaseUrl,
+    );
+    const issuerUrl = inferOAuthIssuerUrl(authorizationUrl);
 
-      await oauth.openAuthorization({
+    await oauth.openAuthorization({
         run: async () => {
-          const response = await doStartOAuth({
+          const exit = await doStartOAuth({
             params: { scopeId },
             payload: {
               endpoint: authorizationUrl,
               connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
-              tokenScope: scopeId as string,
+              tokenScope: scopeId,
               redirectUrl: oauth2RedirectUrl,
               strategy: {
                 kind: "authorization-code",
@@ -552,10 +572,16 @@ export default function AddOpenApiSource(props: {
               pluginId: "openapi",
               identityLabel: `${displayName} OAuth`,
             },
-          });
-          if (response.authorizationUrl === null) {
-            throw new Error("Unexpected response flow from server");
-          }
+        });
+        if (Exit.isFailure(exit)) {
+          // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: OAuth popup API represents start failure by rejecting run()
+          throw new Error(errorMessageFromExit(exit, "Failed to start OAuth"));
+        }
+        const response = exit.value;
+        if (response.authorizationUrl === null) {
+          // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: OAuth popup API represents start failure by rejecting run()
+          throw new Error("Unexpected response flow from server");
+        }
           return {
             sessionId: response.sessionId,
             authorizationUrl: response.authorizationUrl,
@@ -579,12 +605,11 @@ export default function AddOpenApiSource(props: {
           });
           setOauth2Error(null);
         },
-        onError: setOauth2Error,
+        onError: (message) => {
+          setStartingOAuth(false);
+          setOauth2Error(message);
+        },
       });
-    } catch (e) {
-      setStartingOAuth(false);
-      setOauth2Error(e instanceof Error ? e.message : "Failed to start OAuth");
-    }
   }, [
     selectedOAuth2Preset,
     oauth2ClientIdSecretId,
@@ -631,12 +656,7 @@ export default function AddOpenApiSource(props: {
       reactivityKeys: addSpecWriteKeys,
     });
     if (Exit.isFailure(exit)) {
-      const error = Exit.findErrorOption(exit);
-      setAddError(
-        Option.isSome(error) && error.value instanceof Error
-          ? error.value.message
-          : "Failed to add source",
-      );
+      setAddError(errorMessageFromExit(exit, "Failed to add source"));
       setAdding(false);
       return;
     }
@@ -661,12 +681,7 @@ export default function AddOpenApiSource(props: {
         reactivityKeys: bindingWriteKeys,
       });
       if (Exit.isFailure(bindingExit)) {
-        const error = Exit.findErrorOption(bindingExit);
-        setAddError(
-          Option.isSome(error) && error.value instanceof Error
-            ? error.value.message
-            : "Failed to add source",
-        );
+        setAddError(errorMessageFromExit(bindingExit, "Failed to add source"));
         setAdding(false);
         return;
       }
@@ -688,12 +703,7 @@ export default function AddOpenApiSource(props: {
         reactivityKeys: bindingWriteKeys,
       });
       if (Exit.isFailure(bindingExit)) {
-        const error = Exit.findErrorOption(bindingExit);
-        setAddError(
-          Option.isSome(error) && error.value instanceof Error
-            ? error.value.message
-            : "Failed to add source",
-        );
+        setAddError(errorMessageFromExit(bindingExit, "Failed to add source"));
         setAdding(false);
         return;
       }
@@ -715,12 +725,7 @@ export default function AddOpenApiSource(props: {
         reactivityKeys: bindingWriteKeys,
       });
       if (Exit.isFailure(bindingExit)) {
-        const error = Exit.findErrorOption(bindingExit);
-        setAddError(
-          Option.isSome(error) && error.value instanceof Error
-            ? error.value.message
-            : "Failed to add source",
-        );
+        setAddError(errorMessageFromExit(bindingExit, "Failed to add source"));
         setAdding(false);
         return;
       }
@@ -742,12 +747,7 @@ export default function AddOpenApiSource(props: {
         reactivityKeys: bindingWriteKeys,
       });
       if (Exit.isFailure(bindingExit)) {
-        const error = Exit.findErrorOption(bindingExit);
-        setAddError(
-          Option.isSome(error) && error.value instanceof Error
-            ? error.value.message
-            : "Failed to add source",
-        );
+        setAddError(errorMessageFromExit(bindingExit, "Failed to add source"));
         setAdding(false);
         return;
       }

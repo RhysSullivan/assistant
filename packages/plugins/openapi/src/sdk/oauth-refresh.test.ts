@@ -13,14 +13,19 @@
 // ---------------------------------------------------------------------------
 
 import { afterEach, expect, layer } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
-import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { Effect, Layer, Predicate, Schema } from "effect";
+import {
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  OpenApi,
+} from "effect/unstable/httpapi";
 import { FetchHttpClient, HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 
 import {
   ConnectionId,
-  ConnectionReauthRequiredError,
   CreateConnectionInput,
   ScopeId,
   SecretId,
@@ -90,23 +95,26 @@ const mockTokenFetch = (
   handler: (body: URLSearchParams) => Effect.Effect<Response, never, never> | Promise<Response>,
 ) => {
   const calls: TokenCall[] = [];
-  globalThis.fetch = Object.assign(async (_input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof _input === "string" ? _input : _input.toString();
-    if (!url.includes("token.example.com")) {
-      return originalFetch(_input, init);
-    }
-    const bodyText =
-      init?.body instanceof URLSearchParams
-        ? init.body.toString()
-        : typeof init?.body === "string"
-          ? init.body
-          : "";
-    const body = new URLSearchParams(bodyText);
-    calls.push({ body });
-    const out = handler(body);
-    if (Effect.isEffect(out)) return await Effect.runPromise(out);
-    return await out;
-  }, { preconnect: originalFetch.preconnect });
+  globalThis.fetch = Object.assign(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof _input === "string" ? _input : _input.toString();
+      if (!url.includes("token.example.com")) {
+        return originalFetch(_input, init);
+      }
+      const bodyText =
+        init?.body instanceof URLSearchParams
+          ? init.body.toString()
+          : typeof init?.body === "string"
+            ? init.body
+            : "";
+      const body = new URLSearchParams(bodyText);
+      calls.push({ body });
+      const out = handler(body);
+      if (Effect.isEffect(out)) return await Effect.runPromise(out);
+      return await out;
+    },
+    { preconnect: originalFetch.preconnect },
+  );
   return { calls };
 };
 
@@ -127,25 +135,26 @@ const makeExecutor = () =>
     const memoryProvider: SecretProvider = {
       key: "memory",
       writable: true,
-      get: (id, scope) =>
-        Effect.sync(() => secretStore.get(keyOf(scope, id)) ?? null),
+      get: (id, scope) => Effect.sync(() => secretStore.get(keyOf(scope, id)) ?? null),
       set: (id, value, scope) =>
         Effect.sync(() => {
           secretStore.set(keyOf(scope, id), value);
         }),
-      delete: (id, scope) =>
-        Effect.sync(() => secretStore.delete(keyOf(scope, id))),
+      delete: (id, scope) => Effect.sync(() => secretStore.delete(keyOf(scope, id))),
     };
     const memorySecretsPlugin = definePlugin(() => ({
       id: "memory-secrets" as const,
       storage: () => ({}),
       secretProviders: [memoryProvider],
     }));
-      const clientLayer = FetchHttpClient.layer;
-      const server = yield* HttpServer.HttpServer;
-      const address = server.address;
-      if (address._tag !== "TcpAddress") return yield* Effect.die("test server must bind to TCP");
-      const baseUrl = `http://127.0.0.1:${address.port}`;
+    const clientLayer = FetchHttpClient.layer;
+    const server = yield* HttpServer.HttpServer;
+    const address = server.address;
+    if (!Predicate.isTagged("TcpAddress")(address)) {
+      // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: test harness cannot continue without a TCP test server address
+      return yield* Effect.die("test server must bind to TCP");
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
     const plugins = [
       openApiPlugin({ httpClientLayer: clientLayer }),
       memorySecretsPlugin(),
@@ -198,11 +207,7 @@ type ExecutorValue = EffectSuccess<ReturnType<typeof makeExecutor>>["executor"];
 // Seed an authorizationCode Connection with an already-expired access
 // token and a stored refresh token. The test's mock token endpoint
 // decides what comes back on `grant_type=refresh_token`.
-const seedExpiredConnection = (
-  executor: ExecutorValue,
-  scopeId: ScopeId,
-  connectionId: string,
-) =>
+const seedExpiredConnection = (executor: ExecutorValue, scopeId: ScopeId, connectionId: string) =>
   Effect.gen(function* () {
     yield* executor.connections.create(
       new CreateConnectionInput({
@@ -249,169 +254,144 @@ const seedExpiredConnection = (
 // ---------------------------------------------------------------------------
 
 layer(TestLayer)("OpenAPI oauth refresh", (it) => {
-  it.effect(
-    "expired access_token is refreshed via grant_type=refresh_token before invoke",
-    () =>
-      Effect.gen(function* () {
-        const { executor, scopeId, baseUrl } = yield* makeExecutor();
-        const { calls } = mockTokenFetch(
-          () =>
-            Effect.succeed(
-              new Response(
-                JSON.stringify({
-                  access_token: "fresh-access-v2",
-                  token_type: "Bearer",
-                  refresh_token: "refresh-v2",
-                  expires_in: 3600,
-                }),
-                { status: 200, headers: { "content-type": "application/json" } },
-              ),
-            ),
-        );
-
-        const auth = yield* seedExpiredConnection(
-          executor,
-          scopeId,
-          "conn-refresh-ok",
-        );
-
-        yield* executor.openapi.addSpec({
-          spec: specJson,
-          scope: String(scopeId),
-          namespace: "petstore",
-          baseUrl,
-          oauth2: auth,
-        });
-
-        const result = (yield* executor.tools.invoke(
-          "petstore.items.echoHeaders",
-          {},
-          autoApprove,
-        )) as { data: { authorization?: string } | null; error: unknown };
-
-        expect(result.error).toBeNull();
-        // Proves the refresh landed: invoke carried the fresh token,
-        // not the expired one we seeded.
-        expect(result.data?.authorization).toBe("Bearer fresh-access-v2");
-        expect(calls).toHaveLength(1);
-        expect(calls[0]!.body.get("grant_type")).toBe("refresh_token");
-        expect(calls[0]!.body.get("refresh_token")).toBe("refresh-v1");
-
-        // Connection row is patched with the new expiry so the next
-        // invoke in-window doesn't trip a second refresh.
-        const conn = yield* executor.connections.get("conn-refresh-ok");
-        expect(conn).not.toBeNull();
-        expect(conn!.expiresAt).not.toBeNull();
-        expect(conn!.expiresAt!).toBeGreaterThan(Date.now() + 3_000_000);
-      }),
-  );
-
-  it.effect(
-    "concurrent invokes with an expired token issue exactly one refresh",
-    () =>
-      Effect.gen(function* () {
-        const { executor, scopeId, baseUrl } = yield* makeExecutor();
-        const { calls } = mockTokenFetch(
-          () =>
-            Effect.succeed(
-              new Response(
-                JSON.stringify({
-                  access_token: "fresh-access-v2",
-                  token_type: "Bearer",
-                  refresh_token: "refresh-v2",
-                  expires_in: 3600,
-                }),
-                { status: 200, headers: { "content-type": "application/json" } },
-              ),
-            ),
-        );
-
-        const auth = yield* seedExpiredConnection(
-          executor,
-          scopeId,
-          "conn-refresh-concurrent",
-        );
-
-        yield* executor.openapi.addSpec({
-          spec: specJson,
-          scope: String(scopeId),
-          namespace: "petstore",
-          baseUrl,
-          oauth2: auth,
-        });
-
-        const invokes = yield* Effect.all(
-          [1, 2, 3, 4, 5].map(() =>
-            executor.tools.invoke(
-              "petstore.items.echoHeaders",
-              {},
-              autoApprove,
-            ),
+  it.effect("expired access_token is refreshed via grant_type=refresh_token before invoke", () =>
+    Effect.gen(function* () {
+      const { executor, scopeId, baseUrl } = yield* makeExecutor();
+      const { calls } = mockTokenFetch(() =>
+        Effect.succeed(
+          new Response(
+            JSON.stringify({
+              access_token: "fresh-access-v2",
+              token_type: "Bearer",
+              refresh_token: "refresh-v2",
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
           ),
-          { concurrency: "unbounded" },
-        );
+        ),
+      );
 
-        for (const r of invokes) {
-          const res = r as {
-            data: { authorization?: string } | null;
-            error: unknown;
-          };
-          expect(res.error).toBeNull();
-          expect(res.data?.authorization).toBe("Bearer fresh-access-v2");
-        }
-        // Critical assertion: the SDK's dedup collapses every parallel
-        // invoke into one call to the token endpoint. Anything more
-        // means we're hammering the AS under load.
-        expect(calls).toHaveLength(1);
-      }),
+      const auth = yield* seedExpiredConnection(executor, scopeId, "conn-refresh-ok");
+
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: String(scopeId),
+        namespace: "petstore",
+        baseUrl,
+        oauth2: auth,
+      });
+
+      const result = (yield* executor.tools.invoke(
+        "petstore.items.echoHeaders",
+        {},
+        autoApprove,
+      )) as { data: { authorization?: string } | null; error: unknown };
+
+      expect(result.error).toBeNull();
+      // Proves the refresh landed: invoke carried the fresh token,
+      // not the expired one we seeded.
+      expect(result.data?.authorization).toBe("Bearer fresh-access-v2");
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.body.get("grant_type")).toBe("refresh_token");
+      expect(calls[0]!.body.get("refresh_token")).toBe("refresh-v1");
+
+      // Connection row is patched with the new expiry so the next
+      // invoke in-window doesn't trip a second refresh.
+      const conn = yield* executor.connections.get("conn-refresh-ok");
+      expect(conn).not.toBeNull();
+      expect(conn!.expiresAt).not.toBeNull();
+      expect(conn!.expiresAt!).toBeGreaterThan(Date.now() + 3_000_000);
+    }),
   );
 
-  it.effect(
-    "invalid_grant from refresh surfaces as ConnectionReauthRequiredError",
-    () =>
-      Effect.gen(function* () {
-        const { executor, scopeId, baseUrl } = yield* makeExecutor();
-        mockTokenFetch(
-          () =>
-            Effect.succeed(
-              new Response(
-                JSON.stringify({
-                  error: "invalid_grant",
-                  error_description: "Refresh token revoked",
-                }),
-                { status: 400, headers: { "content-type": "application/json" } },
-              ),
-            ),
-        );
+  it.effect("concurrent invokes with an expired token issue exactly one refresh", () =>
+    Effect.gen(function* () {
+      const { executor, scopeId, baseUrl } = yield* makeExecutor();
+      const { calls } = mockTokenFetch(() =>
+        Effect.succeed(
+          new Response(
+            JSON.stringify({
+              access_token: "fresh-access-v2",
+              token_type: "Bearer",
+              refresh_token: "refresh-v2",
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        ),
+      );
 
-        const auth = yield* seedExpiredConnection(
-          executor,
-          scopeId,
-          "conn-refresh-dead",
-        );
+      const auth = yield* seedExpiredConnection(executor, scopeId, "conn-refresh-concurrent");
 
-        yield* executor.openapi.addSpec({
-          spec: specJson,
-          scope: String(scopeId),
-          namespace: "petstore",
-          baseUrl,
-          oauth2: auth,
-        });
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: String(scopeId),
+        namespace: "petstore",
+        baseUrl,
+        oauth2: auth,
+      });
 
-        // Tool invocation currently wraps connection errors in a
-        // generic Error (see openapi invokeTool), so we assert against
-        // the `accessToken` call directly too — that's the surface
-        // the UI bridges use to trigger re-auth.
-        const flipped = yield* executor.connections
-          .accessToken("conn-refresh-dead")
-          .pipe(Effect.flip);
-        expect(flipped._tag).toBe("ConnectionReauthRequiredError");
-        expect((flipped as ConnectionReauthRequiredError).provider).toBe(
-          "openapi:oauth2",
-        );
-        expect(
-          (flipped as ConnectionReauthRequiredError).message,
-        ).toMatch(/invalid_grant|revoked/i);
-      }),
+      const invokes = yield* Effect.all(
+        [1, 2, 3, 4, 5].map(() =>
+          executor.tools.invoke("petstore.items.echoHeaders", {}, autoApprove),
+        ),
+        { concurrency: "unbounded" },
+      );
+
+      for (const r of invokes) {
+        const res = r as {
+          data: { authorization?: string } | null;
+          error: unknown;
+        };
+        expect(res.error).toBeNull();
+        expect(res.data?.authorization).toBe("Bearer fresh-access-v2");
+      }
+      // Critical assertion: the SDK's dedup collapses every parallel
+      // invoke into one call to the token endpoint. Anything more
+      // means we're hammering the AS under load.
+      expect(calls).toHaveLength(1);
+    }),
+  );
+
+  it.effect("invalid_grant from refresh surfaces as ConnectionReauthRequiredError", () =>
+    Effect.gen(function* () {
+      const { executor, scopeId, baseUrl } = yield* makeExecutor();
+      mockTokenFetch(() =>
+        Effect.succeed(
+          new Response(
+            JSON.stringify({
+              error: "invalid_grant",
+              error_description: "Refresh token revoked",
+            }),
+            { status: 400, headers: { "content-type": "application/json" } },
+          ),
+        ),
+      );
+
+      const auth = yield* seedExpiredConnection(executor, scopeId, "conn-refresh-dead");
+
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: String(scopeId),
+        namespace: "petstore",
+        baseUrl,
+        oauth2: auth,
+      });
+
+      // Tool invocation currently wraps connection errors in a
+      // generic Error (see openapi invokeTool), so we assert against
+      // the `accessToken` call directly too — that's the surface
+      // the UI bridges use to trigger re-auth.
+      const flipped = yield* executor.connections.accessToken("conn-refresh-dead").pipe(
+        Effect.flip,
+        Effect.flatMap((error) =>
+          Predicate.isTagged("ConnectionReauthRequiredError")(error)
+            ? Effect.succeed(error)
+            : Effect.fail(error),
+        ),
+      );
+      expect(flipped.provider).toBe("openapi:oauth2");
+      expect(flipped.message).toMatch(/OAuth refresh failed: .*revoked/i);
+    }),
   );
 });

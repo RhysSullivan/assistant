@@ -3,6 +3,7 @@ import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { toast } from "sonner";
 import {
   removeSecretOptimistic,
@@ -52,6 +53,8 @@ const defaultStorageOptions: readonly SecretStorageOption[] = [
   { value: "keychain", label: "Keychain" },
   { value: "file", label: "File" },
 ];
+
+const isSecretInUseError = Schema.is(SecretInUseError);
 
 // ---------------------------------------------------------------------------
 // Add secret dialog
@@ -265,7 +268,7 @@ export function SecretsPage(props: {
     });
     if (Exit.isFailure(exit)) {
       const error = Exit.findErrorOption(exit);
-      if (Option.isSome(error) && error.value instanceof SecretInUseError) {
+      if (Option.isSome(error) && isSecretInUseError(error.value)) {
         const count = error.value.usageCount;
         toast.error(
           `Secret is used by ${count} ${count === 1 ? "source" : "sources"}. Detach it before removing it.`,

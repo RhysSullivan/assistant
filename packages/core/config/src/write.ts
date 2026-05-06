@@ -4,6 +4,14 @@ import type { PlatformError } from "effect/PlatformError";
 import * as jsonc from "jsonc-parser";
 import type { SourceConfig, ExecutorFileConfig } from "./schema";
 
+export class ConfigWriteError {
+  readonly _tag = "ConfigWriteError";
+  constructor(
+    readonly path: string,
+    readonly cause: unknown,
+  ) {}
+}
+
 const FORMATTING: jsonc.FormattingOptions = {
   tabSize: 2,
   insertSpaces: true,
@@ -118,13 +126,13 @@ export const removeSourceFromConfig = (
 export const writeConfig = (
   path: string,
   config: ExecutorFileConfig,
-): Effect.Effect<void, PlatformError, FileSystem.FileSystem> =>
+): Effect.Effect<void, ConfigWriteError | PlatformError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const text = yield* Effect.try({
       try: () => JSON.stringify(config, null, 2) + "\n",
-      catch: (cause) => cause,
-    }).pipe(Effect.orDie);
+      catch: (cause) => new ConfigWriteError(path, cause),
+    });
     yield* fs.writeFileString(path, text);
   });
 

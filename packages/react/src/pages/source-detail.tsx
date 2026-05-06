@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { effectivePolicyFromSorted } from "@executor-js/sdk";
 import {
@@ -31,8 +32,8 @@ export function SourceDetailPage(props: { namespace: string }) {
   const policies = useAtomValue(policiesOptimisticAtom(scopeId));
   const refreshSources = useAtomRefresh(sourcesOptimisticAtom(scopeId));
   const refreshTools = useAtomRefresh(sourceToolsAtom(namespace, scopeId));
-  const doRemove = useAtomSet(removeSourceOptimistic(scopeId), { mode: "promise" });
-  const doRefresh = useAtomSet(refreshSource, { mode: "promise" });
+  const doRemove = useAtomSet(removeSourceOptimistic(scopeId), { mode: "promiseExit" });
+  const doRefresh = useAtomSet(refreshSource, { mode: "promiseExit" });
   const policyActions = usePolicyActions(scopeId);
   const navigate = useNavigate();
 
@@ -117,28 +118,25 @@ export function SourceDetailPage(props: { namespace: string }) {
 
   const handleDelete = async () => {
     setDeleting(true);
-    try {
-      await doRemove({
-        params: { scopeId, sourceId: namespace },
-        reactivityKeys: sourceWriteKeys,
-      });
-      void navigate({ to: "/" });
-    } catch {
+    const exit = await doRemove({
+      params: { scopeId, sourceId: namespace },
+      reactivityKeys: sourceWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
       setDeleting(false);
       setConfirmDelete(false);
+      return;
     }
+    void navigate({ to: "/" });
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    try {
-      await doRefresh({
-        params: { scopeId, sourceId: namespace },
-        reactivityKeys: sourceWriteKeys,
-      });
-    } finally {
-      setRefreshing(false);
-    }
+    await doRefresh({
+      params: { scopeId, sourceId: namespace },
+      reactivityKeys: sourceWriteKeys,
+    });
+    setRefreshing(false);
   };
 
   const handleEditSave = () => {
