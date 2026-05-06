@@ -1,11 +1,21 @@
 import type { APIRoute } from "astro";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { createExecutor, makeTestConfig, type Tool } from "@executor-js/sdk";
 import { openApiPlugin } from "@executor-js/plugin-openapi";
 import { graphqlPlugin } from "@executor-js/plugin-graphql";
 import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
 
 export const prerender = false;
+
+const DetectRequestBody = Schema.Struct({
+  url: Schema.optional(Schema.String),
+});
+
+const jsonResponse = (body: unknown, status: number) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 
 function inferMethod(toolName: string, pluginKey: string): string {
   if (pluginKey === "graphql") {
@@ -45,105 +55,95 @@ function formatTools(tools: readonly Tool[]) {
 }
 
 export const POST: APIRoute = async ({ request }) => {
-  try {
-    const body = (await request.json()) as { url?: string };
-    const url = body.url?.trim();
-    if (!url) {
-      return new Response(JSON.stringify({ error: "URL is required" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+  const response = await Effect.runPromise(
+    Effect.gen(function* () {
+      const body = yield* Effect.tryPromise({
+        try: () => request.json(),
+        catch: () => null,
+      }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(DetectRequestBody)));
 
-    try {
-      new URL(url);
-    } catch {
-      return new Response(JSON.stringify({ error: "Invalid URL" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+      const url = body.url?.trim();
+      if (!url) {
+        return jsonResponse({ error: "URL is required" }, 400);
+      }
 
-    const program = Effect.gen(function* () {
-      const config = makeTestConfig({
-        plugins: [openApiPlugin(), graphqlPlugin(), googleDiscoveryPlugin()],
-      });
-      const executor = yield* createExecutor(config);
+      if (!URL.canParse(url)) {
+        return jsonResponse({ error: "Invalid URL" }, 400);
+      }
 
-      try {
-        // Detect what kind of source lives at this URL
-        const detected = yield* executor.sources.detect(url).pipe(Effect.timeout("10 seconds"));
+      const program = Effect.gen(function* () {
+        const config = makeTestConfig({
+          plugins: [openApiPlugin(), graphqlPlugin(), googleDiscoveryPlugin()],
+        });
+        const executor = yield* createExecutor(config);
 
-        if (!detected || detected.length === 0) return null;
+        return yield* Effect.gen(function* () {
+          // Detect what kind of source lives at this URL
+          const detected = yield* executor.sources.detect(url).pipe(Effect.timeout("10 seconds"));
 
-        const match = detected[0];
+          if (!detected || detected.length === 0) return null;
 
-        // Add source to register its tools (Google Discovery needs auth so skip)
-        if (match.kind === "openapi") {
-          yield* executor.openapi.addSpec({
-            spec: match.endpoint,
-            namespace: match.namespace,
-            scope: "test-scope",
+          const match = detected[0];
+
+          // Add source to register its tools (Google Discovery needs auth so skip)
+          if (match.kind === "openapi") {
+            yield* executor.openapi.addSpec({
+              spec: match.endpoint,
+              namespace: match.namespace,
+              scope: "test-scope",
+            });
+          } else if (match.kind === "graphql") {
+            yield* executor.graphql.addSource({
+              endpoint: match.endpoint,
+              namespace: match.namespace,
+              scope: "test-scope",
+            });
+          } else {
+            // For kinds we can't fully add (e.g. Google Discovery needs auth),
+            // return just the detection metadata
+            return {
+              kind: match.kind,
+              name: match.name,
+              count: 0,
+              tools: [],
+            };
+          }
+
+          const tools = yield* executor.tools.list({
+            sourceId: match.namespace,
           });
-        } else if (match.kind === "graphql") {
-          yield* executor.graphql.addSource({
-            endpoint: match.endpoint,
-            namespace: match.namespace,
-            scope: "test-scope",
-          });
-        } else {
-          // For kinds we can't fully add (e.g. Google Discovery needs auth),
-          // return just the detection metadata
+          const mapped = formatTools(tools);
+
           return {
             kind: match.kind,
             name: match.name,
-            count: 0,
-            tools: [],
+            count: mapped.length,
+            tools: mapped.slice(0, 50),
           };
-        }
+        }).pipe(Effect.ensuring(Effect.ignore(executor.close())));
+      });
 
-        const tools = yield* executor.tools.list({
-          sourceId: match.namespace,
-        });
-        const mapped = formatTools(tools);
-
-        return {
-          kind: match.kind,
-          name: match.name,
-          count: mapped.length,
-          tools: mapped.slice(0, 50),
-        };
-      } finally {
-        yield* executor.close();
-      }
-    });
-
-    const result = await Effect.runPromise(
-      program.pipe(
+      const result = yield* program.pipe(
         Effect.catchCause(() => Effect.succeed(null)),
         Effect.timeout("25 seconds"),
         Effect.catchCause(() => Effect.succeed(null)),
-      ),
-    );
-
-    if (!result) {
-      return new Response(
-        JSON.stringify({
-          error:
-            "Could not detect an API at this URL. Try an OpenAPI spec, GraphQL endpoint, or Google Discovery document.",
-        }),
-        { status: 404, headers: { "Content-Type": "application/json" } },
       );
-    }
 
-    return new Response(JSON.stringify(result), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch {
-    return new Response(JSON.stringify({ error: "Detection failed" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+      if (!result) {
+        return jsonResponse(
+          {
+            error:
+              "Could not detect an API at this URL. Try an OpenAPI spec, GraphQL endpoint, or Google Discovery document.",
+          },
+          404,
+        );
+      }
+
+      return jsonResponse(result, 200);
+    }).pipe(
+      Effect.catchCause(() => Effect.succeed(jsonResponse({ error: "Detection failed" }, 500))),
+    ),
+  );
+
+  return response;
 };
