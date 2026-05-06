@@ -1,9 +1,12 @@
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 
-import { createExecutorMcpServer, type ExecutorMcpServerConfig } from "@executor-js/host-mcp";
+import {
+  createExecutorMcpServer,
+  type ExecutorMcpServerConfig,
+} from "@executor-js/host-mcp";
 
 // ---------------------------------------------------------------------------
 // Streamable HTTP handler
@@ -15,23 +18,72 @@ export type McpRequestHandler = {
 };
 
 const jsonError = (status: number, code: number, message: string): Response =>
-  new Response(JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }), {
-    status,
-    headers: { "content-type": "application/json" },
+  new Response(
+    JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }),
+    {
+      status,
+      headers: { "content-type": "application/json" },
+    }
+  );
+
+class McpBoundaryError extends Data.TaggedError("McpBoundaryError")<{
+  readonly cause: unknown;
+}> {}
+
+const tryBoundaryPromise = <A>(try_: () => Promise<A>) =>
+  Effect.tryPromise({
+    try: try_,
+    catch: (cause) => new McpBoundaryError({ cause }),
   });
 
-export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpRequestHandler => {
-  const transports = new Map<string, WebStandardStreamableHTTPServerTransport>();
+const ignoreBoundaryPromise = (try_: () => Promise<unknown>) =>
+  Effect.ignore(tryBoundaryPromise(try_));
+
+export const createMcpRequestHandler = (
+  config: ExecutorMcpServerConfig
+): McpRequestHandler => {
+  const transports = new Map<
+    string,
+    WebStandardStreamableHTTPServerTransport
+  >();
   const servers = new Map<string, McpServer>();
 
-  const dispose = async (id: string, opts: { transport?: boolean; server?: boolean } = {}) => {
+  const dispose = async (
+    id: string,
+    opts: { transport?: boolean; server?: boolean } = {}
+  ) => {
     const t = transports.get(id);
     const s = servers.get(id);
     transports.delete(id);
     servers.delete(id);
-    if (opts.transport) await t?.close().catch(() => undefined);
-    if (opts.server) await s?.close().catch(() => undefined);
+    await Effect.runPromise(
+      Effect.all(
+        [
+          opts.transport && t
+            ? ignoreBoundaryPromise(() => t.close())
+            : Effect.void,
+          opts.server && s
+            ? ignoreBoundaryPromise(() => s.close())
+            : Effect.void,
+        ],
+        { discard: true }
+      )
+    );
   };
+
+  const cleanupUninitialized = (
+    transport: WebStandardStreamableHTTPServerTransport,
+    server?: McpServer
+  ) =>
+    transport.sessionId
+      ? Effect.void
+      : Effect.all(
+          [
+            ignoreBoundaryPromise(() => transport.close()),
+            server ? ignoreBoundaryPromise(() => server.close()) : Effect.void,
+          ],
+          { discard: true }
+        );
 
   return {
     handleRequest: async (request) => {
@@ -59,29 +111,33 @@ export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpReq
         if (sid) void dispose(sid, { server: true });
       };
 
-      try {
-        created = await Effect.runPromise(createExecutorMcpServer(config));
-        await created.connect(transport);
-        const response = await transport.handleRequest(request);
-
-        if (!transport.sessionId) {
-          await transport.close().catch(() => undefined);
-          await created.close().catch(() => undefined);
-        }
-        return response;
-      } catch (error) {
-        console.error("[mcp] handleRequest error:", error instanceof Error ? error.stack : error);
-        if (!transport.sessionId) {
-          await transport.close().catch(() => undefined);
-          await created?.close().catch(() => undefined);
-        }
-        return jsonError(500, -32603, "Internal server error");
-      }
+      return Effect.runPromise(
+        Effect.gen(function* () {
+          const server = yield* createExecutorMcpServer(config);
+          created = server;
+          yield* tryBoundaryPromise(() => server.connect(transport));
+          const response = yield* tryBoundaryPromise(() =>
+            transport.handleRequest(request)
+          );
+          yield* cleanupUninitialized(transport, server);
+          return response;
+        }).pipe(
+          Effect.catch((cause) =>
+            Effect.gen(function* () {
+              console.error("[mcp] handleRequest error:", cause);
+              yield* cleanupUninitialized(transport, created);
+              return jsonError(500, -32603, "Internal server error");
+            })
+          )
+        )
+      );
     },
 
     close: async () => {
       const ids = new Set([...transports.keys(), ...servers.keys()]);
-      await Promise.all([...ids].map((id) => dispose(id, { transport: true, server: true })));
+      await Promise.all(
+        [...ids].map((id) => dispose(id, { transport: true, server: true }))
+      );
     },
   };
 };
@@ -90,7 +146,9 @@ export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpReq
 // Stdio transport
 // ---------------------------------------------------------------------------
 
-export const runMcpStdioServer = async (config: ExecutorMcpServerConfig): Promise<void> => {
+export const runMcpStdioServer = async (
+  config: ExecutorMcpServerConfig
+): Promise<void> => {
   const server = await Effect.runPromise(createExecutorMcpServer(config));
   const transport = new StdioServerTransport();
 
@@ -109,11 +167,22 @@ export const runMcpStdioServer = async (config: ExecutorMcpServerConfig): Promis
       process.stdin.once("close", finish);
     });
 
-  try {
-    await server.connect(transport);
-    await waitForExit();
-  } finally {
-    await transport.close().catch(() => undefined);
-    await server.close().catch(() => undefined);
-  }
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      yield* tryBoundaryPromise(() => server.connect(transport));
+      yield* tryBoundaryPromise(waitForExit);
+    }).pipe(
+      Effect.ensuring(
+        Effect.all(
+          [
+            ignoreBoundaryPromise(() => transport.close()),
+            ignoreBoundaryPromise(() => server.close()),
+          ],
+          {
+            discard: true,
+          }
+        )
+      )
+    )
+  );
 };
