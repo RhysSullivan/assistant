@@ -2,7 +2,7 @@
 // and error fidelity within a single org.
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 
 import { ScopeId, SecretId } from "@executor-js/sdk";
 
@@ -128,7 +128,7 @@ describe("secrets api (HTTP)", () => {
           .remove({ params: { scopeId: ScopeId.make(org), secretId: SecretId.make(missing) } })
           .pipe(Effect.result),
       );
-      expect(result._tag).toBe("Success");
+      expect(Result.isSuccess(result)).toBe(true);
     }),
   );
 

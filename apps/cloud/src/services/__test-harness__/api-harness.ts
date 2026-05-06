@@ -135,6 +135,7 @@ const TestExecutionStackMiddleware = HttpRouter.middleware<{
         const request = yield* HttpServerRequest.HttpServerRequest;
         const orgId = request.headers[TEST_ORG_HEADER];
         if (!orgId || typeof orgId !== "string") {
+          // oxlint-disable-next-line executor/no-effect-escape-hatch, executor/no-error-constructor -- boundary: test HTTP harness has no request context without x-test-org-id
           return yield* Effect.die(new Error("missing x-test-org-id"));
         }
         const userHeader = request.headers[TEST_USER_HEADER];

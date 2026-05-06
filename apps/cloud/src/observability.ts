@@ -42,6 +42,7 @@ export const sentryPayloadForCause = (
   if (Cause.isCause(input)) {
     const pretty = Cause.pretty(input);
     const errors = Cause.prettyErrors(input);
+    // oxlint-disable-next-line executor/no-error-constructor -- boundary: Sentry captureException needs an Error-like primary payload for pretty Effect causes
     return { primary: errors[0] ?? new Error(pretty), pretty };
   }
   return { primary: input, pretty: null };

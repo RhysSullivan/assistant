@@ -17,6 +17,7 @@ export default defineConfig({
     // the socket is closing anyway — so filter it out rather than fail
     // the run with noise.
     onUnhandledError(error) {
+      // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: Vitest unhandled-error hook receives unknown host errors
       if (error && (error as Error).message === "Stream was cancelled.") {
         return false;
       }

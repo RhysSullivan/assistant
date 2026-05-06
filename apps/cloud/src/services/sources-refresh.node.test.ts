@@ -84,9 +84,12 @@ const serveMutableSpec = () => {
 
 describe("sources.refresh (HTTP)", () => {
   it.effect("addSpec from URL → canRefresh:true; refresh re-fetches and updates tools", () =>
-    Effect.gen(function* () {
-      const server = yield* Effect.promise(() => serveMutableSpec());
-      try {
+    Effect.scoped(
+      Effect.gen(function* () {
+        const server = yield* Effect.acquireRelease(
+          Effect.promise(() => serveMutableSpec()),
+          (server) => Effect.promise(() => server.close()),
+        );
         const org = `org_${crypto.randomUUID()}`;
         const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
 
@@ -139,10 +142,8 @@ describe("sources.refresh (HTTP)", () => {
         expect(afterTools.length).toBe(2);
         expect(afterTools.some((t) => t.name.startsWith("ping"))).toBe(true);
         expect(afterTools.some((t) => t.name.startsWith("pong"))).toBe(true);
-      } finally {
-        yield* Effect.promise(() => server.close());
-      }
-    }),
+      }),
+    ),
   );
 
   it.effect("addSpec from raw text → canRefresh:false; refresh is a no-op", () =>
