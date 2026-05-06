@@ -35,13 +35,9 @@
 // every strategy because refresh semantics are strategy-independent.
 // ---------------------------------------------------------------------------
 
-import { Effect, Schema } from "effect";
+import { Effect, Option, Predicate, Schema } from "effect";
 
-import type {
-  DBAdapter,
-  StorageFailure,
-  TypedAdapter,
-} from "@executor-js/storage-core";
+import type { DBAdapter, StorageFailure, TypedAdapter } from "@executor-js/storage-core";
 
 import {
   ConnectionRefreshError,
@@ -52,9 +48,7 @@ import {
   type ConnectionRefreshResult,
   type ConnectionRef,
 } from "./connections";
-import type {
-  ConnectionProviderNotRegisteredError,
-} from "./errors";
+import type { ConnectionProviderNotRegisteredError } from "./errors";
 import type { CoreSchema } from "./core-schema";
 import { ConnectionId, ScopeId, SecretId } from "./ids";
 import { SetSecretInput, type SecretRef } from "./secrets";
@@ -100,6 +94,8 @@ import {
 
 const OAuthAuthorizationServerMetadataJson = Schema.Record(Schema.String, Schema.Unknown);
 const OAuthClientInformationJson = Schema.Record(Schema.String, Schema.Unknown);
+const UnknownRecord = Schema.Record(Schema.String, Schema.Unknown);
+const JsonValueSchema = Schema.fromJsonString(Schema.Unknown);
 
 const DynamicDcrSessionPayload = Schema.Struct({
   kind: Schema.Literal("dynamic-dcr"),
@@ -110,9 +106,7 @@ const DynamicDcrSessionPayload = Schema.Struct({
   authorizationServerMetadata: OAuthAuthorizationServerMetadataJson,
   clientInformation: OAuthClientInformationJson,
   resourceMetadataUrl: Schema.NullOr(Schema.String),
-  resourceMetadata: Schema.NullOr(
-    Schema.Record(Schema.String, Schema.Unknown),
-  ),
+  resourceMetadata: Schema.NullOr(Schema.Record(Schema.String, Schema.Unknown)),
   scopes: Schema.Array(Schema.String),
 });
 
@@ -122,7 +116,9 @@ const AuthorizationCodeSessionPayload = Schema.Struct({
   codeVerifier: Schema.String,
   authorizationEndpoint: Schema.String,
   tokenEndpoint: Schema.String,
-  issuerUrl: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
+  issuerUrl: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
   clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.NullOr(Schema.String),
   scopes: Schema.Array(Schema.String),
@@ -144,22 +140,22 @@ const encodeSessionPayload = Schema.encodeSync(OAuthSessionPayload);
 
 const coerceJson = (value: unknown): unknown => {
   if (typeof value !== "string") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
+  const parsed = Schema.decodeUnknownOption(JsonValueSchema)(value);
+  return Option.isSome(parsed) ? parsed.value : value;
 };
 
 const stringArray = (value: unknown): readonly string[] =>
-  Array.isArray(value)
-    ? value.filter((scope): scope is string => typeof scope === "string")
-    : [];
+  Array.isArray(value) ? value.filter((scope): scope is string => typeof scope === "string") : [];
 
 const originOrNull = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
+  return parseUrlOption(value)?.origin ?? null;
+};
+
+const parseUrlOption = (value: string): URL | null => {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor is the platform URL parser
   try {
-    return new URL(value).origin;
+    return new URL(value);
   } catch {
     return null;
   }
@@ -167,8 +163,8 @@ const originOrNull = (value: unknown): string | null => {
 
 const decodeProviderState = (value: unknown): OAuthProviderState => {
   const raw = coerceJson(value);
-  const record =
-    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  const decodedRecord = Schema.decodeUnknownOption(UnknownRecord)(raw);
+  const record = Option.isSome(decodedRecord) ? decodedRecord.value : null;
 
   if (record && !("kind" in record) && "flow" in record && "tokenUrl" in record) {
     const flow = record.flow;
@@ -196,12 +192,7 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
     }
   }
 
-  if (
-    record &&
-    !("kind" in record) &&
-    "clientIdSecretId" in record &&
-    "scopes" in record
-  ) {
+  if (record && !("kind" in record) && "clientIdSecretId" in record && "scopes" in record) {
     const scopes = stringArray(record.scopes);
     return Schema.decodeUnknownSync(OAuthProviderStateSchema)({
       kind: "authorization-code",
@@ -214,48 +205,38 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
     });
   }
 
-  if (
-    record &&
-    !("kind" in record) &&
-    "clientInformation" in record &&
-    "endpoint" in record
-  ) {
-    const clientInformation =
-      record.clientInformation && typeof record.clientInformation === "object"
-        ? (record.clientInformation as Record<string, unknown>)
-        : null;
+  if (record && !("kind" in record) && "clientInformation" in record && "endpoint" in record) {
+    const decodedClientInformation = Schema.decodeUnknownOption(UnknownRecord)(
+      record.clientInformation,
+    );
+    const clientInformation = Option.isSome(decodedClientInformation)
+      ? decodedClientInformation.value
+      : null;
+    const decodedAuthorizationServerMetadata = Schema.decodeUnknownOption(UnknownRecord)(
+      record.authorizationServerMetadata,
+    );
+    const authorizationServerMetadata = Option.isSome(decodedAuthorizationServerMetadata)
+      ? decodedAuthorizationServerMetadata.value
+      : null;
     return Schema.decodeUnknownSync(OAuthProviderStateSchema)({
       kind: "dynamic-dcr",
       tokenEndpoint:
         typeof record.tokenEndpoint === "string"
           ? record.tokenEndpoint
-          : record.authorizationServerMetadata &&
-              typeof record.authorizationServerMetadata === "object" &&
-              typeof (record.authorizationServerMetadata as Record<string, unknown>)
-                .token_endpoint === "string"
-            ? ((record.authorizationServerMetadata as Record<string, unknown>)
-                .token_endpoint as string)
+          : typeof authorizationServerMetadata?.token_endpoint === "string"
+            ? authorizationServerMetadata.token_endpoint
             : "",
       issuerUrl:
-        record.authorizationServerMetadata &&
-        typeof record.authorizationServerMetadata === "object" &&
-        typeof (record.authorizationServerMetadata as Record<string, unknown>).issuer ===
-          "string"
-          ? ((record.authorizationServerMetadata as Record<string, unknown>)
-              .issuer as string)
+        typeof authorizationServerMetadata?.issuer === "string"
+          ? authorizationServerMetadata.issuer
           : null,
       authorizationServerUrl:
-        typeof record.authorizationServerUrl === "string"
-          ? record.authorizationServerUrl
-          : null,
+        typeof record.authorizationServerUrl === "string" ? record.authorizationServerUrl : null,
       authorizationServerMetadataUrl:
         typeof record.authorizationServerMetadataUrl === "string"
           ? record.authorizationServerMetadataUrl
           : null,
-      clientId:
-        typeof clientInformation?.client_id === "string"
-          ? clientInformation.client_id
-          : "",
+      clientId: typeof clientInformation?.client_id === "string" ? clientInformation.client_id : "",
       clientSecretSecretId: null,
       clientAuth: "body",
       scope: null,
@@ -288,10 +269,7 @@ export interface OAuthServiceDeps {
    *  `complete` (and from `start` for `client-credentials`). */
   readonly connectionsCreate: (
     input: CreateConnectionInput,
-  ) => Effect.Effect<
-    ConnectionRef,
-    ConnectionProviderNotRegisteredError | StorageFailure
-  >;
+  ) => Effect.Effect<ConnectionRef, ConnectionProviderNotRegisteredError | StorageFailure>;
   /** Random session id generator. Tests override to make outputs
    *  deterministic. */
   readonly newSessionId?: () => string;
@@ -304,9 +282,9 @@ const defaultSessionId = (): string => {
   if (crypto?.randomUUID) return `oauth2_session_${crypto.randomUUID()}`;
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  return `oauth2_session_${Array.from(bytes, (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("")}`;
+  return `oauth2_session_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  )}`;
 };
 
 const secretIdPart = (value: string): string =>
@@ -328,11 +306,7 @@ const oauthSecretId = (
 const scopedSessionId = (scopeId: string, sessionId: string): string =>
   `${sessionId}_${secretIdPart(scopeId).slice(0, 24)}`;
 
-const terminalRefreshErrors = new Set([
-  "invalid_grant",
-  "invalid_client",
-  "unauthorized_client",
-]);
+const terminalRefreshErrors = new Set(["invalid_grant", "invalid_client", "unauthorized_client"]);
 
 // ---------------------------------------------------------------------------
 // Service factory
@@ -347,19 +321,16 @@ export const makeOAuth2Service = (
   // -------------------------------------------------------------------
   // probe
   // -------------------------------------------------------------------
-  const probe = (
-    input: OAuthProbeInput,
-  ): Effect.Effect<OAuthProbeResult, OAuthProbeError> =>
+  const probe = (input: OAuthProbeInput): Effect.Effect<OAuthProbeResult, OAuthProbeError> =>
     Effect.gen(function* () {
-      const resource = yield* discoverProtectedResourceMetadata(
-        input.endpoint,
-        { resourceHeaders: input.headers, resourceQueryParams: input.queryParams },
-      ).pipe(
-        Effect.catchTag("OAuthDiscoveryError", (err) =>
+      const resource = yield* discoverProtectedResourceMetadata(input.endpoint, {
+        resourceHeaders: input.headers,
+        resourceQueryParams: input.queryParams,
+      }).pipe(
+        Effect.catchTag("OAuthDiscoveryError", () =>
           Effect.fail(
             new OAuthProbeError({
-              message: `Protected resource metadata probe failed: ${err.message}`,
-
+              message: "Protected resource metadata probe failed",
             }),
           ),
         ),
@@ -368,29 +339,19 @@ export const makeOAuth2Service = (
       const authorizationServerUrl = (() => {
         const fromResource = resource?.metadata.authorization_servers?.[0];
         if (fromResource) return fromResource;
-        try {
-          const u = new URL(input.endpoint);
-          return `${u.protocol}//${u.host}`;
-        } catch {
-          return null;
-        }
+        const u = parseUrlOption(input.endpoint);
+        return u ? `${u.protocol}//${u.host}` : null;
       })();
 
       const authServer = authorizationServerUrl
-        ? yield* discoverAuthorizationServerMetadata(
-            authorizationServerUrl,
-          ).pipe(
-            Effect.catchTag("OAuthDiscoveryError", () =>
-              Effect.succeed(null),
-            ),
+        ? yield* discoverAuthorizationServerMetadata(authorizationServerUrl).pipe(
+            Effect.catchTag("OAuthDiscoveryError", () => Effect.succeed(null)),
           )
         : null;
 
       const supportsDynamicRegistration = !!(
         authServer?.metadata.registration_endpoint &&
-        (authServer.metadata.token_endpoint_auth_methods_supported ?? []).includes(
-          "none",
-        )
+        (authServer.metadata.token_endpoint_auth_methods_supported ?? []).includes("none")
       );
 
       // Bearer challenge probe — POST the endpoint unauth, look for
@@ -400,47 +361,40 @@ export const makeOAuth2Service = (
       // challenge").
       const isBearerChallengeEndpoint = yield* Effect.tryPromise({
         try: async (): Promise<boolean> => {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 6_000);
-          try {
-            const probeUrl = new URL(input.endpoint);
-            for (const [key, value] of Object.entries(input.queryParams ?? {})) {
-              probeUrl.searchParams.set(key, value);
-            }
-            const response = await fetch(probeUrl.toString(), {
-              method: "POST",
-              headers: {
-                ...(input.headers ?? {}),
-                "content-type": "application/json",
-                accept: "application/json, text/event-stream",
-              },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "initialize",
-                params: {
-                  protocolVersion: "2025-06-18",
-                  capabilities: {},
-                  clientInfo: { name: "executor-probe", version: "0" },
-                },
-              }),
-              signal: controller.signal,
-            });
-            if (response.status !== 401) return false;
-            const wwwAuth =
-              response.headers.get("www-authenticate") ??
-              response.headers.get("WWW-Authenticate");
-            return !!wwwAuth && /^\s*bearer\b/i.test(wwwAuth);
-          } finally {
-            clearTimeout(timer);
+          const probeUrl = parseUrlOption(input.endpoint);
+          if (!probeUrl) return false;
+          for (const [key, value] of Object.entries(input.queryParams ?? {})) {
+            probeUrl.searchParams.set(key, value);
           }
+          const response = await fetch(probeUrl.toString(), {
+            method: "POST",
+            headers: {
+              ...(input.headers ?? {}),
+              "content-type": "application/json",
+              accept: "application/json, text/event-stream",
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                clientInfo: { name: "executor-probe", version: "0" },
+              },
+            }),
+            signal: AbortSignal.timeout(6_000),
+          });
+          if (response.status !== 401) return false;
+          const wwwAuth =
+            response.headers.get("www-authenticate") ?? response.headers.get("WWW-Authenticate");
+          return !!wwwAuth && /^\s*bearer\b/i.test(wwwAuth);
         },
         catch: () => null,
       }).pipe(Effect.catch(() => Effect.succeed(false)));
 
       return {
-        resourceMetadata:
-          (resource?.metadata as Record<string, unknown> | undefined) ?? null,
+        resourceMetadata: (resource?.metadata as Record<string, unknown> | undefined) ?? null,
         resourceMetadataUrl: resource?.metadataUrl ?? null,
         authorizationServerMetadata:
           (authServer?.metadata as Record<string, unknown> | undefined) ?? null,
@@ -459,20 +413,22 @@ export const makeOAuth2Service = (
     strategy: OAuthDynamicDcrStrategy,
   ): Effect.Effect<OAuthStartResult, OAuthStartError | StorageFailure> =>
     Effect.gen(function* () {
-      const started = yield* beginDynamicAuthorization({
-        endpoint: input.endpoint,
-        redirectUrl: input.redirectUrl,
-        state: "",
-        scopes: strategy.scopes,
-      }, {
-        resourceHeaders: input.headers,
-        resourceQueryParams: input.queryParams,
-      }).pipe(
-        Effect.catchTag("OAuthDiscoveryError", (err) =>
+      const started = yield* beginDynamicAuthorization(
+        {
+          endpoint: input.endpoint,
+          redirectUrl: input.redirectUrl,
+          state: "",
+          scopes: strategy.scopes,
+        },
+        {
+          resourceHeaders: input.headers,
+          resourceQueryParams: input.queryParams,
+        },
+      ).pipe(
+        Effect.catchTag("OAuthDiscoveryError", () =>
           Effect.fail(
             new OAuthStartError({
-              message: `Dynamic authorization setup failed: ${err.message}`,
-
+              message: "Dynamic authorization setup failed",
             }),
           ),
         ),
@@ -492,10 +448,7 @@ export const makeOAuth2Service = (
         authorizationUrl: started.state.authorizationServerMetadata.authorization_endpoint,
         clientId: started.state.clientInformation.client_id,
         redirectUrl: input.redirectUrl,
-        scopes:
-          strategy.scopes ??
-          started.state.authorizationServerMetadata.scopes_supported ??
-          [],
+        scopes: strategy.scopes ?? started.state.authorizationServerMetadata.scopes_supported ?? [],
         state: sessionId,
         codeChallenge,
       });
@@ -505,22 +458,20 @@ export const makeOAuth2Service = (
         identityLabel: input.identityLabel ?? null,
         codeVerifier: started.codeVerifier,
         authorizationServerUrl: started.state.authorizationServerUrl,
-        authorizationServerMetadataUrl:
-          started.state.authorizationServerMetadataUrl,
-        authorizationServerMetadata:
-          started.state.authorizationServerMetadata as Record<string, unknown>,
+        authorizationServerMetadataUrl: started.state.authorizationServerMetadataUrl,
+        authorizationServerMetadata: started.state.authorizationServerMetadata as Record<
+          string,
+          unknown
+        >,
         clientInformation: (() => {
           const value: unknown = started.state.clientInformation;
           return value as Record<string, unknown>;
         })(),
         resourceMetadataUrl: started.state.resourceMetadataUrl,
         resourceMetadata:
-          (started.state.resourceMetadata as Record<string, unknown> | null) ??
-          null,
+          (started.state.resourceMetadata as Record<string, unknown> | null) ?? null,
         scopes: [
-          ...(strategy.scopes ??
-            started.state.authorizationServerMetadata.scopes_supported ??
-            []),
+          ...(strategy.scopes ?? started.state.authorizationServerMetadata.scopes_supported ?? []),
         ],
       };
 
@@ -544,25 +495,22 @@ export const makeOAuth2Service = (
   ): Effect.Effect<OAuthStartResult, OAuthStartError | StorageFailure> =>
     Effect.gen(function* () {
       const clientId = yield* deps.secretsGet(strategy.clientIdSecretId).pipe(
-        Effect.mapError((err) =>
-          // Storage failure propagates; null returns aren't errors — the
-          // branch below handles them.
-          err,
+        Effect.mapError(
+          (err) =>
+            // Storage failure propagates; null returns aren't errors — the
+            // branch below handles them.
+            err,
         ),
       );
       if (clientId === null) {
-        return yield* Effect.fail(
-          new OAuthStartError({
-            message: `client_id secret "${strategy.clientIdSecretId}" not found`,
-          }),
-        );
+        return yield* new OAuthStartError({
+          message: `client_id secret "${strategy.clientIdSecretId}" not found`,
+        });
       }
 
       const sessionId = scopedSessionId(input.tokenScope, newSessionId());
       const codeVerifier = createPkceCodeVerifier();
-      const codeChallenge = yield* Effect.promise(() =>
-        createPkceCodeChallenge(codeVerifier),
-      );
+      const codeChallenge = yield* Effect.promise(() => createPkceCodeChallenge(codeVerifier));
 
       const authorizationUrl = buildAuthorizationUrl({
         authorizationUrl: strategy.authorizationEndpoint,
@@ -611,11 +559,9 @@ export const makeOAuth2Service = (
       const clientId = yield* deps.secretsGet(strategy.clientIdSecretId);
       const clientSecret = yield* deps.secretsGet(strategy.clientSecretSecretId);
       if (clientId === null || clientSecret === null) {
-        return yield* Effect.fail(
-          new OAuthStartError({
-            message: "client_id / client_secret secret not found",
-          }),
-        );
+        return yield* new OAuthStartError({
+          message: "client_id / client_secret secret not found",
+        });
       }
 
       const tokens = yield* exchangeClientCredentials({
@@ -627,18 +573,15 @@ export const makeOAuth2Service = (
         clientAuth: strategy.clientAuth ?? "body",
       }).pipe(
         Effect.mapError(
-          (err) =>
+          () =>
             new OAuthStartError({
-              message: `Client credentials exchange failed: ${err.message}`,
-
+              message: "Client credentials exchange failed",
             }),
         ),
       );
 
       const expiresAt =
-        typeof tokens.expires_in === "number"
-          ? now() + tokens.expires_in * 1000
-          : null;
+        typeof tokens.expires_in === "number" ? now() + tokens.expires_in * 1000 : null;
 
       const providerState: OAuthProviderState = {
         kind: "client-credentials",
@@ -666,19 +609,17 @@ export const makeOAuth2Service = (
             refreshToken: null,
             expiresAt,
             oauthScope: tokens.scope ?? null,
-            providerState: Schema.encodeSync(OAuthProviderStateSchema)(
-              providerState,
-            ) as Record<string, unknown>,
+            providerState: Schema.encodeSync(OAuthProviderStateSchema)(providerState) as Record<
+              string,
+              unknown
+            >,
           }),
         )
         .pipe(
           Effect.mapError(
-            (err) =>
+            () =>
               new OAuthStartError({
-                message: `Failed to mint connection: ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
-
+                message: "Failed to mint connection",
               }),
           ),
         );
@@ -709,22 +650,24 @@ export const makeOAuth2Service = (
     payload: OAuthSessionPayload;
     strategyKind: string;
   }): Effect.Effect<void, StorageFailure> =>
-    deps.adapter.create({
-      model: "oauth2_session",
-      data: {
-        id: args.sessionId,
-        scope_id: args.input.tokenScope,
-        plugin_id: args.input.pluginId,
-        strategy: args.strategyKind,
-        connection_id: args.input.connectionId,
-        token_scope: args.input.tokenScope,
-        redirect_url: args.input.redirectUrl,
-        payload: encodeSessionPayload(args.payload) as Record<string, unknown>,
-        expires_at: now() + OAUTH2_SESSION_TTL_MS,
-        created_at: new Date(),
-      },
-      forceAllowId: true,
-    }).pipe(Effect.asVoid);
+    deps.adapter
+      .create({
+        model: "oauth2_session",
+        data: {
+          id: args.sessionId,
+          scope_id: args.input.tokenScope,
+          plugin_id: args.input.pluginId,
+          strategy: args.strategyKind,
+          connection_id: args.input.connectionId,
+          token_scope: args.input.tokenScope,
+          redirect_url: args.input.redirectUrl,
+          payload: encodeSessionPayload(args.payload) as Record<string, unknown>,
+          expires_at: now() + OAUTH2_SESSION_TTL_MS,
+          created_at: new Date(),
+        },
+        forceAllowId: true,
+      })
+      .pipe(Effect.asVoid);
 
   // -------------------------------------------------------------------
   // complete — exchange the code, mint the Connection, delete the session
@@ -741,53 +684,45 @@ export const makeOAuth2Service = (
         where: [{ field: "id", value: input.state }],
       });
       if (!row) {
-        return yield* Effect.fail(
-          new OAuthSessionNotFoundError({ sessionId: input.state }),
-        );
+        return yield* new OAuthSessionNotFoundError({ sessionId: input.state });
       }
 
       const deleteSession = deps.adapter.delete({
         model: "oauth2_session",
         where: [
           { field: "id", value: input.state },
-          { field: "scope_id", value: row.scope_id as string },
+          { field: "scope_id", value: row.scope_id },
         ],
       });
 
       if (input.error) {
         yield* deleteSession;
-        return yield* Effect.fail(
-          new OAuthCompleteError({
-            message: `Authorization server returned error: ${input.error}`,
-            code: input.error,
-          }),
-        );
+        return yield* new OAuthCompleteError({
+          message: `Authorization server returned error: ${input.error}`,
+          code: input.error,
+        });
       }
       if (!input.code) {
         yield* deleteSession;
-        return yield* Effect.fail(
-          new OAuthCompleteError({
-            message: "Missing authorization code",
-          }),
-        );
+        return yield* new OAuthCompleteError({
+          message: "Missing authorization code",
+        });
       }
       const expiresAt = Number(row.expires_at as number | bigint);
       if (expiresAt <= now()) {
         yield* deleteSession;
-        return yield* Effect.fail(
-          new OAuthCompleteError({
-            message: "OAuth session expired",
-          }),
-        );
+        return yield* new OAuthCompleteError({
+          message: "OAuth session expired",
+        });
       }
 
       const payload = decodeSessionPayload(coerceJson(row.payload));
       const endpoint = ""; // not stored on the row — the payload's own
-                          // endpoint fields drive exchange; we just need
-                          // a display string for the identity label.
-      const connectionId = row.connection_id as string;
-      const tokenScope = row.token_scope as string;
-      const redirectUrl = row.redirect_url as string;
+      // endpoint fields drive exchange; we just need
+      // a display string for the identity label.
+      const connectionId = row.connection_id;
+      const tokenScope = row.token_scope;
+      const redirectUrl = row.redirect_url;
 
       // Dispatch to the strategy-specific exchange.
       const exchangeResult = yield* (() => {
@@ -795,11 +730,7 @@ export const makeOAuth2Service = (
           case "dynamic-dcr":
             return exchangeDynamicDcr(payload, input.code, redirectUrl);
           case "authorization-code":
-            return exchangeAuthorizationCodeStrategy(
-              payload,
-              input.code,
-              redirectUrl,
-            );
+            return exchangeAuthorizationCodeStrategy(payload, input.code, redirectUrl);
         }
       })().pipe(Effect.tapError(() => deleteSession));
 
@@ -828,11 +759,9 @@ export const makeOAuth2Service = (
           .pipe(
             Effect.as(secretId),
             Effect.mapError(
-              (err) =>
+              () =>
                 new OAuthCompleteError({
-                  message: `Failed to persist DCR client_secret: ${
-                    err instanceof Error ? err.message : String(err)
-                  }`,
+                  message: "Failed to persist DCR client_secret",
                 }),
             ),
           );
@@ -842,21 +771,21 @@ export const makeOAuth2Service = (
         payload.kind === "dynamic-dcr"
           ? {
               kind: "dynamic-dcr",
-              tokenEndpoint: (payload.authorizationServerMetadata as {
-                token_endpoint: string;
-              }).token_endpoint,
+              tokenEndpoint: (
+                payload.authorizationServerMetadata as {
+                  token_endpoint: string;
+                }
+              ).token_endpoint,
               issuerUrl:
-                (payload.authorizationServerMetadata as { issuer?: string }).issuer ??
-                null,
+                (payload.authorizationServerMetadata as { issuer?: string }).issuer ?? null,
               authorizationServerUrl: payload.authorizationServerUrl,
-              authorizationServerMetadataUrl:
-                payload.authorizationServerMetadataUrl,
-              idTokenSigningAlgValuesSupported:
-                (payload.authorizationServerMetadata as {
+              authorizationServerMetadataUrl: payload.authorizationServerMetadataUrl,
+              idTokenSigningAlgValuesSupported: (
+                payload.authorizationServerMetadata as {
                   id_token_signing_alg_values_supported?: string[];
-                }).id_token_signing_alg_values_supported,
-              clientId: (payload.clientInformation as { client_id: string })
-                .client_id,
+                }
+              ).id_token_signing_alg_values_supported,
+              clientId: (payload.clientInformation as { client_id: string }).client_id,
               clientSecretSecretId: dynamicClientSecretSecretId,
               clientAuth:
                 (payload.clientInformation as { token_endpoint_auth_method?: string })
@@ -901,19 +830,17 @@ export const makeOAuth2Service = (
               : null,
             expiresAt: connectionExpiresAt,
             oauthScope: exchangeResult.tokens.scope ?? null,
-            providerState: Schema.encodeSync(OAuthProviderStateSchema)(
-              providerState,
-            ) as Record<string, unknown>,
+            providerState: Schema.encodeSync(OAuthProviderStateSchema)(providerState) as Record<
+              string,
+              unknown
+            >,
           }),
         )
         .pipe(
           Effect.mapError(
-            (err) =>
+            () =>
               new OAuthCompleteError({
-                message: `Failed to mint connection: ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
-
+                message: "Failed to mint connection",
               }),
           ),
         );
@@ -962,19 +889,14 @@ export const makeOAuth2Service = (
         redirectUrl,
         codeVerifier: payload.codeVerifier,
         code,
-        idTokenSigningAlgValuesSupported:
-          md.id_token_signing_alg_values_supported,
-        clientAuth:
-          ci.token_endpoint_auth_method === "client_secret_basic"
-            ? "basic"
-            : "body",
+        idTokenSigningAlgValuesSupported: md.id_token_signing_alg_values_supported,
+        clientAuth: ci.token_endpoint_auth_method === "client_secret_basic" ? "basic" : "body",
       }).pipe(
         Effect.mapError(
           (err) =>
             new OAuthCompleteError({
-              message: `Token exchange failed: ${err.message}`,
+              message: "Token exchange failed",
               code: err.error,
-
             }),
         ),
       );
@@ -988,28 +910,21 @@ export const makeOAuth2Service = (
     payload: Extract<OAuthSessionPayload, { kind: "authorization-code" }>,
     code: string,
     redirectUrl: string,
-  ): Effect.Effect<
-    ExchangeResult,
-    OAuthCompleteError | StorageFailure
-  > =>
+  ): Effect.Effect<ExchangeResult, OAuthCompleteError | StorageFailure> =>
     Effect.gen(function* () {
       const clientId = yield* deps.secretsGet(payload.clientIdSecretId);
       if (clientId === null) {
-        return yield* Effect.fail(
-          new OAuthCompleteError({
-            message: `client_id secret "${payload.clientIdSecretId}" not found`,
-          }),
-        );
+        return yield* new OAuthCompleteError({
+          message: `client_id secret "${payload.clientIdSecretId}" not found`,
+        });
       }
       const clientSecret = payload.clientSecretSecretId
         ? yield* deps.secretsGet(payload.clientSecretSecretId)
         : null;
       if (payload.clientSecretSecretId && clientSecret === null) {
-        return yield* Effect.fail(
-          new OAuthCompleteError({
-            message: `client_secret secret "${payload.clientSecretSecretId}" not found`,
-          }),
-        );
+        return yield* new OAuthCompleteError({
+          message: `client_secret secret "${payload.clientSecretSecretId}" not found`,
+        });
       }
 
       const tokens = yield* exchangeAuthorizationCode({
@@ -1025,9 +940,8 @@ export const makeOAuth2Service = (
         Effect.mapError(
           (err) =>
             new OAuthCompleteError({
-              message: `Token exchange failed: ${err.message}`,
+              message: "Token exchange failed",
               code: err.error,
-
             }),
         ),
       );
@@ -1048,7 +962,7 @@ export const makeOAuth2Service = (
         model: "oauth2_session",
         where: [
           { field: "id", value: sessionId },
-          { field: "scope_id", value: row.scope_id as string },
+          { field: "scope_id", value: row.scope_id },
         ],
       });
     });
@@ -1071,9 +985,7 @@ export const makeOAuth2Service = (
           catch: (cause) =>
             new ConnectionRefreshError({
               connectionId: input.connectionId,
-              message: `oauth2 providerState is malformed: ${
-                cause instanceof Error ? cause.message : String(cause)
-              }`,
+              message: "oauth2 providerState is malformed",
               cause,
             }),
         });
@@ -1095,22 +1007,16 @@ export const makeOAuth2Service = (
             case "dynamic-dcr":
               return Effect.gen(function* () {
                 const csec = state.clientSecretSecretId
-                  ? yield* deps
-                      .secretsGet(state.clientSecretSecretId)
-                      .pipe(
-                        Effect.mapError(
-                          (cause) =>
-                            new ConnectionRefreshError({
-                              connectionId: input.connectionId,
-                              message: `Failed to resolve DCR client_secret: ${
-                                cause instanceof Error
-                                  ? cause.message
-                                  : String(cause)
-                              }`,
-                              cause,
-                            }),
-                        ),
-                      )
+                  ? yield* deps.secretsGet(state.clientSecretSecretId).pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new ConnectionRefreshError({
+                            connectionId: input.connectionId,
+                            message: "Failed to resolve DCR client_secret",
+                            cause,
+                          }),
+                      ),
+                    )
                   : null;
                 if (state.clientSecretSecretId && csec === null) {
                   return yield* new ConnectionRefreshError({
@@ -1124,22 +1030,16 @@ export const makeOAuth2Service = (
             case "authorization-code":
             case "client-credentials":
               return Effect.gen(function* () {
-                const cid = yield* deps
-                  .secretsGet(state.clientIdSecretId)
-                  .pipe(
-                    Effect.mapError(
-                      (cause) =>
-                        new ConnectionRefreshError({
-                          connectionId: input.connectionId,
-                          message: `Failed to resolve client_id secret: ${
-                            cause instanceof Error
-                              ? cause.message
-                              : String(cause)
-                          }`,
-                          cause,
-                        }),
-                    ),
-                  );
+                const cid = yield* deps.secretsGet(state.clientIdSecretId).pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new ConnectionRefreshError({
+                        connectionId: input.connectionId,
+                        message: "Failed to resolve client_id secret",
+                        cause,
+                      }),
+                  ),
+                );
                 if (cid === null) {
                   return yield* new ConnectionRefreshError({
                     connectionId: input.connectionId,
@@ -1148,22 +1048,16 @@ export const makeOAuth2Service = (
                   });
                 }
                 const csec = state.clientSecretSecretId
-                  ? yield* deps
-                      .secretsGet(state.clientSecretSecretId)
-                      .pipe(
-                        Effect.mapError(
-                          (cause) =>
-                            new ConnectionRefreshError({
-                              connectionId: input.connectionId,
-                              message: `Failed to resolve client_secret: ${
-                                cause instanceof Error
-                                  ? cause.message
-                                  : String(cause)
-                              }`,
-                              cause,
-                            }),
-                        ),
-                      )
+                  ? yield* deps.secretsGet(state.clientSecretSecretId).pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new ConnectionRefreshError({
+                            connectionId: input.connectionId,
+                            message: "Failed to resolve client_secret",
+                            cause,
+                          }),
+                      ),
+                    )
                   : null;
                 if (state.clientSecretSecretId && csec === null) {
                   return yield* new ConnectionRefreshError({
@@ -1179,32 +1073,25 @@ export const makeOAuth2Service = (
 
         const tokenEndpoint = yield* (() => {
           if (state.tokenEndpoint) return Effect.succeed(state.tokenEndpoint);
-          if (
-            state.kind === "dynamic-dcr" &&
-            state.authorizationServerUrl
-          ) {
-            return discoverAuthorizationServerMetadata(
-              state.authorizationServerUrl,
-            ).pipe(
+          if (state.kind === "dynamic-dcr" && state.authorizationServerUrl) {
+            return discoverAuthorizationServerMetadata(state.authorizationServerUrl).pipe(
               Effect.flatMap((metadata) =>
                 metadata?.metadata.token_endpoint
                   ? Effect.succeed(metadata.metadata.token_endpoint)
                   : Effect.fail(
                       new ConnectionRefreshError({
                         connectionId: input.connectionId,
-                        message:
-                          "oauth2 legacy MCP providerState is missing token endpoint",
+                        message: "oauth2 legacy MCP providerState is missing token endpoint",
                         reauthRequired: true,
                       }),
                     ),
               ),
               Effect.mapError((cause) =>
-                cause instanceof ConnectionRefreshError
+                Predicate.isTagged("ConnectionRefreshError")(cause)
                   ? cause
                   : new ConnectionRefreshError({
                       connectionId: input.connectionId,
-                      message:
-                        "Failed to discover token endpoint for legacy MCP OAuth connection",
+                      message: "Failed to discover token endpoint for legacy MCP OAuth connection",
                       reauthRequired: true,
                       cause,
                     }),
@@ -1220,56 +1107,51 @@ export const makeOAuth2Service = (
           );
         })();
 
-        const tokens = yield* (state.kind === "client-credentials"
-          ? exchangeClientCredentials({
-              tokenUrl: tokenEndpoint,
-              clientId,
-              clientSecret: clientSecret ?? "",
-              scopes: state.scopes,
-              scopeSeparator: state.scopeSeparator,
-              clientAuth: state.clientAuth,
-            })
-          : refreshAccessToken({
-              tokenUrl: tokenEndpoint,
-              issuerUrl:
-                state.kind === "dynamic-dcr" || state.kind === "authorization-code"
-                  ? (state.issuerUrl ?? undefined)
-                  : undefined,
-              clientId,
-              clientSecret: clientSecret ?? undefined,
-              refreshToken: input.refreshToken!,
-              scopes:
-                state.kind === "dynamic-dcr" || state.kind === "authorization-code"
-                  ? state.scopes
-                  : undefined,
-              scopeSeparator:
-                state.kind === "dynamic-dcr" || state.kind === "authorization-code"
-                  ? state.scopeSeparator
-                  : undefined,
-              clientAuth: state.clientAuth,
-              idTokenSigningAlgValuesSupported:
-                state.kind === "dynamic-dcr"
-                  ? state.idTokenSigningAlgValuesSupported
-                  : undefined,
-            })).pipe(
+        const tokens = yield* (
+          state.kind === "client-credentials"
+            ? exchangeClientCredentials({
+                tokenUrl: tokenEndpoint,
+                clientId,
+                clientSecret: clientSecret ?? "",
+                scopes: state.scopes,
+                scopeSeparator: state.scopeSeparator,
+                clientAuth: state.clientAuth,
+              })
+            : refreshAccessToken({
+                tokenUrl: tokenEndpoint,
+                issuerUrl:
+                  state.kind === "dynamic-dcr" || state.kind === "authorization-code"
+                    ? (state.issuerUrl ?? undefined)
+                    : undefined,
+                clientId,
+                clientSecret: clientSecret ?? undefined,
+                refreshToken: input.refreshToken!,
+                scopes:
+                  state.kind === "dynamic-dcr" || state.kind === "authorization-code"
+                    ? state.scopes
+                    : undefined,
+                scopeSeparator:
+                  state.kind === "dynamic-dcr" || state.kind === "authorization-code"
+                    ? state.scopeSeparator
+                    : undefined,
+                clientAuth: state.clientAuth,
+                idTokenSigningAlgValuesSupported:
+                  state.kind === "dynamic-dcr" ? state.idTokenSigningAlgValuesSupported : undefined,
+              })
+        ).pipe(
           Effect.mapError(
             (err) =>
               new ConnectionRefreshError({
                 connectionId: input.connectionId,
-                message: `OAuth refresh failed: ${err.message}`,
+                message: "OAuth refresh failed",
                 // Terminal RFC 6749 §5.2 errors mean retrying won't heal it.
-                reauthRequired: err.error
-                  ? terminalRefreshErrors.has(err.error)
-                  : false,
-
+                reauthRequired: err.error ? terminalRefreshErrors.has(err.error) : false,
               }),
           ),
         );
 
         const expiresAt =
-          typeof tokens.expires_in === "number"
-            ? now() + tokens.expires_in * 1000
-            : null;
+          typeof tokens.expires_in === "number" ? now() + tokens.expires_in * 1000 : null;
 
         const result: ConnectionRefreshResult = {
           accessToken: tokens.access_token,
@@ -1293,9 +1175,5 @@ export const makeOAuth2Service = (
 
 const safeHostname = (value: string | null): string | null => {
   if (!value) return null;
-  try {
-    return new URL(value).host;
-  } catch {
-    return value;
-  }
+  return parseUrlOption(value)?.host ?? value;
 };
