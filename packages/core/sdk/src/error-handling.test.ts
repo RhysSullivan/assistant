@@ -22,7 +22,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Predicate } from "effect";
 
 import {
   StorageError,
@@ -83,9 +83,13 @@ const baseConfig = (adapter: DBAdapter) => ({
 describe("typed-error edge model — SDK", () => {
   it.effect("StorageError propagates raw through the executor surface", () =>
     Effect.gen(function* () {
+      const driverCause = new StorageError({
+        message: "driver kaboom",
+        cause: undefined,
+      });
       const failure = new StorageError({
         message: "backend lost its mind",
-        cause: new Error("driver kaboom"),
+        cause: driverCause,
       });
       const executor = yield* createExecutor(
         baseConfig(makeFailingAdapter(failure)),
@@ -93,12 +97,12 @@ describe("typed-error edge model — SDK", () => {
 
       const result = yield* executor.tools.list().pipe(Effect.flip);
       expect(result).toBeInstanceOf(StorageError);
-      expect(result._tag).toBe("StorageError");
+      expect(Predicate.isTagged(result, "StorageError")).toBe(true);
       // Original cause preserved end-to-end.
       const storageErr = result as StorageError;
       expect(storageErr.message).toBe("backend lost its mind");
-      expect(storageErr.cause).toBeInstanceOf(Error);
-      expect((storageErr.cause as Error).message).toBe("driver kaboom");
+      expect(storageErr.cause).toBe(driverCause);
+      expect(driverCause.message).toBe("driver kaboom");
     }),
   );
 
