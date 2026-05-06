@@ -134,22 +134,22 @@ export const isValidPattern = (pattern: string): boolean => {
 // `generateKeyBetween(null, min)` from independent clients) would otherwise
 // flip on every refetch.
 export const comparePolicyRow = (
-  a: { position: unknown; id: unknown },
-  b: { position: unknown; id: unknown },
+  a: Pick<ToolPolicyRow, "position" | "id">,
+  b: Pick<ToolPolicyRow, "position" | "id">,
 ): number => {
-  const pa = a.position as string;
-  const pb = b.position as string;
+  const pa = a.position;
+  const pb = b.position;
   if (pa < pb) return -1;
   if (pa > pb) return 1;
-  const ia = a.id as string;
-  const ib = b.id as string;
+  const ia = a.id;
+  const ib = b.id;
   return ia < ib ? -1 : ia > ib ? 1 : 0;
 };
 
 export const resolveToolPolicy = (
   toolId: string,
   policies: readonly ToolPolicyRow[],
-  scopeRank: (row: { scope_id: unknown }) => number,
+  scopeRank: (row: Pick<ToolPolicyRow, "scope_id">) => number,
 ): PolicyMatch | undefined => {
   if (policies.length === 0) return undefined;
   const sorted = [...policies].sort((a, b) => {
@@ -159,11 +159,11 @@ export const resolveToolPolicy = (
     return comparePolicyRow(a, b);
   });
   for (const row of sorted) {
-    if (matchPattern(row.pattern as string, toolId)) {
+    if (matchPattern(row.pattern, toolId)) {
       return {
         action: row.action as ToolPolicyAction,
-        pattern: row.pattern as string,
-        policyId: row.id as string,
+        pattern: row.pattern,
+        policyId: row.id,
       };
     }
   }
@@ -201,7 +201,7 @@ const liftUser = (match: PolicyMatch): EffectivePolicy => ({
 export const resolveEffectivePolicy = (
   toolId: string,
   policies: readonly ToolPolicyRow[],
-  scopeRank: (row: { scope_id: unknown }) => number,
+  scopeRank: (row: Pick<ToolPolicyRow, "scope_id">) => number,
   defaultRequiresApproval?: boolean,
 ): EffectivePolicy => {
   const match = resolveToolPolicy(toolId, policies, scopeRank);
@@ -231,13 +231,13 @@ export const effectivePolicyFromSorted = (
 // ---------------------------------------------------------------------------
 
 export const rowToToolPolicy = (row: ToolPolicyRow): ToolPolicy => ({
-  id: PolicyId.make(row.id as string),
-  scopeId: ScopeId.make(row.scope_id as string),
-  pattern: row.pattern as string,
+  id: PolicyId.make(row.id),
+  scopeId: ScopeId.make(row.scope_id),
+  pattern: row.pattern,
   action: row.action as ToolPolicyAction,
-  position: row.position as string,
-  createdAt: row.created_at as Date,
-  updatedAt: row.updated_at as Date,
+  position: row.position,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
 });
 
 // ---------------------------------------------------------------------------
