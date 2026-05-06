@@ -6,7 +6,7 @@
 
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpServerResponse } from "effect/unstable/http";
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 import { runOAuthCallback } from "../oauth-popup";
 import {
@@ -34,24 +34,29 @@ const resolveOAuthSecretBackedMap = <E extends OAuthProbeError | OAuthStartError
 ) =>
   resolveSecretBackedMap({
     values,
-    getSecret: executor.secrets.get,
+    getSecret: (secretId) =>
+      executor.secrets.get(secretId).pipe(
+        Effect.mapError(() => makeError(`Secret resolution failed for "${secretId}"`)),
+      ),
     onMissing: (name) => makeError(`Secret not found for "${name}"`),
     onError: (_error, name) => makeError(`Secret not found for "${name}"`),
-  }).pipe(
-    Effect.mapError((error) =>
-      error instanceof OAuthProbeError || error instanceof OAuthStartError
-        ? (error as E)
-        : makeError("Secret resolution failed"),
-    ),
-  );
+  });
 
 const toPopupErrorMessage = (error: unknown): string => {
-  if (error instanceof OAuthStartError) return error.message;
-  if (error instanceof OAuthCompleteError) return error.message;
-  if (error instanceof OAuthProbeError) return error.message;
-  if (error instanceof OAuthSessionNotFoundError) {
-    return `OAuth session not found: ${error.sessionId}`;
+  const startError = Schema.decodeUnknownOption(OAuthStartError)(error);
+  if (Option.isSome(startError)) return startError.value.message;
+
+  const completeError = Schema.decodeUnknownOption(OAuthCompleteError)(error);
+  if (Option.isSome(completeError)) return completeError.value.message;
+
+  const probeError = Schema.decodeUnknownOption(OAuthProbeError)(error);
+  if (Option.isSome(probeError)) return probeError.value.message;
+
+  const sessionNotFoundError = Schema.decodeUnknownOption(OAuthSessionNotFoundError)(error);
+  if (Option.isSome(sessionNotFoundError)) {
+    return `OAuth session not found: ${sessionNotFoundError.value.sessionId}`;
   }
+
   return "Authentication failed";
 };
 
@@ -147,7 +152,9 @@ export const OAuthHandlers = HttpApiBuilder.group(ExecutorApi, "oauth", (handler
                   Effect.tapError((cause) =>
                     Effect.logError("OAuth callback completion failed", cause),
                   ),
-                  Effect.catchCause(() => Effect.fail(new Error("Authentication failed"))),
+                  Effect.catchCause(() =>
+                    Effect.fail(new OAuthCompleteError({ message: "Authentication failed" })),
+                  ),
                 ),
             urlParams,
             toErrorMessage: toPopupErrorMessage,
