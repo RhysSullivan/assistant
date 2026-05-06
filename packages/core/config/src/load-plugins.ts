@@ -26,6 +26,7 @@ import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as fs from "node:fs";
 import * as jsonc from "jsonc-parser";
+import { Effect, Schema } from "effect";
 
 import type { AnyPlugin } from "@executor-js/sdk";
 
@@ -36,7 +37,15 @@ import type { AnyPlugin } from "@executor-js/sdk";
 // across the runtime boundary.
 type LooseConfiguredPlugin = (options?: Record<string, unknown>) => AnyPlugin;
 
-import type { PluginConfig } from "./schema";
+import { ExecutorFileConfig } from "./schema";
+
+export class LoadPluginsError extends Schema.TaggedErrorClass<LoadPluginsError>()(
+  "LoadPluginsError",
+  {
+    message: Schema.String,
+    cause: Schema.optional(Schema.Unknown),
+  },
+) {}
 
 export interface LoadPluginsFromJsoncOptions {
   /** Absolute path to `executor.jsonc` (or compatible). */
@@ -57,70 +66,102 @@ export interface LoadPluginsFromJsoncOptions {
  */
 export const loadPluginsFromJsonc = async (
   options: LoadPluginsFromJsoncOptions,
-): Promise<readonly AnyPlugin[] | null> => {
-  const { path, deps } = options;
-  if (!fs.existsSync(path)) return null;
+): Promise<readonly AnyPlugin[] | null> =>
+  Effect.runPromise(loadPluginsFromJsoncEffect(options));
 
-  const raw = fs.readFileSync(path, "utf8");
-  const errors: jsonc.ParseError[] = [];
-  const parsed = jsonc.parse(raw, errors) as
-    | { plugins?: readonly PluginConfig[] }
-    | undefined;
-  if (errors.length > 0) {
-    const msg = errors
-      .map((e) => `offset ${e.offset}: ${jsonc.printParseErrorCode(e.error)}`)
-      .join("; ");
-    throw new Error(`[load-plugins] failed to parse ${path}: ${msg}`);
-  }
+const loadPluginsFromJsoncEffect = (
+  options: LoadPluginsFromJsoncOptions,
+): Effect.Effect<readonly AnyPlugin[] | null, LoadPluginsError> =>
+  Effect.gen(function* () {
+    const { path, deps } = options;
+    if (!fs.existsSync(path)) return null;
 
-  const entries = parsed?.plugins ?? null;
-  if (!entries || entries.length === 0) return null;
+    const raw = fs.readFileSync(path, "utf8");
+    const errors: jsonc.ParseError[] = [];
+    const parsed = jsonc.parse(raw, errors);
+    if (errors.length > 0) {
+      const msg = errors
+        .map((e) => `offset ${e.offset}: ${jsonc.printParseErrorCode(e.error)}`)
+        .join("; ");
+      return yield* new LoadPluginsError({
+        message: `[load-plugins] failed to parse ${path}: ${msg}`,
+      });
+    }
 
-  // jiti is created once per call; `moduleCache: false` ensures a
-  // restart picks up freshly-installed packages without process restart
-  // (relevant when the dev server kicks a reload after `executor plugin
-  // install`).
-  const { createJiti } = await import("jiti");
-  const jiti = createJiti(pathToFileURL(path).href, {
-    interopDefault: true,
-    moduleCache: false,
+    const config = yield* Schema.decodeUnknownEffect(ExecutorFileConfig)(parsed).pipe(
+      Effect.mapError(
+        (error) =>
+          new LoadPluginsError({
+            message: `[load-plugins] failed to decode ${path}: ${error.issue.toString()}`,
+            cause: error,
+          }),
+      ),
+    );
+
+    const entries = config.plugins ?? null;
+    if (!entries || entries.length === 0) return null;
+
+    // jiti is created once per call; `moduleCache: false` ensures a
+    // restart picks up freshly-installed packages without process restart
+    // (relevant when the dev server kicks a reload after `executor plugin
+    // install`).
+    const { createJiti } = yield* Effect.tryPromise({
+      try: () => import("jiti"),
+      catch: (cause) =>
+        new LoadPluginsError({
+          message: `[load-plugins] failed to import jiti.`,
+          cause,
+        }),
+    });
+    const jiti = createJiti(pathToFileURL(path).href, {
+      interopDefault: true,
+      moduleCache: false,
+    });
+
+    const fromDir = dirname(path);
+    // require.resolve is anchored to the jsonc's directory so plugin
+    // packages resolve from the host app's `node_modules` regardless of
+    // CWD.
+    const require = createRequire(
+      isAbsolute(path) ? path : resolvePath(fromDir, "_anchor.js"),
+    );
+
+    const loaded: AnyPlugin[] = [];
+    for (const entry of entries) {
+      const serverEntry = `${entry.package}/server`;
+      const resolved = yield* Effect.try({
+        try: () => require.resolve(serverEntry),
+        catch: (cause) =>
+          new LoadPluginsError({
+            message:
+              `[load-plugins] cannot resolve "${serverEntry}" from ${fromDir}. ` +
+              `Is "${entry.package}" installed and does it export "./server"?`,
+            cause,
+          }),
+      });
+      const mod = (yield* Effect.tryPromise({
+        try: () => jiti.import(resolved),
+        catch: (cause) =>
+          new LoadPluginsError({
+            message: `[load-plugins] failed to import "${serverEntry}" from ${resolved}.`,
+            cause,
+          }),
+      })) as
+        | { default?: LooseConfiguredPlugin }
+        | LooseConfiguredPlugin;
+      const factory = (
+        typeof mod === "function" ? mod : (mod.default ?? null)
+      ) as LooseConfiguredPlugin | null;
+      if (!factory || typeof factory !== "function") {
+        return yield* new LoadPluginsError({
+          message:
+            `[load-plugins] "${serverEntry}" did not export a default ` +
+            `definePlugin(...) factory.`,
+        });
+      }
+      const merged = { ...(deps ?? {}), ...(entry.options ?? {}) };
+      loaded.push(factory(merged));
+    }
+
+    return loaded;
   });
-
-  const fromDir = dirname(path);
-  // require.resolve is anchored to the jsonc's directory so plugin
-  // packages resolve from the host app's `node_modules` regardless of
-  // CWD.
-  const require = createRequire(
-    isAbsolute(path) ? path : resolvePath(fromDir, "_anchor.js"),
-  );
-
-  const loaded: AnyPlugin[] = [];
-  for (const entry of entries) {
-    const serverEntry = `${entry.package}/server`;
-    let resolved: string;
-    try {
-      resolved = require.resolve(serverEntry);
-    } catch {
-      throw new Error(
-        `[load-plugins] cannot resolve "${serverEntry}" from ${fromDir}. ` +
-          `Is "${entry.package}" installed and does it export "./server"?`,
-      );
-    }
-    const mod = (await jiti.import(resolved)) as
-      | { default?: LooseConfiguredPlugin }
-      | LooseConfiguredPlugin;
-    const factory = (
-      typeof mod === "function" ? mod : (mod.default ?? null)
-    ) as LooseConfiguredPlugin | null;
-    if (!factory || typeof factory !== "function") {
-      throw new Error(
-        `[load-plugins] "${serverEntry}" did not export a default ` +
-          `definePlugin(...) factory.`,
-      );
-    }
-    const merged = { ...(deps ?? {}), ...(entry.options ?? {}) };
-    loaded.push(factory(merged));
-  }
-
-  return loaded;
-};
