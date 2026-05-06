@@ -5,6 +5,7 @@ import { definePlugin } from "@executor-js/sdk/core";
 import {
   makeConfiguredWorkOSVaultClient,
   type WorkOSVaultClient,
+  WorkOSVaultClientInstantiationError,
   type WorkOSVaultCredentials,
 } from "./client";
 import {
@@ -36,9 +37,11 @@ export interface WorkOSVaultPluginOptions {
   readonly contextForScope?: WorkOSVaultContextForScope;
 }
 
-export interface WorkOSVaultExtension {
-  readonly providerKey: typeof WORKOS_VAULT_PROVIDER_KEY;
-}
+const makeWorkOSVaultExtension = () => ({
+  providerKey: WORKOS_VAULT_PROVIDER_KEY,
+} as const);
+
+export type WorkOSVaultExtension = ReturnType<typeof makeWorkOSVaultExtension>;
 
 // The plugin's typed store is just its metadata-store wrapper. The
 // secret provider closes over this store plus the resolved WorkOS
@@ -48,15 +51,15 @@ type WorkosVaultPluginStore = WorkosVaultStore;
 
 const buildClient = (
   options: WorkOSVaultPluginOptions | undefined,
-): Effect.Effect<WorkOSVaultClient, Error, never> => {
+): Effect.Effect<WorkOSVaultClient, WorkOSVaultClientInstantiationError, never> => {
   if (options?.client) return Effect.succeed(options.client);
   if (options?.credentials) {
     return makeConfiguredWorkOSVaultClient(options.credentials);
   }
   return Effect.fail(
-    new Error(
-      "workosVaultPlugin requires either `client` or `credentials` to be provided",
-    ),
+    new WorkOSVaultClientInstantiationError({
+      cause: "workosVaultPlugin requires either `client` or `credentials` to be provided",
+    }),
   );
 };
 
@@ -67,9 +70,7 @@ export const workosVaultPlugin = definePlugin(
     schema: workosVaultSchema,
     storage: (deps): WorkosVaultPluginStore => makeWorkosVaultStore(deps),
 
-    extension: (_ctx): WorkOSVaultExtension => ({
-      providerKey: WORKOS_VAULT_PROVIDER_KEY,
-    }),
+    extension: makeWorkOSVaultExtension,
 
     secretProviders: (ctx) => {
       // Build (or accept) the WorkOS client once at startup. If
