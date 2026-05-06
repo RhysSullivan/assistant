@@ -269,7 +269,7 @@ export {
 } from "./config";
 
 // Test helper
-export { makeTestConfig } from "./testing";
+export { makeTestConfig } from "./test-config";
 
 // JSON schema $ref helpers (used by openapi for $defs handling)
 export { hoistDefinitions, collectRefs, reattachDefs, normalizeRefs } from "./schema-refs";
