@@ -32,6 +32,7 @@ import {
   ScopeId,
   SecretId,
   SetSecretInput,
+  ToolInvocationError,
   type InvokeOptions,
   type SecretProvider,
 } from "@executor-js/sdk";
@@ -170,7 +171,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         // -------------------------------------------------------------
         yield* adminExec.openapi.addSpec({
           spec: specJson,
-          scope: orgScope.id as string,
+          scope: String(orgScope.id),
           namespace: "vercel",
           baseUrl,
           headers: {
@@ -344,7 +345,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
 
         yield* adminExec.openapi.addSpec({
           spec: specJson,
-          scope: orgScope.id as string,
+          scope: String(orgScope.id),
           namespace: "vercel",
           baseUrl,
           headers: {
@@ -481,7 +482,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
 
         yield* adminExec.openapi.addSpec({
           spec: specJson,
-          scope: orgScope.id as string,
+          scope: String(orgScope.id),
           namespace: "vercel",
           baseUrl,
           headers: {
@@ -553,9 +554,9 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
 
         yield* aliceExec.openapi.removeSourceBinding(
           "vercel",
-          orgScope.id as string,
+          String(orgScope.id),
           "auth:token",
-          aliceScope.id as string,
+          String(aliceScope.id),
         );
 
         const fallbackResult = (yield* aliceExec.tools.invoke(
@@ -579,10 +580,10 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           }),
         );
 
-        yield* adminExec.openapi.removeSpec("vercel", orgScope.id as string);
+        yield* adminExec.openapi.removeSpec("vercel", String(orgScope.id));
         yield* adminExec.openapi.addSpec({
           spec: specJson,
-          scope: orgScope.id as string,
+          scope: String(orgScope.id),
           namespace: "vercel",
           baseUrl,
           headers: {
@@ -596,16 +597,18 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
 
         const bindingsAfterReadd = yield* aliceExec.openapi.listSourceBindings(
           "vercel",
-          orgScope.id as string,
+          String(orgScope.id),
         );
         expect(bindingsAfterReadd).toEqual([]);
 
         const error = yield* Effect.flip(
           aliceExec.tools.invoke("vercel.projects.list", {}, autoApprove),
         );
-        expect((error as { _tag: string })._tag).toBe("ToolInvocationError");
-        expect((error as { message: string }).message).toContain(
-          'Missing binding for header "Authorization"',
+        expect(error).toBeInstanceOf(ToolInvocationError);
+        expect(error).toEqual(
+          expect.objectContaining({
+            message: expect.stringContaining('Missing binding for header "Authorization"'),
+          }),
         );
       }),
   );
@@ -657,20 +660,20 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
 
       yield* adminExec.openapi.addSpec({
         spec: specJson,
-        scope: orgScope.id as string,
+        scope: String(orgScope.id),
         namespace: "vercel",
         baseUrl: "https://api.vercel.example",
       });
 
       yield* aliceExec.openapi.addSpec({
         spec: specJson,
-        scope: aliceScope.id as string,
+        scope: String(aliceScope.id),
         namespace: "vercel",
       });
 
       const source = yield* aliceExec.openapi.getSource(
         "vercel",
-        aliceScope.id as string,
+        String(aliceScope.id),
       );
       expect(source?.scope).toBe(aliceScope.id);
       expect(source?.config.baseUrl).toBe("https://api.vercel.example");
@@ -739,7 +742,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
 
       yield* adminExec.openapi.addSpec({
         spec: specJson,
-        scope: orgScope.id as string,
+        scope: String(orgScope.id),
         namespace: "vercel",
         baseUrl,
         headers: {
@@ -752,7 +755,7 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
       });
       yield* aliceExec.openapi.addSpec({
         spec: specJson,
-        scope: aliceScope.id as string,
+        scope: String(aliceScope.id),
         namespace: "vercel",
       });
 

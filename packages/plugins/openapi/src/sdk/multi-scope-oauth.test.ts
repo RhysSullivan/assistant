@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 
 import { afterEach, expect, layer } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
+import { Data, Effect, Layer, Predicate, Schema } from "effect";
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { FetchHttpClient, HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
@@ -32,6 +32,10 @@ import { openApiPlugin } from "./plugin";
 import { OAuth2Auth } from "./types";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
+
+class TestInvariantError extends Data.TaggedError("TestInvariantError")<{
+  readonly message: string;
+}> {}
 
 // ---------------------------------------------------------------------------
 // Test API — a single endpoint that echoes the Authorization header so the
@@ -137,7 +141,9 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       const clientLayer = FetchHttpClient.layer;
       const server = yield* HttpServer.HttpServer;
       const address = server.address;
-      if (address._tag !== "TcpAddress") return yield* Effect.die("test server must bind to TCP");
+      if (!Predicate.isTagged(address, "TcpAddress")) {
+        return yield* new TestInvariantError({ message: "test server must bind to TCP" });
+      }
       const baseUrl = `http://127.0.0.1:${address.port}`;
       const plugins = [
         openApiPlugin({ httpClientLayer: clientLayer }),
@@ -257,10 +263,10 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       );
       const bobStart = yield* startAuthorizationCode(bobExec, startInputFor("bob", bobScope.id));
       if (aliceStart.authorizationUrl === null) {
-        throw new Error("expected authorizationCode flow for alice");
+        return yield* new TestInvariantError({ message: "expected authorizationCode flow for alice" });
       }
       if (bobStart.authorizationUrl === null) {
-        throw new Error("expected authorizationCode flow for bob");
+        return yield* new TestInvariantError({ message: "expected authorizationCode flow for bob" });
       }
 
       const aliceAuth = yield* aliceExec.oauth.complete({
@@ -306,14 +312,14 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // -------------------------------------------------------------
       yield* aliceExec.openapi.addSpec({
         spec: specJson,
-        scope: aliceScope.id as string,
+        scope: String(aliceScope.id),
         namespace: "petstore",
         baseUrl,
         oauth2: aliceOAuth2Auth,
       });
       yield* bobExec.openapi.addSpec({
         spec: specJson,
-        scope: bobScope.id as string,
+        scope: String(bobScope.id),
         namespace: "petstore",
         baseUrl,
         oauth2: bobOAuth2Auth,
@@ -351,7 +357,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       expect(String(bobConn?.scopeId)).toBe("user-bob");
 
       const adminConnectionIds = new Set(
-        (yield* adminExec.connections.list()).map((c) => c.id as string),
+        (yield* adminExec.connections.list()).map((c) => String(c.id)),
       );
       expect(adminConnectionIds).not.toContain(String(aliceAuth.connectionId));
       expect(adminConnectionIds).not.toContain(String(bobAuth.connectionId));
@@ -406,7 +412,9 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       const clientLayer = FetchHttpClient.layer;
       const server = yield* HttpServer.HttpServer;
       const address = server.address;
-      if (address._tag !== "TcpAddress") return yield* Effect.die("test server must bind to TCP");
+      if (!Predicate.isTagged(address, "TcpAddress")) {
+        return yield* new TestInvariantError({ message: "test server must bind to TCP" });
+      }
       const baseUrl = `http://127.0.0.1:${address.port}`;
       const plugins = [
         openApiPlugin({ httpClientLayer: clientLayer }),
@@ -541,7 +549,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
             endpoint: input.tokenUrl,
             redirectUrl: input.tokenUrl,
             connectionId: input.connectionId,
-            tokenScope: tokenScope as string,
+            tokenScope: String(tokenScope),
             pluginId: "openapi",
             identityLabel: `${input.displayName} OAuth`,
             strategy: {
@@ -553,7 +561,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
             },
           });
           if (!started.completedConnection) {
-            throw new Error("expected clientCredentials flow");
+            return yield* new TestInvariantError({ message: "expected clientCredentials flow" });
           }
           return new OAuth2Auth({
             kind: "oauth2",
@@ -575,7 +583,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       const adminAuth = yield* startClientCredentials(adminExec, orgScope.id, startInput);
       yield* adminExec.openapi.addSpec({
         spec: specJson,
-        scope: orgScope.id as string,
+        scope: String(orgScope.id),
         namespace: "petstore",
         baseUrl,
         oauth2: adminAuth,
@@ -624,7 +632,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
       // (4) Each user's invocation resolves their OWN row and gets
       // their OWN token — not whatever the last signer happened to
       // mint. This is the core multi-user regression.
-      yield* aliceExec.openapi.updateSource("petstore", orgScope.id as string, {
+      yield* aliceExec.openapi.updateSource("petstore", String(orgScope.id), {
         oauth2: aliceAuth,
       });
       const aliceResult = (yield* aliceExec.tools.invoke(
