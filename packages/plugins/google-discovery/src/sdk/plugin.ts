@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect";
+import { Effect, Option, Predicate, Schema } from "effect";
 
 import {
   ScopeId,
@@ -21,7 +21,6 @@ import {
   googleDiscoverySchema,
   makeGoogleDiscoveryStore,
   type GoogleDiscoveryStore,
-  type GoogleDiscoveryStoredSource,
 } from "./binding-store";
 import { extractGoogleDiscoveryManifest } from "./document";
 import { annotationsForOperation, invokeGoogleDiscoveryTool } from "./invoke";
@@ -86,46 +85,18 @@ export type GoogleDiscoveryExtensionFailure =
   | GoogleDiscoverySourceError
   | StorageFailure;
 
-export interface GoogleDiscoveryPluginExtension {
-  readonly probeDiscovery: (
-    input: string | GoogleDiscoveryProbeInput,
-  ) => Effect.Effect<
-    GoogleDiscoveryProbeResult,
-    GoogleDiscoveryParseError | GoogleDiscoverySourceError
-  >;
-  readonly addSource: (
-    input: GoogleDiscoveryAddSourceInput,
-  ) => Effect.Effect<
-    { readonly toolCount: number; readonly namespace: string },
-    GoogleDiscoveryParseError | GoogleDiscoverySourceError | StorageFailure
-  >;
-  readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
-  readonly getSource: (
-    namespace: string,
-    scope: string,
-  ) => Effect.Effect<GoogleDiscoveryStoredSource | null, StorageFailure>;
-  readonly updateSource: (
-    namespace: string,
-    scope: string,
-    input: GoogleDiscoveryUpdateSourceInput,
-  ) => Effect.Effect<void, StorageFailure>;
-}
-
 // ---------------------------------------------------------------------------
 // URL normalization + slug helpers (unchanged)
 // ---------------------------------------------------------------------------
 
 const DISCOVERY_SERVICE_HOST = "https://www.googleapis.com/discovery/v1/apis";
+const decodeToolScope = Schema.decodeUnknownSync(Schema.String);
 
 const normalizeDiscoveryUrl = (discoveryUrl: string): string => {
   const trimmed = discoveryUrl.trim();
   if (trimmed.length === 0) return trimmed;
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return trimmed;
-  }
+  if (!URL.canParse(trimmed)) return trimmed;
+  const parsed = new URL(trimmed);
   if (parsed.pathname !== "/$discovery/rest") return trimmed;
   const version = parsed.searchParams.get("version")?.trim();
   if (!version) return trimmed;
@@ -164,7 +135,7 @@ const resolveGoogleDiscoveryCredentials = (
         }),
     }).pipe(
       Effect.mapError((err) =>
-        err instanceof GoogleDiscoverySourceError
+        Predicate.isTagged(err, "GoogleDiscoverySourceError")
           ? err
           : new GoogleDiscoverySourceError({ message: "Secret resolution failed" }),
       ),
@@ -182,7 +153,7 @@ const resolveGoogleDiscoveryCredentials = (
         }),
     }).pipe(
       Effect.mapError((err) =>
-        err instanceof GoogleDiscoverySourceError
+        Predicate.isTagged(err, "GoogleDiscoverySourceError")
           ? err
           : new GoogleDiscoverySourceError({ message: "Secret resolution failed" }),
       ),
@@ -200,29 +171,40 @@ const fetchDiscoveryDocument = (
     readonly queryParams?: Record<string, string>;
   },
 ) =>
-  Effect.tryPromise({
-    try: async () => {
-      const url = new URL(normalizeDiscoveryUrl(discoveryUrl));
-      for (const [key, value] of Object.entries(credentials?.queryParams ?? {})) {
-        url.searchParams.set(key, value);
-      }
-      const response = await fetch(url.toString(), {
-        headers: credentials?.headers,
-        signal: AbortSignal.timeout(20_000),
+  Effect.gen(function* () {
+    const url = yield* Effect.try({
+      try: () => new URL(normalizeDiscoveryUrl(discoveryUrl)),
+      catch: () =>
+        new GoogleDiscoverySourceError({
+          message: "Google Discovery URL is invalid",
+        }),
+    });
+    for (const [key, value] of Object.entries(credentials?.queryParams ?? {})) {
+      url.searchParams.set(key, value);
+    }
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(url.toString(), {
+          headers: credentials?.headers,
+          signal: AbortSignal.timeout(20_000),
+        }),
+      catch: () =>
+        new GoogleDiscoverySourceError({
+          message: "Google Discovery fetch failed",
+        }),
+    });
+    if (!response.ok) {
+      return yield* new GoogleDiscoverySourceError({
+        message: `Google Discovery fetch failed with status ${response.status}`,
       });
-      if (!response.ok) {
-        throw new GoogleDiscoverySourceError({
-          message: `Google Discovery fetch failed with status ${response.status}`,
-        });
-      }
-      return response.text();
-    },
-    catch: (cause) =>
-      cause instanceof GoogleDiscoverySourceError
-        ? cause
-        : new GoogleDiscoverySourceError({
-            message: cause instanceof Error ? cause.message : String(cause),
-          }),
+    }
+    return yield* Effect.tryPromise({
+      try: () => response.text(),
+      catch: () =>
+        new GoogleDiscoverySourceError({
+          message: "Google Discovery response could not be read",
+        }),
+    });
   });
 
 const normalizeSlug = (value: string): string =>
@@ -306,107 +288,104 @@ const registerManifest = (
 // Plugin
 // ---------------------------------------------------------------------------
 
+const makeGoogleDiscoveryExtension = (ctx: PluginCtx<GoogleDiscoveryStore>) => ({
+  probeDiscovery: (input: string | GoogleDiscoveryProbeInput) =>
+    Effect.gen(function* () {
+      const discoveryUrl = typeof input === "string" ? input : input.discoveryUrl;
+      const credentials =
+        typeof input === "string"
+          ? undefined
+          : yield* resolveGoogleDiscoveryCredentials(input.credentials, ctx);
+      const text = yield* fetchDiscoveryDocument(discoveryUrl, credentials);
+      const manifest = yield* extractGoogleDiscoveryManifest(text);
+      const scopes = Object.keys(
+        Option.isSome(manifest.oauthScopes) ? manifest.oauthScopes.value : {},
+      ).sort();
+      const operations = manifest.methods.map((method) => ({
+        toolPath: method.toolPath,
+        method: method.binding.method,
+        pathTemplate: method.binding.pathTemplate,
+        description: Option.isSome(method.description) ? method.description.value : null,
+      }));
+      return {
+        name: Option.isSome(manifest.title)
+          ? manifest.title.value
+          : `${manifest.service} ${manifest.version}`,
+        title: Option.isSome(manifest.title) ? manifest.title.value : null,
+        service: manifest.service,
+        version: manifest.version,
+        toolCount: manifest.methods.length,
+        scopes,
+        operations,
+      };
+    }),
+
+  addSource: (input: GoogleDiscoveryAddSourceInput) =>
+    ctx.transaction(
+      Effect.gen(function* () {
+        const credentials = yield* resolveGoogleDiscoveryCredentials(input.credentials, ctx);
+        const text = yield* fetchDiscoveryDocument(input.discoveryUrl, credentials);
+        const manifest = yield* extractGoogleDiscoveryManifest(text);
+        const namespace =
+          input.namespace ??
+          deriveNamespace({
+            name: input.name,
+            service: manifest.service,
+            version: manifest.version,
+          });
+        const sourceData = new GoogleDiscoveryStoredSourceDataSchema({
+          name: input.name,
+          discoveryUrl: normalizeDiscoveryUrl(input.discoveryUrl),
+          credentials: input.credentials,
+          service: manifest.service,
+          version: manifest.version,
+          rootUrl: manifest.rootUrl,
+          servicePath: manifest.servicePath,
+          auth: input.auth,
+        });
+        const toolCount = yield* registerManifest(ctx, namespace, input.scope, manifest, sourceData);
+        return { toolCount, namespace };
+      }),
+    ),
+
+  removeSource: (namespace: string, scope: string) =>
+    ctx.transaction(
+      Effect.gen(function* () {
+        yield* ctx.storage.removeBindingsBySource(namespace, scope);
+        yield* ctx.storage.removeSource(namespace, scope);
+        yield* ctx.core.sources.unregister(namespace).pipe(Effect.ignore);
+      }),
+    ),
+
+  // OAuth start/complete live on `ctx.oauth` now — the UI calls
+  // the shared `/scopes/:scopeId/oauth/*` endpoints directly with a
+  // Google-specific `authorization-code` strategy and writes the
+  // resulting connection back via `updateSource`.
+
+  getSource: (namespace: string, scope: string) => ctx.storage.getSource(namespace, scope),
+
+  updateSource: (namespace: string, scope: string, input: GoogleDiscoveryUpdateSourceInput) =>
+    ctx.storage.updateSourceMeta(namespace, scope, {
+      name: input.name?.trim() || undefined,
+      auth: input.auth,
+    }),
+});
+
+export type GoogleDiscoveryPluginExtension = ReturnType<typeof makeGoogleDiscoveryExtension>;
+
 export const googleDiscoveryPlugin = definePlugin(() => ({
   id: "googleDiscovery" as const,
   packageName: "@executor-js/plugin-google-discovery",
   schema: googleDiscoverySchema,
   storage: (deps) => makeGoogleDiscoveryStore(deps),
 
-  extension: (ctx) =>
-    ({
-      probeDiscovery: (input) =>
-        Effect.gen(function* () {
-          const discoveryUrl = typeof input === "string" ? input : input.discoveryUrl;
-          const credentials =
-            typeof input === "string"
-              ? undefined
-              : yield* resolveGoogleDiscoveryCredentials(input.credentials, ctx);
-          const text = yield* fetchDiscoveryDocument(discoveryUrl, credentials);
-          const manifest = yield* extractGoogleDiscoveryManifest(text);
-          const scopes = Object.keys(
-            Option.isSome(manifest.oauthScopes) ? manifest.oauthScopes.value : {},
-          ).sort();
-          const operations = manifest.methods.map((method) => ({
-            toolPath: method.toolPath,
-            method: method.binding.method,
-            pathTemplate: method.binding.pathTemplate,
-            description: Option.isSome(method.description) ? method.description.value : null,
-          }));
-          return {
-            name: Option.isSome(manifest.title)
-              ? manifest.title.value
-              : `${manifest.service} ${manifest.version}`,
-            title: Option.isSome(manifest.title) ? manifest.title.value : null,
-            service: manifest.service,
-            version: manifest.version,
-            toolCount: manifest.methods.length,
-            scopes,
-            operations,
-          };
-        }),
-
-      addSource: (input) =>
-        ctx.transaction(
-          Effect.gen(function* () {
-            const credentials = yield* resolveGoogleDiscoveryCredentials(input.credentials, ctx);
-            const text = yield* fetchDiscoveryDocument(input.discoveryUrl, credentials);
-            const manifest = yield* extractGoogleDiscoveryManifest(text);
-            const namespace =
-              input.namespace ??
-              deriveNamespace({
-                name: input.name,
-                service: manifest.service,
-                version: manifest.version,
-              });
-            const sourceData = new GoogleDiscoveryStoredSourceDataSchema({
-              name: input.name,
-              discoveryUrl: normalizeDiscoveryUrl(input.discoveryUrl),
-              credentials: input.credentials,
-              service: manifest.service,
-              version: manifest.version,
-              rootUrl: manifest.rootUrl,
-              servicePath: manifest.servicePath,
-              auth: input.auth,
-            });
-            const toolCount = yield* registerManifest(
-              ctx,
-              namespace,
-              input.scope,
-              manifest,
-              sourceData,
-            );
-            return { toolCount, namespace };
-          }),
-        ),
-
-      removeSource: (namespace, scope) =>
-        ctx.transaction(
-          Effect.gen(function* () {
-            yield* ctx.storage.removeBindingsBySource(namespace, scope);
-            yield* ctx.storage.removeSource(namespace, scope);
-            yield* ctx.core.sources.unregister(namespace).pipe(Effect.ignore);
-          }),
-        ),
-
-      // OAuth start/complete live on `ctx.oauth` now — the UI calls
-      // the shared `/scopes/:scopeId/oauth/*` endpoints directly with a
-      // Google-specific `authorization-code` strategy and writes the
-      // resulting connection back via `updateSource`.
-
-      getSource: (namespace, scope) => ctx.storage.getSource(namespace, scope),
-
-      updateSource: (namespace, scope, input) =>
-        ctx.storage.updateSourceMeta(namespace, scope, {
-          name: input.name?.trim() || undefined,
-          auth: input.auth,
-        }),
-    }) satisfies GoogleDiscoveryPluginExtension,
+  extension: makeGoogleDiscoveryExtension,
 
   invokeTool: ({ ctx, toolRow, args }) =>
     invokeGoogleDiscoveryTool({
       ctx: ctx as PluginCtx<GoogleDiscoveryStore>,
       toolId: toolRow.id,
-      toolScope: toolRow.scope_id as string,
+      toolScope: decodeToolScope(toolRow.scope_id),
       args,
     }),
 
@@ -414,7 +393,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
     Effect.gen(function* () {
       const typedCtx = ctx as PluginCtx<GoogleDiscoveryStore>;
       const scopes = new Set<string>();
-      for (const row of toolRows) scopes.add(row.scope_id as string);
+      for (const row of toolRows) scopes.add(decodeToolScope(row.scope_id));
       const byScope = new Map<string, ReadonlyMap<string, GoogleDiscoveryMethodBinding>>();
       for (const scope of scopes) {
         const bindings = yield* typedCtx.storage.getBindingsForSource(sourceId, scope);
@@ -422,7 +401,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
       }
       const out: Record<string, ToolAnnotations> = {};
       for (const row of toolRows) {
-        const binding = byScope.get(row.scope_id as string)?.get(row.id);
+        const binding = byScope.get(decodeToolScope(row.scope_id))?.get(row.id);
         if (binding) {
           out[row.id] = annotationsForOperation(binding.method, binding.pathTemplate);
         }
@@ -506,11 +485,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
     Effect.gen(function* () {
       const trimmed = url.trim();
       if (!trimmed) return null;
-      const parsed = yield* Effect.try({
-        try: () => new URL(trimmed),
-        catch: (error) => error,
-      }).pipe(Effect.option);
-      if (Option.isNone(parsed)) return null;
+      if (!URL.canParse(trimmed)) return null;
 
       const isGoogleUrl = trimmed.includes("googleapis.com");
       const isDiscoveryPath = trimmed.includes("/discovery/") || trimmed.includes("$discovery");
@@ -563,7 +538,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
         servicePath: manifest.servicePath,
       });
       yield* registerManifest(typedCtx, sourceId, scope, manifest, next);
-    }).pipe(Effect.mapError((err) => (err instanceof Error ? err : new Error(String(err))))),
+    }),
 
   // Connection refresh is owned by the canonical `"oauth2"`
   // ConnectionProvider registered by core — no plugin-specific handler
