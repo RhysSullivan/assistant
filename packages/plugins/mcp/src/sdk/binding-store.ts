@@ -18,11 +18,7 @@
 
 import { Effect, Schema } from "effect";
 
-import {
-  defineSchema,
-  type StorageDeps,
-  type StorageFailure,
-} from "@executor-js/sdk/core";
+import { defineSchema, type StorageDeps, type StorageFailure } from "@executor-js/sdk/core";
 
 import {
   McpToolBinding,
@@ -120,14 +116,37 @@ const encodeSourceData = Schema.encodeSync(McpStoredSourceData);
 const decodeBinding = Schema.decodeUnknownSync(McpToolBinding);
 const encodeBinding = Schema.encodeSync(McpToolBinding);
 
+const JsonRecord = Schema.Record(Schema.String, Schema.Unknown);
+const decodeJsonRecord = Schema.decodeUnknownSync(JsonRecord);
+const decodeJsonString = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
+
 const coerceJson = (value: unknown): unknown => {
   if (typeof value !== "string") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
+  return decodeJsonString(value);
 };
+
+const SourceRow = Schema.Struct({
+  id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+});
+const decodeSourceRow = Schema.decodeUnknownSync(SourceRow);
+
+const ChildLookupRow = Schema.Struct({
+  source_id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+});
+const decodeChildLookupRow = Schema.decodeUnknownSync(ChildLookupRow);
+
+const SecretBackedValueRow = Schema.Struct({
+  name: Schema.String,
+  kind: Schema.Union([Schema.Literal("text"), Schema.Literal("secret")]),
+  text_value: Schema.optional(Schema.NullOr(Schema.String)),
+  secret_id: Schema.optional(Schema.NullOr(Schema.String)),
+  secret_prefix: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const decodeSecretBackedValueRow = Schema.decodeUnknownSync(SecretBackedValueRow);
 
 // --- auth column packing/unpacking ------------------------------------------
 
@@ -162,26 +181,28 @@ const authToColumns = (auth: McpConnectionAuth): AuthColumns => {
 };
 
 const columnsToAuth = (row: Record<string, unknown>): McpConnectionAuth => {
-  const kind = row.auth_kind as string;
+  const kind = row.auth_kind;
   if (kind === "header" && typeof row.auth_secret_id === "string") {
-    const prefix = row.auth_secret_prefix as string | null | undefined;
+    const prefix = typeof row.auth_secret_prefix === "string" ? row.auth_secret_prefix : undefined;
     return {
       kind: "header",
-      headerName: (row.auth_header_name as string | null) ?? "",
+      headerName: typeof row.auth_header_name === "string" ? row.auth_header_name : "",
       secretId: row.auth_secret_id,
       ...(prefix ? { prefix } : {}),
     };
   }
   if (kind === "oauth2" && typeof row.auth_connection_id === "string") {
-    const cid = row.auth_client_id_secret_id as string | null | undefined;
-    const csec = row.auth_client_secret_secret_id as string | null | undefined;
+    const cid =
+      typeof row.auth_client_id_secret_id === "string" ? row.auth_client_id_secret_id : undefined;
+    const csec =
+      typeof row.auth_client_secret_secret_id === "string"
+        ? row.auth_client_secret_secret_id
+        : undefined;
     return {
       kind: "oauth2",
       connectionId: row.auth_connection_id,
       ...(cid ? { clientIdSecretId: cid } : {}),
-      ...(csec !== undefined && csec !== null
-        ? { clientSecretSecretId: csec }
-        : {}),
+      ...(csec !== undefined && csec !== null ? { clientSecretSecretId: csec } : {}),
     };
   }
   return { kind: "none" };
@@ -236,14 +257,15 @@ const rowsToValueMap = (
 ): Record<string, SecretBackedValue> => {
   const out: Record<string, SecretBackedValue> = {};
   for (const row of rows) {
-    const name = row.name as string;
-    if (row.kind === "secret" && typeof row.secret_id === "string") {
-      const prefix = row.secret_prefix as string | undefined | null;
+    const decoded = decodeSecretBackedValueRow(row);
+    if (decoded.kind === "secret" && decoded.secret_id) {
+      const prefix = decoded.secret_prefix;
+      const name = decoded.name;
       out[name] = prefix
-        ? { secretId: row.secret_id, prefix }
-        : { secretId: row.secret_id };
-    } else if (row.kind === "text" && typeof row.text_value === "string") {
-      out[name] = row.text_value;
+        ? { secretId: decoded.secret_id, prefix }
+        : { secretId: decoded.secret_id };
+    } else if (decoded.kind === "text" && typeof decoded.text_value === "string") {
+      out[decoded.name] = decoded.text_value;
     }
   }
   return out;
@@ -320,10 +342,7 @@ export interface McpBindingStore {
     scope: string,
   ) => Effect.Effect<McpStoredSourceData | null, StorageFailure>;
   readonly putSource: (source: McpStoredSource) => Effect.Effect<void, StorageFailure>;
-  readonly removeSource: (
-    namespace: string,
-    scope: string,
-  ) => Effect.Effect<void, StorageFailure>;
+  readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
 
   // ---------------------------------------------------------------------
   // Usage lookups — back `usagesForSecret` / `usagesForConnection`.
@@ -332,9 +351,7 @@ export interface McpBindingStore {
   /** Source rows whose flattened auth columns reference the given
    *  secret id. The `slot` field on each result tags which column
    *  matched so the caller can produce a precise Usage.slot. */
-  readonly findSourcesBySecret: (
-    secretId: string,
-  ) => Effect.Effect<
+  readonly findSourcesBySecret: (secretId: string) => Effect.Effect<
     readonly {
       readonly namespace: string;
       readonly scope_id: string;
@@ -345,9 +362,7 @@ export interface McpBindingStore {
   >;
 
   /** Source rows whose oauth2 auth points at the given connection id. */
-  readonly findSourcesByConnection: (
-    connectionId: string,
-  ) => Effect.Effect<
+  readonly findSourcesByConnection: (connectionId: string) => Effect.Effect<
     readonly {
       readonly namespace: string;
       readonly scope_id: string;
@@ -379,9 +394,7 @@ export interface McpBindingStore {
 // Factory
 // ---------------------------------------------------------------------------
 
-export const makeMcpStore = ({
-  adapter: db,
-}: StorageDeps<McpSchema>): McpBindingStore => {
+export const makeMcpStore = ({ adapter: db }: StorageDeps<McpSchema>): McpBindingStore => {
   return {
     listBindingsBySource: (namespace, scope) =>
       Effect.gen(function* () {
@@ -486,25 +499,18 @@ export const makeMcpStore = ({
         yield* deleteSourceChildren(source.namespace, source.scope);
 
         const auth: McpConnectionAuth =
-          source.config.transport === "remote"
-            ? source.config.auth
-            : { kind: "none" };
+          source.config.transport === "remote" ? source.config.auth : { kind: "none" };
         const authCols = authToColumns(auth);
-        const headers =
-          source.config.transport === "remote"
-            ? source.config.headers
-            : undefined;
+        const headers = source.config.transport === "remote" ? source.config.headers : undefined;
         const queryParams =
-          source.config.transport === "remote"
-            ? source.config.queryParams
-            : undefined;
+          source.config.transport === "remote" ? source.config.queryParams : undefined;
 
         // The encoded config keeps every plugin-private field but
         // strips auth/headers/queryParams — those moved to columns/
         // child tables. We round-trip through encodeSourceData so the
         // remaining fields stay in the same JSON shape decode expects.
         const encodedConfig = stripExtractedFields(
-          encodeSourceData(source.config) as Record<string, unknown>,
+          decodeJsonRecord(encodeSourceData(source.config)),
         );
 
         yield* db.create({
@@ -520,11 +526,7 @@ export const makeMcpStore = ({
           forceAllowId: true,
         });
 
-        const headerRows = valueMapToRows(
-          source.namespace,
-          source.scope,
-          headers,
-        );
+        const headerRows = valueMapToRows(source.namespace, source.scope, headers);
         if (headerRows.length > 0) {
           yield* db.createMany({
             model: "mcp_source_header",
@@ -532,11 +534,7 @@ export const makeMcpStore = ({
             forceAllowId: true,
           });
         }
-        const paramRows = valueMapToRows(
-          source.namespace,
-          source.scope,
-          queryParams,
-        );
+        const paramRows = valueMapToRows(source.namespace, source.scope, queryParams);
         if (paramRows.length > 0) {
           yield* db.createMany({
             model: "mcp_source_query_param",
@@ -579,36 +577,52 @@ export const makeMcpStore = ({
             }),
             db.findMany({
               model: "mcp_source",
-              where: [
-                { field: "auth_client_id_secret_id", value: secretId },
-              ],
+              where: [{ field: "auth_client_id_secret_id", value: secretId }],
             }),
             db.findMany({
               model: "mcp_source",
-              where: [
-                { field: "auth_client_secret_secret_id", value: secretId },
-              ],
+              where: [{ field: "auth_client_secret_secret_id", value: secretId }],
             }),
           ],
           { concurrency: "unbounded" },
         );
-        const dedup = new Map<string, Record<string, unknown>>();
-        for (const r of [...byHeader, ...byClientId, ...byClientSecret]) {
-          dedup.set(`${r.scope_id}:${r.id}`, r);
+        const dedup = new Map<
+          string,
+          {
+            readonly row: Record<string, unknown>;
+            readonly slot: "auth.header" | "auth.oauth2.client_id" | "auth.oauth2.client_secret";
+          }
+        >();
+        for (const r of byHeader) {
+          const row = decodeSourceRow(r);
+          dedup.set(`${row.scope_id}:${row.id}`, {
+            row: r,
+            slot: "auth.header",
+          });
         }
-        return [...dedup.values()].map((row) => ({
-          namespace: row.id as string,
-          scope_id: row.scope_id as string,
-          name: row.name as string,
-          slot:
-            (byHeader as readonly Record<string, unknown>[]).includes(row)
-              ? "auth.header"
-              : (byClientId as readonly Record<string, unknown>[]).includes(
-                    row,
-                  )
-                ? "auth.oauth2.client_id"
-                : "auth.oauth2.client_secret",
-        }));
+        for (const r of byClientId) {
+          const row = decodeSourceRow(r);
+          dedup.set(`${row.scope_id}:${row.id}`, {
+            row: r,
+            slot: "auth.oauth2.client_id",
+          });
+        }
+        for (const r of byClientSecret) {
+          const row = decodeSourceRow(r);
+          dedup.set(`${row.scope_id}:${row.id}`, {
+            row: r,
+            slot: "auth.oauth2.client_secret",
+          });
+        }
+        return [...dedup.values()].map(({ row: rawRow, slot }) => {
+          const row = decodeSourceRow(rawRow);
+          return {
+            namespace: row.id,
+            scope_id: row.scope_id,
+            name: row.name,
+            slot,
+          };
+        });
       }),
 
     findSourcesByConnection: (connectionId) =>
@@ -619,12 +633,15 @@ export const makeMcpStore = ({
         })
         .pipe(
           Effect.map((rows) =>
-            rows.map((r) => ({
-              namespace: r.id as string,
-              scope_id: r.scope_id as string,
-              name: r.name as string,
-              slot: "auth.oauth2.connection",
-            })),
+            rows.map((r) => {
+              const row = decodeSourceRow(r);
+              return {
+                namespace: row.id,
+                scope_id: row.scope_id,
+                name: row.name,
+                slot: "auth.oauth2.connection",
+              };
+            }),
           ),
         ),
 
@@ -644,18 +661,24 @@ export const makeMcpStore = ({
           { concurrency: "unbounded" },
         );
         return [
-          ...headers.map((r) => ({
-            kind: "header" as const,
-            source_id: r.source_id as string,
-            scope_id: r.scope_id as string,
-            name: r.name as string,
-          })),
-          ...params.map((r) => ({
-            kind: "query_param" as const,
-            source_id: r.source_id as string,
-            scope_id: r.scope_id as string,
-            name: r.name as string,
-          })),
+          ...headers.map((r) => {
+            const row = decodeChildLookupRow(r);
+            return {
+              kind: "header" as const,
+              source_id: row.source_id,
+              scope_id: row.scope_id,
+              name: row.name,
+            };
+          }),
+          ...params.map((r) => {
+            const row = decodeChildLookupRow(r);
+            return {
+              kind: "query_param" as const,
+              source_id: row.source_id,
+              scope_id: row.scope_id,
+              name: row.name,
+            };
+          }),
         ];
       }),
 
@@ -666,8 +689,9 @@ export const makeMcpStore = ({
         const requested = new Set(keys);
         const out = new Map<string, string>();
         for (const r of rows) {
-          const key = `${r.scope_id as string}:${r.id as string}`;
-          if (requested.has(key)) out.set(key, r.name as string);
+          const row = decodeSourceRow(r);
+          const key = `${row.scope_id}:${row.id}`;
+          if (requested.has(key)) out.set(key, row.name);
         }
         return out;
       }),
@@ -679,10 +703,7 @@ export const makeMcpStore = ({
 
   function deleteSourceChildren(namespace: string, scope: string) {
     return Effect.gen(function* () {
-      for (const model of [
-        "mcp_source_header",
-        "mcp_source_query_param",
-      ] as const) {
+      for (const model of ["mcp_source_header", "mcp_source_query_param"] as const) {
         yield* db.deleteMany({
           model,
           where: [
@@ -704,7 +725,7 @@ export const makeMcpStore = ({
       // moved to columns / child tables). We must rehydrate the full
       // shape BEFORE handing it to the schema decoder, because
       // `McpRemoteSourceData.auth` is required.
-      const partial = coerceJson(row.config) as Record<string, unknown>;
+      const partial = decodeJsonRecord(coerceJson(row.config));
       if (partial.transport !== "remote") {
         // stdio sources have no extracted fields — decode as-is.
         return decodeSourceData(partial);
@@ -740,9 +761,7 @@ export const makeMcpStore = ({
 // Keeps the remaining structural fields (transport, endpoint, etc.) in
 // the JSON config column. Per-transport: only the remote variant has
 // these fields, so this is a no-op for stdio.
-const stripExtractedFields = (
-  encoded: Record<string, unknown>,
-): Record<string, unknown> => {
+const stripExtractedFields = (encoded: Record<string, unknown>): Record<string, unknown> => {
   if (encoded.transport !== "remote") return encoded;
   const { auth, headers, queryParams, ...rest } = encoded;
   void auth;
