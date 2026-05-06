@@ -42,10 +42,21 @@ export type ServerHandlers = {
 };
 
 const closeServerHandlers = async (handlers: ServerHandlers): Promise<void> => {
-  await Promise.all([
-    handlers.api.dispose().catch(() => undefined),
-    handlers.mcp.close().catch(() => undefined),
-  ]);
+  await Effect.runPromise(
+    Effect.all(
+      [
+        Effect.tryPromise({
+          try: () => handlers.api.dispose(),
+          catch: (cause) => cause,
+        }).pipe(Effect.ignore),
+        Effect.tryPromise({
+          try: () => handlers.mcp.close(),
+          catch: (cause) => cause,
+        }).pipe(Effect.ignore),
+      ],
+      { concurrency: "unbounded" },
+    ),
+  );
 };
 
 export const createServerHandlers = async (): Promise<ServerHandlers> => {
@@ -107,5 +118,10 @@ export const getServerHandlers = (): Promise<ServerHandlers> =>
   serverHandlersRuntime.runPromise(ServerHandlersService.asEffect());
 
 export const disposeServerHandlers = async (): Promise<void> => {
-  await serverHandlersRuntime.dispose().catch(() => undefined);
+  await Effect.runPromise(
+    Effect.tryPromise({
+      try: () => serverHandlersRuntime.dispose(),
+      catch: (cause) => cause,
+    }).pipe(Effect.ignore),
+  );
 };
