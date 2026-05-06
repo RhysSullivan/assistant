@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Result } from "effect";
+import { Data, Effect, Exit, Predicate, Result } from "effect";
 
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 import type { DBAdapter, Where } from "@executor-js/storage-core";
@@ -24,6 +24,10 @@ type FindManyCall = {
   readonly model: string;
   readonly where?: readonly Where[];
 };
+
+class TestPluginError extends Data.TaggedError("TestPluginError")<{
+  readonly message: string;
+}> {}
 
 const recordFindMany = (
   adapter: DBAdapter,
@@ -138,7 +142,9 @@ const testPlugin = definePlugin(() => ({
         yield* ctx.storage.writeThing(thingId, value);
         return { ok: true };
       }
-      return yield* Effect.fail(new Error(`unknown tool ${toolRow.id}`));
+      return yield* new TestPluginError({
+        message: `unknown tool ${toolRow.id}`,
+      });
     }),
 
   // Derived annotations: `write` gates on approval, `read` doesn't.
@@ -361,9 +367,7 @@ describe("createExecutor", () => {
           },
         )
         .pipe(Effect.flip);
-      expect((declined as { _tag: string })._tag).toBe(
-        "ElicitationDeclinedError",
-      );
+      expect(Predicate.isTagged(declined, "ElicitationDeclinedError")).toBe(true);
 
       // auto-accept → succeeds
       const accepted = yield* executor.tools.invoke(
@@ -446,9 +450,7 @@ describe("createExecutor", () => {
       const err = yield* executor.sources
         .remove("test.control")
         .pipe(Effect.flip);
-      expect((err as { _tag: string })._tag).toBe(
-        "SourceRemovalNotAllowedError",
-      );
+      expect(Predicate.isTagged(err, "SourceRemovalNotAllowedError")).toBe(true);
     }),
   );
 
@@ -538,7 +540,7 @@ describe("createExecutor", () => {
       // translating it to the opaque `InternalError({ traceId })` when
       // crossing the wire; here, at the SDK layer, we expect the raw tag.
       const err = yield* executor.collide.tryRegister().pipe(Effect.flip);
-      expect(err._tag).toBe("StorageError");
+      expect(Predicate.isTagged(err, "StorageError")).toBe(true);
     }),
   );
 
@@ -599,7 +601,7 @@ describe("createExecutor", () => {
                   canRemove: true,
                   tools: [{ name: "t", description: "t" }],
                 });
-                return yield* Effect.fail(new Error("boom"));
+                return yield* new TestPluginError({ message: "boom" });
               }),
             ),
           countThings: () => ctx.storage.countThings(),
@@ -684,11 +686,9 @@ describe("createExecutor", () => {
 
       const leaked = yield* executor.secrets
         .get("conn-owned.access_token")
-        .pipe(Effect.result);
-      expect(Result.isFailure(leaked)).toBe(true);
-      if (!Result.isFailure(leaked)) return;
-      expect((leaked.failure as { _tag?: string })._tag).toBe(
-        "SecretOwnedByConnectionError",
+        .pipe(Effect.flip);
+      expect(Predicate.isTagged(leaked, "SecretOwnedByConnectionError")).toBe(
+        true,
       );
 
       const status = yield* executor.secrets.status("conn-owned.access_token");
@@ -709,7 +709,7 @@ describe("createExecutor", () => {
       const err = yield* executor.tools
         .invoke("does.not.exist", {}, { onElicitation: "accept-all" })
         .pipe(Effect.flip);
-      expect((err as { _tag: string })._tag).toBe("ToolNotFoundError");
+      expect(Predicate.isTagged(err, "ToolNotFoundError")).toBe(true);
     }),
   );
 
@@ -821,7 +821,9 @@ describe("createExecutor", () => {
         {},
         {
           onElicitation: (ctx) => {
-            expect(ctx.request._tag).toBe("FormElicitation");
+            expect(Predicate.isTagged(ctx.request, "FormElicitation")).toBe(
+              true,
+            );
             return Effect.succeed(
               new ElicitationResponse({
                 action: "accept",
@@ -879,7 +881,9 @@ describe("createExecutor", () => {
         {},
         {
           onElicitation: (ctx) => {
-            expect(ctx.request._tag).toBe("UrlElicitation");
+            expect(Predicate.isTagged(ctx.request, "UrlElicitation")).toBe(
+              true,
+            );
             return Effect.succeed(
               new ElicitationResponse({
                 action: "accept",
@@ -1178,7 +1182,7 @@ describe("tenant isolation (SDK)", () => {
           }),
         ),
       );
-      expect(result._tag).toBe("Failure");
+      expect(Exit.isFailure(result)).toBe(true);
     }),
   );
 
@@ -1484,7 +1488,7 @@ const invokeMarkerPlugin = definePlugin(() => ({
   invokeTool: ({ toolRow }) =>
     Effect.succeed({
       marker: toolRow.description,
-      scope: toolRow.scope_id as string,
+      scope: toolRow.scope_id,
     }),
 }));
 
