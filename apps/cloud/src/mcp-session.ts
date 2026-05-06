@@ -63,6 +63,23 @@ class OrganizationNotFoundError extends Data.TaggedError("OrganizationNotFoundEr
   readonly organizationId: string;
 }> {}
 
+class DbHandleCloseError extends Data.TaggedError("DbHandleCloseError")<{
+  readonly cause: unknown;
+}> {}
+
+class DurableObjectStorageDeleteError extends Data.TaggedError("DurableObjectStorageDeleteError")<{
+  readonly key: string;
+  readonly cause: unknown;
+}> {}
+
+class DurableObjectAlarmDeleteError extends Data.TaggedError("DurableObjectAlarmDeleteError")<{
+  readonly cause: unknown;
+}> {}
+
+class McpServerCloseError extends Data.TaggedError("McpServerCloseError")<{
+  readonly cause: unknown;
+}> {}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -145,7 +162,15 @@ const makeDbHandle = (options: {
   return {
     sql,
     db: drizzle(sql, { schema: combinedSchema }) as DrizzleDb,
-    end: () => sql.end({ timeout: 0 }).catch(() => undefined),
+    end: () =>
+      Effect.runPromise(
+        Effect.ignore(
+          Effect.tryPromise({
+            try: () => sql.end({ timeout: 0 }),
+            catch: (cause) => new DbHandleCloseError({ cause }),
+          }),
+        ),
+      ),
   };
 };
 
@@ -261,17 +286,41 @@ export class McpSessionDO extends DurableObject {
   }
 
   private clearSessionState(): Effect.Effect<void> {
-    return Effect.promise(async () => {
-      this.sessionMeta = null;
-      this.initialized = false;
-      this.lastActivityMs = 0;
-      this.transportJsonResponseMode = null;
+    const self = this;
+    return Effect.gen(function* () {
+      self.sessionMeta = null;
+      self.initialized = false;
+      self.lastActivityMs = 0;
+      self.transportJsonResponseMode = null;
 
-      await Promise.all([
-        this.ctx.storage.delete(TRANSPORT_STATE_KEY).catch(() => false),
-        this.ctx.storage.delete(SESSION_META_KEY).catch(() => false),
-        this.ctx.storage.delete(LAST_ACTIVITY_KEY).catch(() => false),
-        this.ctx.storage.deleteAlarm().catch(() => undefined),
+      yield* Effect.all([
+        Effect.ignore(
+          Effect.tryPromise({
+            try: () => self.ctx.storage.delete(TRANSPORT_STATE_KEY),
+            catch: (cause) =>
+              new DurableObjectStorageDeleteError({ key: TRANSPORT_STATE_KEY, cause }),
+          }),
+        ),
+        Effect.ignore(
+          Effect.tryPromise({
+            try: () => self.ctx.storage.delete(SESSION_META_KEY),
+            catch: (cause) =>
+              new DurableObjectStorageDeleteError({ key: SESSION_META_KEY, cause }),
+          }),
+        ),
+        Effect.ignore(
+          Effect.tryPromise({
+            try: () => self.ctx.storage.delete(LAST_ACTIVITY_KEY),
+            catch: (cause) =>
+              new DurableObjectStorageDeleteError({ key: LAST_ACTIVITY_KEY, cause }),
+          }),
+        ),
+        Effect.ignore(
+          Effect.tryPromise({
+            try: () => self.ctx.storage.deleteAlarm(),
+            catch: (cause) => new DurableObjectAlarmDeleteError({ cause }),
+          }),
+        ),
       ]);
     }).pipe(Effect.withSpan("mcp.session.clear_state"));
   }
@@ -322,7 +371,12 @@ export class McpSessionDO extends DurableObject {
       }
       if (self.mcpServer) {
         const mcpServer = self.mcpServer;
-        yield* Effect.promise(() => mcpServer.close().catch(() => undefined));
+        yield* Effect.ignore(
+          Effect.tryPromise({
+            try: () => mcpServer.close(),
+            catch: (cause) => new McpServerCloseError({ cause }),
+          }),
+        );
         self.mcpServer = null;
       }
       if (self.dbHandle) {
@@ -435,17 +489,15 @@ export class McpSessionDO extends DurableObject {
     const self = this;
     return Effect.gen(function* () {
       const dbHandle = makeEphemeralDb();
-      try {
-        const sessionMeta = yield* resolveSessionMeta(token.organizationId, token.userId).pipe(
-          Effect.provide(makeResolveOrganizationServices(dbHandle)),
-        );
-        yield* Effect.promise(() => self.saveSessionMeta(sessionMeta)).pipe(
-          Effect.withSpan("mcp.session.save_meta"),
-        );
-        return sessionMeta;
-      } finally {
-        yield* Effect.promise(() => dbHandle.end());
-      }
+      return yield* resolveSessionMeta(token.organizationId, token.userId).pipe(
+        Effect.provide(makeResolveOrganizationServices(dbHandle)),
+        Effect.tap((sessionMeta) =>
+          Effect.promise(() => self.saveSessionMeta(sessionMeta)).pipe(
+            Effect.withSpan("mcp.session.save_meta"),
+          ),
+        ),
+        Effect.ensuring(Effect.promise(() => dbHandle.end())),
+      );
     }).pipe(Effect.withSpan("mcp.session.resolve_and_store_meta"));
   }
 
