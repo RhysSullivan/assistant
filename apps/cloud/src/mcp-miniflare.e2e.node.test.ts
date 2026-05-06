@@ -24,10 +24,16 @@ import { resolve } from "node:path";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import {
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  OpenApi,
+} from "effect/unstable/httpapi";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Data, Effect, Layer, Option, Predicate, Schema } from "effect";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -69,7 +75,9 @@ const UpstreamServeLayer = HttpRouter.serve(UpstreamApiLive).pipe(
 // Services
 // ---------------------------------------------------------------------------
 
-class Upstream extends Context.Service<Upstream, { readonly specJson: string; readonly url: string }
+class Upstream extends Context.Service<
+  Upstream,
+  { readonly specJson: string; readonly url: string }
 >()("MiniflareE2E/Upstream") {}
 
 class Worker extends Context.Service<
@@ -100,13 +108,21 @@ class TelemetryReceiver extends Context.Service<
   }
 >()("MiniflareE2E/TelemetryReceiver") {}
 
+class MiniflareE2ETestError extends Data.TaggedError("MiniflareE2ETestError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
 const UpstreamLive = Layer.effect(
   Upstream,
   Effect.gen(function* () {
     const server = yield* HttpServer.HttpServer;
     const addr = server.address;
-    if (addr._tag !== "TcpAddress") {
-      return yield* Effect.die(`upstream server bound to non-TCP: ${addr._tag}`);
+    if (!Predicate.isTagged("TcpAddress")(addr)) {
+      return yield* new MiniflareE2ETestError({
+        message: "upstream server bound to non-TCP address",
+        cause: addr,
+      });
     }
     const url = `http://127.0.0.1:${addr.port}`;
     const specJson = JSON.stringify({
@@ -127,25 +143,48 @@ const UpstreamLive = Layer.effect(
 // reported the expected spans, not just that the exporter was called.
 // ---------------------------------------------------------------------------
 
-type OtlpAttributeValue = {
-  readonly stringValue?: string;
-  readonly intValue?: string | number;
-  readonly doubleValue?: number;
-  readonly boolValue?: boolean;
-};
-type OtlpAttribute = { readonly key: string; readonly value?: OtlpAttributeValue };
-type OtlpSpan = {
-  readonly name: string;
-  readonly traceId?: string;
-  readonly spanId?: string;
-  readonly parentSpanId?: string;
-  readonly attributes?: ReadonlyArray<OtlpAttribute>;
-};
-type OtlpPayload = {
-  readonly resourceSpans?: ReadonlyArray<{
-    readonly scopeSpans?: ReadonlyArray<{ readonly spans?: ReadonlyArray<OtlpSpan> }>;
-  }>;
-};
+const OtlpAttributeValue = Schema.Struct({
+  stringValue: Schema.optional(Schema.String),
+  intValue: Schema.optional(Schema.Union([Schema.String, Schema.Number])),
+  doubleValue: Schema.optional(Schema.Number),
+  boolValue: Schema.optional(Schema.Boolean),
+});
+type OtlpAttributeValue = typeof OtlpAttributeValue.Type;
+
+const OtlpPayloadFromJson = Schema.fromJsonString(
+  Schema.Struct({
+    resourceSpans: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          scopeSpans: Schema.optional(
+            Schema.Array(
+              Schema.Struct({
+                spans: Schema.optional(
+                  Schema.Array(
+                    Schema.Struct({
+                      name: Schema.String,
+                      traceId: Schema.optional(Schema.String),
+                      spanId: Schema.optional(Schema.String),
+                      parentSpanId: Schema.optional(Schema.String),
+                      attributes: Schema.optional(
+                        Schema.Array(
+                          Schema.Struct({
+                            key: Schema.String,
+                            value: Schema.optional(OtlpAttributeValue),
+                          }),
+                        ),
+                      ),
+                    }),
+                  ),
+                ),
+              }),
+            ),
+          ),
+        }),
+      ),
+    ),
+  }),
+);
 
 const unwrapAttrValue = (v?: OtlpAttributeValue): unknown => {
   if (!v) return undefined;
@@ -156,7 +195,8 @@ const unwrapAttrValue = (v?: OtlpAttributeValue): unknown => {
   return undefined;
 };
 
-const TelemetryReceiverLive = Layer.effect(TelemetryReceiver)(Effect.acquireRelease(
+const TelemetryReceiverLive = Layer.effect(TelemetryReceiver)(
+  Effect.acquireRelease(
     Effect.callback<
       {
         readonly tracesUrl: string;
@@ -178,8 +218,9 @@ const TelemetryReceiverLive = Layer.effect(TelemetryReceiver)(Effect.acquireRele
           body += chunk;
         });
         req.on("end", () => {
-          try {
-            const payload = JSON.parse(body) as OtlpPayload;
+          const maybePayload = Schema.decodeUnknownOption(OtlpPayloadFromJson)(body);
+          if (Option.isSome(maybePayload)) {
+            const payload = maybePayload.value;
             for (const rs of payload.resourceSpans ?? []) {
               for (const ss of rs.scopeSpans ?? []) {
                 for (const sp of ss.spans ?? []) {
@@ -197,8 +238,6 @@ const TelemetryReceiverLive = Layer.effect(TelemetryReceiver)(Effect.acquireRele
                 }
               }
             }
-          } catch {
-            // ignore malformed payloads
           }
           res.writeHead(200, { "content-type": "application/json" });
           res.end("{}");
@@ -221,24 +260,33 @@ const TelemetryReceiverLive = Layer.effect(TelemetryReceiver)(Effect.acquireRele
     Effect.map((t) => ({
       tracesUrl: t.tracesUrl,
       spans: () => [...t.store],
-      waitForSpan: async (predicate: (s: CapturedSpan) => boolean, timeoutMs = 5_000) => {
-        const deadline = Date.now() + timeoutMs;
-        for (;;) {
-          const hit = t.store.find(predicate);
-          if (hit) return hit;
-          if (Date.now() > deadline) {
-            throw new Error(
-              `Timed out waiting for span. Captured ${t.store.length}: ${t.store.map((s) => s.name).join(", ") || "<none>"}`,
-            );
-          }
-          await new Promise((r) => setTimeout(r, 50));
-        }
-      },
+      waitForSpan: (predicate: (s: CapturedSpan) => boolean, timeoutMs = 5_000) =>
+        Effect.gen(function* () {
+          const poll = Effect.gen(function* () {
+            for (;;) {
+              const hit = t.store.find(predicate);
+              if (hit) return hit;
+              yield* Effect.sleep("50 millis");
+            }
+          });
+          return yield* poll.pipe(
+            Effect.timeoutOrElse({
+              duration: `${timeoutMs} millis`,
+              orElse: () =>
+                Effect.fail(
+                  new MiniflareE2ETestError({
+                    message: `Timed out waiting for span. Captured ${t.store.length}: ${t.store.map((s) => s.name).join(", ") || "<none>"}`,
+                  }),
+                ),
+            }),
+          );
+        }).pipe(Effect.runPromise),
     })),
   ),
 );
 
-const WorkerLive = Layer.effect(Worker)(Effect.gen(function* () {
+const WorkerLive = Layer.effect(Worker)(
+  Effect.gen(function* () {
     const receiver = yield* TelemetryReceiver;
     // AXIOM_TOKEN activates DoTelemetryLive inside the worker; AXIOM_TRACES_URL
     // redirects the exporter at our in-process OTLP/JSON receiver so spans
@@ -267,7 +315,13 @@ const WorkerLive = Layer.effect(Worker)(Effect.gen(function* () {
             body: JSON.stringify({ id, name }),
           });
           if (res.status !== 204) {
-            throw new Error(`seed-org failed: ${res.status} ${await res.text()}`);
+            return Effect.runPromise(
+              Effect.fail(
+                new MiniflareE2ETestError({
+                  message: `seed-org failed: ${res.status} ${await res.text()}`,
+                }),
+              ),
+            );
           }
         },
       })),
@@ -305,6 +359,41 @@ const connectClient = async (
   await client.connect(transport);
   return client;
 };
+
+const ignoreCancelBody = (body: ReadableStream<Uint8Array> | null): Effect.Effect<void> =>
+  body
+    ? Effect.ignore(
+        Effect.tryPromise({
+          try: () => body.cancel(),
+          catch: (cause) =>
+            new MiniflareE2ETestError({ message: "Failed to cancel response body", cause }),
+        }),
+      )
+    : Effect.void;
+
+const ignoreCancelReader = (
+  reader: ReadableStreamDefaultReader<Uint8Array> | undefined,
+): Effect.Effect<void> =>
+  reader
+    ? Effect.ignore(
+        Effect.tryPromise({
+          try: () => reader.cancel(),
+          catch: (cause) =>
+            new MiniflareE2ETestError({ message: "Failed to cancel response reader", cause }),
+        }),
+      )
+    : Effect.void;
+
+const withTestTimeout = <A, E, R>(
+  self: Effect.Effect<A, E, R>,
+  message: string,
+): Effect.Effect<A, E | MiniflareE2ETestError, R> =>
+  self.pipe(
+    Effect.timeoutOrElse({
+      duration: "5 seconds",
+      orElse: () => Effect.fail(new MiniflareE2ETestError({ message })),
+    }),
+  );
 
 const initializeSession = async (baseUrl: URL, bearer: string): Promise<string> => {
   const response = await fetch(new URL("/mcp", baseUrl), {
@@ -473,12 +562,8 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
         expect(second.status).toBe(200);
         expect(second.headers.get("content-type") ?? "").toContain("text/event-stream");
 
-        yield* Effect.promise(async () => {
-          await first.body?.cancel().catch(() => undefined);
-        });
-        yield* Effect.promise(async () => {
-          await second.body?.cancel().catch(() => undefined);
-        });
+        yield* ignoreCancelBody(first.body);
+        yield* ignoreCancelBody(second.body);
       }),
     30_000,
   );
@@ -523,9 +608,7 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
         );
         expect(firstRead).toBe("open");
 
-        yield* Effect.promise(async () => {
-          await firstReader?.cancel().catch(() => undefined);
-        });
+        yield* ignoreCancelReader(firstReader);
       }),
     30_000,
   );
@@ -586,16 +669,9 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
           return responses;
         });
 
-        const response = yield* Effect.promise(() =>
-          Promise.race([
-            postResult,
-            new Promise<never>((_, reject) =>
-              setTimeout(
-                () => reject(new Error("tools/call did not return during SSE churn")),
-                5_000,
-              ),
-            ),
-          ]),
+        const response = yield* withTestTimeout(
+          Effect.promise(() => postResult),
+          "tools/call did not return during SSE churn",
         );
         expect(response.status).toBe(200);
         const body = (yield* Effect.promise(() => response.json())) as {
@@ -608,11 +684,12 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
         expect(body.error).toBeUndefined();
         expect(body.result).toBeDefined();
 
-        yield* Effect.promise(async () => {
-          await Promise.all(
-            reconnects.map((response) => response.body?.cancel().catch(() => undefined)),
-          );
-        });
+        yield* Effect.all(
+          reconnects.map((response) => ignoreCancelBody(response.body)),
+          {
+            concurrency: "unbounded",
+          },
+        );
       }),
     30_000,
   );
@@ -653,16 +730,9 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
         yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 50)));
         const second = postExecute('return "second";');
 
-        const responses = yield* Effect.promise(() =>
-          Promise.race([
-            Promise.all([first, second]),
-            new Promise<never>((_, reject) =>
-              setTimeout(
-                () => reject(new Error("overlapping tools/call requests did not both return")),
-                5_000,
-              ),
-            ),
-          ]),
+        const responses = yield* withTestTimeout(
+          Effect.promise(() => Promise.all([first, second])),
+          "overlapping tools/call requests did not both return",
         );
 
         expect(responses.map((response) => response.status)).toEqual([200, 200]);
