@@ -13,13 +13,9 @@
 // survive adapter serialization.
 // ---------------------------------------------------------------------------
 
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 
-import {
-  defineSchema,
-  type StorageDeps,
-  type StorageFailure,
-} from "@executor-js/sdk/core";
+import { defineSchema, type StorageDeps, type StorageFailure } from "@executor-js/sdk/core";
 
 import {
   GoogleDiscoveryMethodBinding,
@@ -136,14 +132,12 @@ const decodeBinding = Schema.decodeUnknownSync(GoogleDiscoveryMethodBinding);
 
 const toJsonRecord = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
 
+const decodeJsonString = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
+
 const decodeJson = (value: unknown): unknown => {
   if (value === null || value === undefined) return value;
   if (typeof value !== "string") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
+  return Option.getOrElse(decodeJsonString(value), () => value);
 };
 
 // --- auth column packing/unpacking ------------------------------------------
@@ -239,12 +233,11 @@ const rowsToValueMap = (
 ): Record<string, GoogleDiscoveryCredentialValue> => {
   const out: Record<string, GoogleDiscoveryCredentialValue> = {};
   for (const row of rows) {
-    const name = row.name as string;
+    if (typeof row.name !== "string") continue;
+    const name = row.name;
     if (row.kind === "secret" && typeof row.secret_id === "string") {
       const prefix = row.secret_prefix as string | undefined | null;
-      out[name] = prefix
-        ? { secretId: row.secret_id, prefix }
-        : { secretId: row.secret_id };
+      out[name] = prefix ? { secretId: row.secret_id, prefix } : { secretId: row.secret_id };
     } else if (row.kind === "text" && typeof row.text_value === "string") {
       out[name] = row.text_value;
     }
@@ -277,7 +270,10 @@ export interface GoogleDiscoveryStore {
     toolId: string,
     scope: string,
   ) => Effect.Effect<
-    { readonly namespace: string; readonly binding: GoogleDiscoveryMethodBinding } | null,
+    {
+      readonly namespace: string;
+      readonly binding: GoogleDiscoveryMethodBinding;
+    } | null,
     StorageFailure
   >;
   readonly putBinding: (
@@ -320,9 +316,7 @@ export interface GoogleDiscoveryStore {
 
   /** Source rows whose oauth2 auth columns reference the given secret id.
    *  `slot` distinguishes client_id vs client_secret. */
-  readonly findSourcesBySecret: (
-    secretId: string,
-  ) => Effect.Effect<
+  readonly findSourcesBySecret: (secretId: string) => Effect.Effect<
     readonly {
       readonly namespace: string;
       readonly scope_id: string;
@@ -333,9 +327,7 @@ export interface GoogleDiscoveryStore {
   >;
 
   /** Source rows whose oauth2 auth points at the given connection id. */
-  readonly findSourcesByConnection: (
-    connectionId: string,
-  ) => Effect.Effect<
+  readonly findSourcesByConnection: (connectionId: string) => Effect.Effect<
     readonly {
       readonly namespace: string;
       readonly scope_id: string;
@@ -382,7 +374,7 @@ export const makeGoogleDiscoveryStore = (
         });
         if (!row) return null;
         const decoded = decodeBinding(decodeJson(row.binding));
-        return { namespace: row.source_id as string, binding: decoded };
+        return { namespace: row.source_id, binding: decoded };
       }),
 
     putBinding: (toolId, sourceId, scope, binding) =>
@@ -420,7 +412,7 @@ export const makeGoogleDiscoveryStore = (
             { field: "scope_id", value: scope },
           ],
         });
-        const ids = rows.map((r) => r.id as string);
+        const ids = rows.map((r) => r.id);
         yield* db.deleteMany({
           model: "google_discovery_binding",
           where: [
@@ -442,7 +434,7 @@ export const makeGoogleDiscoveryStore = (
         });
         const out = new Map<string, GoogleDiscoveryMethodBinding>();
         for (const row of rows) {
-          out.set(row.id as string, decodeBinding(decodeJson(row.binding)));
+          out.set(row.id, decodeBinding(decodeJson(row.binding)));
         }
         return out;
       }),
@@ -477,11 +469,7 @@ export const makeGoogleDiscoveryStore = (
           },
           forceAllowId: true,
         });
-        yield* writeCredentialRows(
-          source.namespace,
-          source.scope,
-          source.config.credentials,
-        );
+        yield* writeCredentialRows(source.namespace, source.scope, source.config.credentials);
       }),
 
     updateSourceMeta: (sourceId, scope, update) =>
@@ -502,7 +490,7 @@ export const makeGoogleDiscoveryStore = (
             { field: "scope_id", value: scope },
           ],
           update: {
-            name: update.name ?? (row.name as string),
+            name: update.name ?? row.name,
             updated_at: new Date(),
             ...authToColumns(auth),
           },
@@ -532,9 +520,9 @@ export const makeGoogleDiscoveryStore = (
         });
         if (!row) return null;
         return {
-          namespace: row.id as string,
-          scope: row.scope_id as string,
-          name: row.name as string,
+          namespace: row.id,
+          scope: row.scope_id,
+          name: row.name,
           config: yield* hydrateStoredSourceData(row, sourceId, scope),
         };
       }),
@@ -558,15 +546,11 @@ export const makeGoogleDiscoveryStore = (
           [
             db.findMany({
               model: "google_discovery_source",
-              where: [
-                { field: "auth_client_id_secret_id", value: secretId },
-              ],
+              where: [{ field: "auth_client_id_secret_id", value: secretId }],
             }),
             db.findMany({
               model: "google_discovery_source",
-              where: [
-                { field: "auth_client_secret_secret_id", value: secretId },
-              ],
+              where: [{ field: "auth_client_secret_secret_id", value: secretId }],
             }),
           ],
           { concurrency: "unbounded" },
@@ -579,17 +563,17 @@ export const makeGoogleDiscoveryStore = (
         }[] = [];
         for (const r of byClientId) {
           out.push({
-            namespace: r.id as string,
-            scope_id: r.scope_id as string,
-            name: r.name as string,
+            namespace: r.id,
+            scope_id: r.scope_id,
+            name: r.name,
             slot: "auth.oauth2.client_id",
           });
         }
         for (const r of byClientSecret) {
           out.push({
-            namespace: r.id as string,
-            scope_id: r.scope_id as string,
-            name: r.name as string,
+            namespace: r.id,
+            scope_id: r.scope_id,
+            name: r.name,
             slot: "auth.oauth2.client_secret",
           });
         }
@@ -605,9 +589,9 @@ export const makeGoogleDiscoveryStore = (
         .pipe(
           Effect.map((rows) =>
             rows.map((r) => ({
-              namespace: r.id as string,
-              scope_id: r.scope_id as string,
-              name: r.name as string,
+              namespace: r.id,
+              scope_id: r.scope_id,
+              name: r.name,
               slot: "auth.oauth2.connection",
             })),
           ),
@@ -631,15 +615,15 @@ export const makeGoogleDiscoveryStore = (
         return [
           ...headers.map((r) => ({
             kind: "credential_header" as const,
-            source_id: r.source_id as string,
-            scope_id: r.scope_id as string,
-            name: r.name as string,
+            source_id: r.source_id,
+            scope_id: r.scope_id,
+            name: r.name,
           })),
           ...params.map((r) => ({
             kind: "credential_query_param" as const,
-            source_id: r.source_id as string,
-            scope_id: r.scope_id as string,
-            name: r.name as string,
+            source_id: r.source_id,
+            scope_id: r.scope_id,
+            name: r.name,
           })),
         ];
       }),
@@ -651,8 +635,8 @@ export const makeGoogleDiscoveryStore = (
         const requested = new Set(keys);
         const out = new Map<string, string>();
         for (const r of rows) {
-          const key = `${r.scope_id as string}:${r.id as string}`;
-          if (requested.has(key)) out.set(key, r.name as string);
+          const key = `${r.scope_id}:${r.id}`;
+          if (requested.has(key)) out.set(key, r.name);
         }
         return out;
       }),
@@ -698,11 +682,7 @@ export const makeGoogleDiscoveryStore = (
           forceAllowId: true,
         });
       }
-      const paramRows = valueMapToRows(
-        sourceId,
-        scope,
-        credentials.queryParams,
-      );
+      const paramRows = valueMapToRows(sourceId, scope, credentials.queryParams);
       if (paramRows.length > 0) {
         yield* db.createMany({
           model: "google_discovery_source_credential_query_param",
@@ -737,8 +717,7 @@ export const makeGoogleDiscoveryStore = (
       const headers = rowsToValueMap(headerRows);
       const queryParams = rowsToValueMap(paramRows);
       const credentials =
-        Object.keys(headers).length === 0 &&
-        Object.keys(queryParams).length === 0
+        Object.keys(headers).length === 0 && Object.keys(queryParams).length === 0
           ? undefined
           : {
               ...(Object.keys(headers).length > 0 ? { headers } : {}),
@@ -757,9 +736,7 @@ export const makeGoogleDiscoveryStore = (
 // Strip auth/credentials from the encoded source-data shape. Those
 // moved to columns and child tables; the remaining structural fields
 // live in the `config` JSON.
-const stripExtractedFields = (
-  encoded: Record<string, unknown>,
-): Record<string, unknown> => {
+const stripExtractedFields = (encoded: Record<string, unknown>): Record<string, unknown> => {
   const { auth, credentials, ...rest } = encoded;
   void auth;
   void credentials;
