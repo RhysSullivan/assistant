@@ -13,10 +13,12 @@
 
 import { describe, it } from "@effect/vitest";
 import { expect } from "@effect/vitest";
-import { Effect, Result } from "effect";
+import { Data, Effect, Result } from "effect";
 
 import type { DBAdapter } from "../adapter";
 import type { DBSchema } from "../schema";
+
+class TestRollbackError extends Data.TaggedError("TestRollbackError")<{}> {}
 
 // ---------------------------------------------------------------------------
 // Shared schema — exercises every column type the plugin surface uses
@@ -161,7 +163,7 @@ export const runAdapterConformance = (
           });
           const found = yield* adapter.findOne<{ createdAt: Date }>({
             model: "source",
-            where: [{ field: "id", value: row.id as string }],
+            where: [{ field: "id", value: row.id }],
           });
           expect(found!.createdAt.toISOString()).toBe(d.toISOString());
         }),
@@ -546,7 +548,7 @@ export const runAdapterConformance = (
               Effect.gen(function* () {
                 yield* trx.create({ model: "tag", data: { label: "tx1" } });
                 yield* trx.create({ model: "tag", data: { label: "tx2" } });
-                return yield* Effect.fail(new Error("boom"));
+                return yield* new TestRollbackError();
               }),
             )
             .pipe(Effect.result);
@@ -567,6 +569,23 @@ export const runAdapterConformance = (
             }),
           );
           expect(yield* adapter.count({ model: "tag" })).toBe(2);
+        }),
+      ),
+    );
+
+    it.effect("unknown models fail before backend dispatch", () =>
+      withAdapter((adapter) =>
+        Effect.gen(function* () {
+          const recovered = yield* adapter
+            .createMany({
+              model: "missing",
+              data: [],
+            })
+            .pipe(
+              Effect.as(false),
+              Effect.catchTag("StorageError", () => Effect.succeed(true)),
+            );
+          expect(recovered).toBe(true);
         }),
       ),
     );

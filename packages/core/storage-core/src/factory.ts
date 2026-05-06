@@ -25,7 +25,7 @@
 //     to running the callback against the current adapter
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 import type {
   CleanedWhere,
@@ -72,8 +72,7 @@ const withApplyDefault = (
   // when they passed null for a required field (upstream convention —
   // explicit null on an optional/nullable field is preserved). Without the
   // `required` gate we'd silently overwrite legitimate null writes.
-  const triggerDefault =
-    value === undefined || (field.required === true && value === null);
+  const triggerDefault = value === undefined || (field.required === true && value === null);
   if (triggerDefault && field.defaultValue !== undefined) {
     return typeof field.defaultValue === "function"
       ? (field.defaultValue as () => DBPrimitive)()
@@ -96,9 +95,7 @@ export interface CreateAdapterOptions {
  * Wrap a CustomAdapter into a full DBAdapter that applies schema-driven
  * transforms. This is the single codepath every backend shares.
  */
-export const createAdapter = (
-  options: CreateAdapterOptions,
-): DBAdapter => {
+export const createAdapter = (options: CreateAdapterOptions): DBAdapter => {
   const { schema, adapter: inner } = options;
   const typedOutput = <T>(value: unknown): T => value as T;
   const config: Required<
@@ -111,7 +108,8 @@ export const createAdapter = (
       | "supportsArrays"
       | "disableIdGeneration"
     >
-  > & DBAdapterFactoryConfig = {
+  > &
+    DBAdapterFactoryConfig = {
     ...options.config,
     supportsJSON: options.config.supportsJSON ?? false,
     supportsDates: options.config.supportsDates ?? true,
@@ -127,45 +125,31 @@ export const createAdapter = (
     return defaultGenerateId();
   };
 
-  const getModelDef = (
-    model: string,
-  ): Effect.Effect<DBSchema[string], StorageError> =>
+  const getModelDef = (model: string): Effect.Effect<DBSchema[string], StorageError> =>
     Effect.gen(function* () {
       const def = schema[model];
       if (!def) {
-        return yield* Effect.fail(
-          new StorageError({
-            message: `[storage-core] unknown model "${model}"`,
-            cause: undefined,
-          }),
-        );
+        return yield* new StorageError({
+          message: `[storage-core] unknown model "${model}"`,
+          cause: undefined,
+        });
       }
       return def;
     });
-
-  // Sync accessor for call sites that can't sit inside Effect.gen (cleanWhere,
-  // getModelName, getPhysicalField). These are all fed model names that have
-  // already been validated upstream by the typed API, so unknown-model throws
-  // here are a caller bug, not a runtime failure channel.
-  const getModelDefSync = (model: string): DBSchema[string] => {
-    const def = schema[model];
-    if (!def) throw new Error(`[storage-core] unknown model "${model}"`);
-    return def;
-  };
 
   // Map physical table name → logical model key, for renaming incoming model
   // arg in mapKeysTransformInput/Output when callers pass physical names.
   // We deliberately *don't* support plural or physical-name inputs — our
   // plugins always pass the logical key — so getModelName is identity.
-  const getModelName = (model: string): string =>
-    getModelDefSync(model).modelName ?? model;
+  const getModelName = (model: string, def: DBSchema[string]): string =>
+    def.modelName ?? model;
 
   // Field name (logical → physical). Honors mapKeysTransformInput override.
   const getPhysicalField = (model: string, logical: string): string => {
     if (logical === "id") return config.mapKeysTransformInput?.["id"] ?? "id";
     const override = config.mapKeysTransformInput?.[logical];
     if (override) return override;
-    const attr = getModelDefSync(model).fields[logical];
+    const attr = schema[model]?.fields[logical];
     return attr?.fieldName ?? logical;
   };
 
@@ -176,14 +160,17 @@ export const createAdapter = (
   const getOutputKey = (logical: string): string =>
     config.mapKeysTransformOutput?.[logical] ?? logical;
 
+  const decodeJsonValue = (value: string): unknown =>
+    Option.getOrElse(
+      Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))(value),
+      () => value,
+    );
+
   // ---------------------------------------------------------------------------
   // Value encode / decode based on supports* flags.
   // ---------------------------------------------------------------------------
 
-  const encodeValue = (
-    attr: DBFieldAttribute | undefined,
-    value: unknown,
-  ): unknown => {
+  const encodeValue = (attr: DBFieldAttribute | undefined, value: unknown): unknown => {
     if (value === undefined) return undefined;
     if (value === null) return null;
     if (!attr) return value;
@@ -216,19 +203,12 @@ export const createAdapter = (
     return value;
   };
 
-  const decodeValue = (
-    attr: DBFieldAttribute | undefined,
-    value: unknown,
-  ): unknown => {
+  const decodeValue = (attr: DBFieldAttribute | undefined, value: unknown): unknown => {
     if (value === undefined || value === null) return value;
     if (!attr) return value;
     const type = attr.type;
     if (type === "json" && typeof value === "string") {
-      try {
-        return JSON.parse(value);
-      } catch {
-        return value;
-      }
+      return decodeJsonValue(value);
     }
     if (type === "date") {
       if (value instanceof Date) return value;
@@ -240,15 +220,8 @@ export const createAdapter = (
     if (type === "boolean" && typeof value === "number") {
       return value === 1;
     }
-    if (
-      (type === "string[]" || type === "number[]") &&
-      typeof value === "string"
-    ) {
-      try {
-        return JSON.parse(value);
-      } catch {
-        return value;
-      }
+    if ((type === "string[]" || type === "number[]") && typeof value === "string") {
+      return decodeJsonValue(value);
     }
     if (type === "number" && typeof value === "string") {
       const n = Number(value);
@@ -293,11 +266,7 @@ export const createAdapter = (
           !(value instanceof Date) &&
           typeof value === "string"
         ) {
-          try {
-            value = new Date(value);
-          } catch {
-            // leave as-is
-          }
+          value = new Date(value);
         }
 
         // defaultValue / onUpdate
@@ -313,7 +282,7 @@ export const createAdapter = (
               try: () => res as Promise<DBPrimitive>,
               catch: (cause) =>
                 new StorageError({
-                  message: `[storage-core] transform.input for "${model}.${logical}" failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+                  message: `[storage-core] transform.input for "${model}.${logical}" failed`,
                   cause,
                 }),
             });
@@ -337,7 +306,7 @@ export const createAdapter = (
             fieldAttributes: attr,
             field: physical,
             action,
-            model: getModelName(model),
+            model: getModelName(model, def),
             schema,
           });
         }
@@ -388,7 +357,7 @@ export const createAdapter = (
               try: () => res as Promise<DBPrimitive>,
               catch: (cause) =>
                 new StorageError({
-                  message: `[storage-core] transform.output for "${model}.${logical}" failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+                  message: `[storage-core] transform.output for "${model}.${logical}" failed`,
                   cause,
                 }),
             });
@@ -405,7 +374,7 @@ export const createAdapter = (
             fieldAttributes: attr,
             field: logical,
             select: select ?? [],
-            model: getModelName(model),
+            model: getModelName(model, def),
             schema,
           });
         }
@@ -441,81 +410,75 @@ export const createAdapter = (
   // join that the schema can't resolve is a bug, not a runtime state.
   // ---------------------------------------------------------------------------
 
-  const resolveJoin = (base: string, join: JoinOption): JoinConfig => {
-    const baseDef = getModelDefSync(base);
-    const out: JoinConfig = {};
-    for (const [target, raw] of Object.entries(join)) {
-      if (raw === false) continue;
-      const targetDef = getModelDefSync(target);
-      const limit =
-        typeof raw === "object" && raw.limit !== undefined ? raw.limit : undefined;
+  const resolveJoin = (base: string, join: JoinOption): Effect.Effect<JoinConfig, StorageError> =>
+    Effect.gen(function* () {
+      const baseDef = yield* getModelDef(base);
+      const out: JoinConfig = {};
+      for (const [target, raw] of Object.entries(join)) {
+        if (raw === false) continue;
+        const targetDef = yield* getModelDef(target);
+        const limit = typeof raw === "object" && raw.limit !== undefined ? raw.limit : undefined;
 
-      // child → parent
-      let found: JoinConfig[string] | undefined;
-      for (const [fieldName, attr] of Object.entries(baseDef.fields)) {
-        if (attr.references?.model === target) {
-          found = {
-            on: {
-              from: getPhysicalField(base, fieldName),
-              to:
-                getPhysicalField(target, attr.references.field) ||
-                attr.references.field,
-            },
-            relation: "one-to-one",
-            ...(limit !== undefined ? { limit } : {}),
-          };
-          break;
-        }
-      }
-      // parent → children
-      if (!found) {
-        for (const [fieldName, attr] of Object.entries(targetDef.fields)) {
-          if (attr.references?.model === base) {
+        // child → parent
+        let found: JoinConfig[string] | undefined;
+        for (const [fieldName, attr] of Object.entries(baseDef.fields)) {
+          if (attr.references?.model === target) {
             found = {
               on: {
-                from:
-                  getPhysicalField(base, attr.references.field) ||
-                  attr.references.field,
-                to: getPhysicalField(target, fieldName),
+                from: getPhysicalField(base, fieldName),
+                to: getPhysicalField(target, attr.references.field) || attr.references.field,
               },
-              relation: "one-to-many",
+              relation: "one-to-one",
               ...(limit !== undefined ? { limit } : {}),
             };
             break;
           }
         }
+        // parent → children
+        if (!found) {
+          for (const [fieldName, attr] of Object.entries(targetDef.fields)) {
+            if (attr.references?.model === base) {
+              found = {
+                on: {
+                  from: getPhysicalField(base, attr.references.field) || attr.references.field,
+                  to: getPhysicalField(target, fieldName),
+                },
+                relation: "one-to-many",
+                ...(limit !== undefined ? { limit } : {}),
+              };
+              break;
+            }
+          }
+        }
+        if (!found) {
+          return yield* new StorageError({
+            message: `[storage-core] cannot resolve join "${base}" -> "${target}": neither model declares a \`references\` for the other`,
+            cause: undefined,
+          });
+        }
+        out[target] = found;
       }
-      if (!found) {
-        throw new Error(
-          `[storage-core] cannot resolve join "${base}" → "${target}": neither model declares a \`references\` for the other`,
-        );
-      }
-      out[target] = found;
-    }
-    return out;
-  };
+      return out;
+    });
 
   const cleanWhere = (
     model: string,
+    def: DBSchema[string],
     where: readonly Where[] | undefined,
   ): CleanedWhere[] | undefined => {
     if (!where) return undefined;
-    const def = getModelDefSync(model);
     return where.map((w) => {
       const operator = w.operator ?? "eq";
       const connector = w.connector ?? "AND";
       const mode = w.mode ?? "sensitive";
       const logical = w.field;
-      const attr =
-        logical === "id" ? undefined : def.fields[logical];
+      const attr = logical === "id" ? undefined : def.fields[logical];
       const physical = getPhysicalField(model, logical);
 
       let value: Where["value"] = w.value;
       if (attr) {
         if (Array.isArray(value)) {
-          value = (value as unknown[]).map((v) =>
-            encodeValue(attr, v),
-          ) as typeof value;
+          value = (value as unknown[]).map((v) => encodeValue(attr, v)) as typeof value;
         } else {
           value = encodeValue(attr, value) as typeof value;
         }
@@ -577,10 +540,7 @@ export const createAdapter = (
           const decoded: unknown[] = [];
           for (const n of nested) {
             if (n && typeof n === "object") {
-              const t = yield* transformOutput(
-                target,
-                n as Record<string, unknown>,
-              );
+              const t = yield* transformOutput(target, n as Record<string, unknown>);
               decoded.push(t);
             } else {
               decoded.push(n);
@@ -588,10 +548,7 @@ export const createAdapter = (
           }
           merged[target] = decoded;
         } else if (typeof nested === "object") {
-          merged[target] = yield* transformOutput(
-            target,
-            nested as Record<string, unknown>,
-          );
+          merged[target] = yield* transformOutput(target, nested as Record<string, unknown>);
         } else {
           merged[target] = nested;
         }
@@ -604,9 +561,7 @@ export const createAdapter = (
     row: Record<string, unknown> | null,
     select?: string[],
   ): Effect.Effect<Record<string, unknown> | null, StorageFailure> =>
-    config.disableTransformOutput
-      ? Effect.succeed(row)
-      : transformOutput(model, row, select);
+    config.disableTransformOutput ? Effect.succeed(row) : transformOutput(model, row, select);
 
   // ---------------------------------------------------------------------------
   // DBAdapter surface
@@ -622,6 +577,7 @@ export const createAdapter = (
       forceAllowId?: boolean | undefined;
     }) =>
       Effect.gen(function* () {
+        const def = yield* getModelDef(data.model);
         const input = yield* maybeTransformInput(
           data.model,
           data.data as Record<string, unknown>,
@@ -629,7 +585,7 @@ export const createAdapter = (
           data.forceAllowId === true,
         );
         const res = yield* inner.create({
-          model: getModelName(data.model),
+          model: getModelName(data.model, def),
           data: input,
           select: data.select,
         });
@@ -654,6 +610,7 @@ export const createAdapter = (
       forceAllowId?: boolean | undefined;
     }) =>
       Effect.gen(function* () {
+        const def = yield* getModelDef(data.model);
         // Delegates straight to the backend's native bulk insert — no
         // per-row fallback, because over a real network connection
         // (Hyperdrive, etc.) N round-trips would blow the request
@@ -672,18 +629,14 @@ export const createAdapter = (
           );
         }
         const res = yield* inner.createMany({
-          model: getModelName(data.model),
+          model: getModelName(data.model, def),
           data: inputs,
         });
         const out: R[] = [];
         for (const row of res) {
           out.push(
             typedOutput<R>(
-              yield* maybeTransformOutput(
-                data.model,
-                row as Record<string, unknown>,
-                undefined,
-              ),
+              yield* maybeTransformOutput(data.model, row as Record<string, unknown>, undefined),
             ),
           );
         }
@@ -705,10 +658,11 @@ export const createAdapter = (
       join?: JoinOption | undefined;
     }) =>
       Effect.gen(function* () {
-        const where = cleanWhere(data.model, data.where) ?? [];
-        const join = data.join ? resolveJoin(data.model, data.join) : undefined;
+        const def = yield* getModelDef(data.model);
+        const where = cleanWhere(data.model, def, data.where) ?? [];
+        const join = data.join ? yield* resolveJoin(data.model, data.join) : undefined;
         const res = yield* inner.findOne<Record<string, unknown>>({
-          model: getModelName(data.model),
+          model: getModelName(data.model, def),
           where,
           select: data.select,
           join,
@@ -735,16 +689,17 @@ export const createAdapter = (
       join?: JoinOption | undefined;
     }) =>
       Effect.gen(function* () {
-        const where = cleanWhere(data.model, data.where);
+        const def = yield* getModelDef(data.model);
+        const where = cleanWhere(data.model, def, data.where);
         const sortBy = data.sortBy
           ? {
               field: getPhysicalField(data.model, data.sortBy.field),
               direction: data.sortBy.direction,
             }
           : undefined;
-        const join = data.join ? resolveJoin(data.model, data.join) : undefined;
+        const join = data.join ? yield* resolveJoin(data.model, data.join) : undefined;
         const res = yield* inner.findMany<Record<string, unknown>>({
-          model: getModelName(data.model),
+          model: getModelName(data.model, def),
           where,
           limit: data.limit,
           select: data.select,
@@ -770,9 +725,10 @@ export const createAdapter = (
 
     count: (data: { model: string; where?: Where[] | undefined }) =>
       Effect.gen(function* () {
-        const where = cleanWhere(data.model, data.where);
+        const def = yield* getModelDef(data.model);
+        const where = cleanWhere(data.model, def, data.where);
         return yield* inner.count({
-          model: getModelName(data.model),
+          model: getModelName(data.model, def),
           where,
         });
       }).pipe(
@@ -784,21 +740,13 @@ export const createAdapter = (
         }),
       ),
 
-    update: <T>(data: {
-      model: string;
-      where: Where[];
-      update: Record<string, unknown>;
-    }) =>
+    update: <T>(data: { model: string; where: Where[]; update: Record<string, unknown> }) =>
       Effect.gen(function* () {
-        const where = cleanWhere(data.model, data.where) ?? [];
-        const update = yield* maybeTransformInput(
-          data.model,
-          data.update,
-          "update",
-          false,
-        );
+        const def = yield* getModelDef(data.model);
+        const where = cleanWhere(data.model, def, data.where) ?? [];
+        const update = yield* maybeTransformInput(data.model, data.update, "update", false);
         const res = yield* inner.update<Record<string, unknown>>({
-          model: getModelName(data.model),
+          model: getModelName(data.model, def),
           where,
           update,
         });
@@ -813,21 +761,13 @@ export const createAdapter = (
         }),
       ),
 
-    updateMany: (data: {
-      model: string;
-      where: Where[];
-      update: Record<string, unknown>;
-    }) =>
+    updateMany: (data: { model: string; where: Where[]; update: Record<string, unknown> }) =>
       Effect.gen(function* () {
-        const where = cleanWhere(data.model, data.where) ?? [];
-        const update = yield* maybeTransformInput(
-          data.model,
-          data.update,
-          "update",
-          false,
-        );
+        const def = yield* getModelDef(data.model);
+        const where = cleanWhere(data.model, def, data.where) ?? [];
+        const update = yield* maybeTransformInput(data.model, data.update, "update", false);
         return yield* inner.updateMany({
-          model: getModelName(data.model),
+          model: getModelName(data.model, def),
           where,
           update,
         });
@@ -842,9 +782,10 @@ export const createAdapter = (
 
     delete: (data: { model: string; where: Where[] }) =>
       Effect.gen(function* () {
-        const where = cleanWhere(data.model, data.where) ?? [];
+        const def = yield* getModelDef(data.model);
+        const where = cleanWhere(data.model, def, data.where) ?? [];
         yield* inner.delete({
-          model: getModelName(data.model),
+          model: getModelName(data.model, def),
           where,
         });
       }).pipe(
@@ -858,9 +799,10 @@ export const createAdapter = (
 
     deleteMany: (data: { model: string; where: Where[] }) =>
       Effect.gen(function* () {
-        const where = cleanWhere(data.model, data.where) ?? [];
+        const def = yield* getModelDef(data.model);
+        const where = cleanWhere(data.model, def, data.where) ?? [];
         return yield* inner.deleteMany({
-          model: getModelName(data.model),
+          model: getModelName(data.model, def),
           where,
         });
       }).pipe(
@@ -872,9 +814,7 @@ export const createAdapter = (
         }),
       ),
 
-    transaction: <R, E>(
-      callback: (trx: DBTransactionAdapter) => Effect.Effect<R, E>,
-    ) => {
+    transaction: <R, E>(callback: (trx: DBTransactionAdapter) => Effect.Effect<R, E>) => {
       const txFn = config.transaction;
       const ran = !txFn ? callback(self) : txFn(callback);
       return ran.pipe(
@@ -890,9 +830,7 @@ export const createAdapter = (
     // Forward the backend's createSchema verbatim. Upstream better-auth
     // mutates the `tables` set here to drop session when secondaryStorage
     // is set; we intentionally don't replicate that auth-specific concern.
-    createSchema: inner.createSchema
-      ? (props) => inner.createSchema!(props)
-      : undefined,
+    createSchema: inner.createSchema ? (props) => inner.createSchema!(props) : undefined,
 
     // Expose the full factory config + the inner adapter's own options to
     // plugin authors at runtime. Mirrors upstream's `options` field on
