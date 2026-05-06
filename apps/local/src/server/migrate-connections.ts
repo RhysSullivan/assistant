@@ -32,11 +32,49 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 const isString = (v: unknown): v is string => typeof v === "string";
 
 const JsonObject = Schema.Record(Schema.String, Schema.Unknown);
+const JsonUnknown = Schema.Unknown;
 
 const decodeUnknownOptionAs =
   <A>(schema: Schema.Decoder<A>) =>
   (input: unknown): Option.Option<A> =>
     Schema.decodeUnknownOption(schema)(input);
+const decodeJsonObjectOption = Schema.decodeUnknownOption(
+  Schema.fromJsonString(JsonObject),
+);
+const decodeJsonUnknownOption = Schema.decodeUnknownOption(
+  Schema.fromJsonString(JsonUnknown),
+);
+
+class MigrationConnectionRewireError extends Schema.TaggedErrorClass<MigrationConnectionRewireError>()(
+  "MigrationConnectionRewireError",
+  { message: Schema.String },
+) {}
+
+class MigrationConnectionTransactionError extends Schema.TaggedErrorClass<MigrationConnectionTransactionError>()(
+  "MigrationConnectionTransactionError",
+  { message: Schema.String },
+) {}
+
+const runMigrationTransaction = (
+  txn: () => void,
+  expectedFailureMessage: () => string | null,
+): Result.Result<
+  void,
+  MigrationConnectionRewireError | MigrationConnectionTransactionError
+> =>
+  Effect.runSync(
+    Effect.try({
+      try: txn,
+      catch: () => {
+        const message = expectedFailureMessage();
+        return message === null
+          ? new MigrationConnectionTransactionError({
+              message: "SQLite transaction failed",
+            })
+          : new MigrationConnectionRewireError({ message });
+      },
+    }).pipe(Effect.result),
+  );
 
 /** Pre-flight: bail unless the drizzle migration that added the Connection
  *  table + `secret.owned_by_connection_id` has completed. */
@@ -280,20 +318,14 @@ const migrateOpenApi = async (sqlite: Database): Promise<void> => {
   for (const row of rows) {
     let invocation: Record<string, unknown> = {};
     if (row.invocation_config) {
-      try {
-        const parsed = JSON.parse(row.invocation_config) as unknown;
-        if (isRecord(parsed)) invocation = parsed;
-      } catch {
-        continue;
-      }
+      const parsed = decodeJsonObjectOption(row.invocation_config);
+      if (Option.isNone(parsed)) continue;
+      invocation = parsed.value;
     }
     let oauth2Col: unknown = null;
     if (row.oauth2) {
-      try {
-        oauth2Col = JSON.parse(row.oauth2) as unknown;
-      } catch {
-        // fall through
-      }
+      const parsed = decodeJsonUnknownOption(row.oauth2);
+      if (Option.isSome(parsed)) oauth2Col = parsed.value;
     }
     const primary = invocation.oauth2 ?? oauth2Col;
     if (primary == null) continue;
@@ -342,6 +374,7 @@ const migrateOpenApi = async (sqlite: Database): Promise<void> => {
       secretNames.push(`Connection ${connectionId} refresh token`);
     }
 
+    let expectedFailureMessage: string | null = null;
     const txn = sqlite.transaction(() => {
       insertConnectionRow(sqlite, {
         id: connectionId,
@@ -355,7 +388,11 @@ const migrateOpenApi = async (sqlite: Database): Promise<void> => {
         providerState,
       });
       const err = rewireSecrets(sqlite, row.scope_id, connectionId, secretIds, secretNames);
-      if (err) throw new Error(err);
+      if (err) {
+        expectedFailureMessage = err;
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: bun:sqlite transaction aborts by throwing from the callback
+        throw new MigrationConnectionRewireError({ message: err });
+      }
       if (hasInvocationConfig) {
         const nextInvocation = { ...invocation, oauth2: oauth2Pointer };
         updateSource.run(
@@ -372,14 +409,14 @@ const migrateOpenApi = async (sqlite: Database): Promise<void> => {
         );
       }
     });
-    try {
-      txn();
+    const result = runMigrationTransaction(txn, () => expectedFailureMessage);
+    if (Result.isSuccess(result)) {
       console.log(
         `[migrate-connections] openapi ${row.scope_id}/${row.id} -> ${connectionId}`,
       );
-    } catch (err) {
+    } else {
       console.warn(
-        `[migrate-connections] fail openapi ${row.scope_id}/${row.id}: ${err instanceof Error ? err.message : String(err)}`,
+        `[migrate-connections] fail openapi ${row.scope_id}/${row.id}: ${result.failure.message}`,
       );
     }
   }
@@ -451,13 +488,9 @@ const migrateMcp = (sqlite: Database): void => {
 
   for (const row of rows) {
     let config: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(row.config) as unknown;
-      if (!isRecord(parsed)) continue;
-      config = parsed;
-    } catch {
-      continue;
-    }
+    const parsed = decodeJsonObjectOption(row.config);
+    if (Option.isNone(parsed)) continue;
+    config = parsed.value;
     if (config.transport !== "remote") continue;
     const auth = config.auth;
     if (!isRecord(auth) || auth.kind !== "oauth2") continue;
@@ -501,6 +534,7 @@ const migrateMcp = (sqlite: Database): void => {
       secretNames.push(`Connection ${connectionId} refresh token`);
     }
 
+    let expectedFailureMessage: string | null = null;
     const txn = sqlite.transaction(() => {
       insertConnectionRow(sqlite, {
         id: connectionId,
@@ -514,7 +548,11 @@ const migrateMcp = (sqlite: Database): void => {
         providerState,
       });
       const err = rewireSecrets(sqlite, row.scope_id, connectionId, secretIds, secretNames);
-      if (err) throw new Error(err);
+      if (err) {
+        expectedFailureMessage = err;
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: bun:sqlite transaction aborts by throwing from the callback
+        throw new MigrationConnectionRewireError({ message: err });
+      }
       if (updateConfigAndAuth) {
         updateConfigAndAuth.run(
           JSON.stringify(nextConfig),
@@ -526,14 +564,14 @@ const migrateMcp = (sqlite: Database): void => {
         updateConfig.run(JSON.stringify(nextConfig), row.scope_id, row.id);
       }
     });
-    try {
-      txn();
+    const result = runMigrationTransaction(txn, () => expectedFailureMessage);
+    if (Result.isSuccess(result)) {
       console.log(
         `[migrate-connections] mcp ${row.scope_id}/${row.id} -> ${connectionId}`,
       );
-    } catch (err) {
+    } else {
       console.warn(
-        `[migrate-connections] fail mcp ${row.scope_id}/${row.id}: ${err instanceof Error ? err.message : String(err)}`,
+        `[migrate-connections] fail mcp ${row.scope_id}/${row.id}: ${result.failure.message}`,
       );
     }
   }
@@ -592,13 +630,9 @@ const migrateGoogleDiscovery = (sqlite: Database): void => {
 
   for (const row of rows) {
     let config: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(row.config) as unknown;
-      if (!isRecord(parsed)) continue;
-      config = parsed;
-    } catch {
-      continue;
-    }
+    const parsed = decodeJsonObjectOption(row.config);
+    if (Option.isNone(parsed)) continue;
+    config = parsed.value;
     const auth = config.auth;
     if (!isRecord(auth) || auth.kind !== "oauth2") continue;
 
@@ -630,6 +664,7 @@ const migrateGoogleDiscovery = (sqlite: Database): void => {
       secretNames.push(`Connection ${connectionId} refresh token`);
     }
 
+    let expectedFailureMessage: string | null = null;
     const txn = sqlite.transaction(() => {
       insertConnectionRow(sqlite, {
         id: connectionId,
@@ -643,17 +678,21 @@ const migrateGoogleDiscovery = (sqlite: Database): void => {
         providerState,
       });
       const err = rewireSecrets(sqlite, row.scope_id, connectionId, secretIds, secretNames);
-      if (err) throw new Error(err);
+      if (err) {
+        expectedFailureMessage = err;
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: bun:sqlite transaction aborts by throwing from the callback
+        throw new MigrationConnectionRewireError({ message: err });
+      }
       updateSource.run(JSON.stringify(nextConfig), Date.now(), row.scope_id, row.id);
     });
-    try {
-      txn();
+    const result = runMigrationTransaction(txn, () => expectedFailureMessage);
+    if (Result.isSuccess(result)) {
       console.log(
         `[migrate-connections] google-discovery ${row.scope_id}/${row.id} -> ${connectionId}`,
       );
-    } catch (err) {
+    } else {
       console.warn(
-        `[migrate-connections] fail google-discovery ${row.scope_id}/${row.id}: ${err instanceof Error ? err.message : String(err)}`,
+        `[migrate-connections] fail google-discovery ${row.scope_id}/${row.id}: ${result.failure.message}`,
       );
     }
   }
