@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
-import { Exit, Option, Schema } from "effect";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
-import { usePendingSources } from "@executor-js/react/api/optimistic";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import { useScope } from "@executor-js/react/api/scope-context";
 import type { SecretPickerSecret } from "@executor-js/react/plugins/secret-picker";
@@ -45,9 +46,20 @@ import { FloatActions } from "@executor-js/react/components/float-actions";
 import { Input } from "@executor-js/react/components/input";
 import { RadioGroup, RadioGroupItem } from "@executor-js/react/components/radio-group";
 import { IOSSpinner, Spinner } from "@executor-js/react/components/spinner";
-import { addGoogleDiscoverySource, probeGoogleDiscovery } from "./atoms";
+import { addGoogleDiscoverySourceOptimistic, probeGoogleDiscovery } from "./atoms";
 import { GOOGLE_DISCOVERY_OAUTH_POPUP_NAME, googleDiscoveryOAuthStrategy } from "./oauth";
 import { googleDiscoveryPresets, type GoogleDiscoveryPreset } from "../sdk/presets";
+
+const ErrorMessage = Schema.Struct({ message: Schema.String });
+
+const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
+  Option.match(
+    Option.flatMap(Exit.findErrorOption(exit), Schema.decodeUnknownOption(ErrorMessage)),
+    {
+      onNone: () => fallback,
+      onSome: ({ message }) => message,
+    },
+  );
 
 type GoogleAuthKind = "none" | "oauth2";
 
@@ -96,50 +108,25 @@ type GoogleDiscoveryTemplate = GoogleDiscoveryPreset & {
 };
 
 const GOOGLE_G_ICON = "https://fonts.gstatic.com/s/i/productlogos/googleg/v6/192px.svg";
-const PublicErrorMessage = Schema.Struct({
-  _tag: Schema.Literals([
-    "GoogleDiscoveryParseError",
-    "GoogleDiscoveryOAuthError",
-    "GoogleDiscoverySourceError",
-  ]),
-  message: Schema.String,
-});
-
-const messageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string => {
-  const error = Exit.findErrorOption(exit);
-  if (Option.isNone(error)) return fallback;
-  const errorMessage = Schema.decodeUnknownOption(PublicErrorMessage)(error.value);
-  return Option.match(errorMessage, {
-    onNone: () => fallback,
-    onSome: (value) => value.message,
-  });
-};
-
-const parseUrlOption = (value: string): URL | null => {
-  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor is the platform URL parser
-  try {
-    return new URL(value);
-  } catch {
-    return null;
-  }
-};
 
 function parseGoogleDiscoveryPreset(preset: GoogleDiscoveryPreset): GoogleDiscoveryTemplate {
-  const url = parseUrlOption(preset.url);
-  if (!url) {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor normalizes user-provided preset URLs
+  try {
+    const url = new URL(preset.url);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const apisIndex = parts.indexOf("apis");
+    const service = apisIndex >= 0 ? parts[apisIndex + 1] : undefined;
+    const version =
+      apisIndex >= 0 ? parts[apisIndex + 2] : (url.searchParams.get("version") ?? undefined);
+    return {
+      ...preset,
+      discoveryUrl: preset.url,
+      service: service ?? url.hostname.replace(/\.googleapis\.com$/, ""),
+      version: version ?? "",
+    };
+  } catch {
     return { ...preset, discoveryUrl: preset.url, service: preset.id, version: "" };
   }
-  const parts = url.pathname.split("/").filter(Boolean);
-  const apisIndex = parts.indexOf("apis");
-  const service = apisIndex >= 0 ? parts[apisIndex + 1] : undefined;
-  const version =
-    apisIndex >= 0 ? parts[apisIndex + 2] : (url.searchParams.get("version") ?? undefined);
-  return {
-    ...preset,
-    discoveryUrl: preset.url,
-    service: service ?? url.hostname.replace(/\.googleapis\.com$/, ""),
-    version: version ?? "",
-  };
 }
 
 const GOOGLE_DISCOVERY_TEMPLATES = googleDiscoveryPresets.map(parseGoogleDiscoveryPreset);
@@ -230,8 +217,9 @@ export default function AddGoogleDiscoverySource(props: {
 
   const scopeId = useScope();
   const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promiseExit" });
-  const doAdd = useAtomSet(addGoogleDiscoverySource, { mode: "promiseExit" });
-  const { beginAdd } = usePendingSources();
+  const doAdd = useAtomSet(addGoogleDiscoverySourceOptimistic(scopeId), {
+    mode: "promiseExit",
+  });
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow({
     popupName: GOOGLE_DISCOVERY_OAUTH_POPUP_NAME,
@@ -269,7 +257,7 @@ export default function AddGoogleDiscoverySource(props: {
     if (Exit.isFailure(exit)) {
       setProbe(null);
       setLoadingProbe(false);
-      setError(messageFromExit(exit, "Failed to inspect discovery document"));
+      setError(errorMessageFromExit(exit, "Failed to inspect discovery document"));
       return;
     }
     const result = exit.value;
@@ -354,11 +342,6 @@ export default function AddGoogleDiscoverySource(props: {
     setError(null);
     const displayName = identity.name.trim() || probe.name;
     const namespace = resolvedNamespace;
-    const placeholder = beginAdd({
-      id: namespace,
-      name: displayName,
-      kind: "google-discovery",
-    });
     const exit = await doAdd({
       params: { scopeId },
       payload: {
@@ -378,9 +361,8 @@ export default function AddGoogleDiscoverySource(props: {
       },
       reactivityKeys: [...sourceWriteKeys],
     });
-    placeholder.done();
     if (Exit.isFailure(exit)) {
-      setError(messageFromExit(exit, "Failed to add source"));
+      setError(errorMessageFromExit(exit, "Failed to add source"));
       setAdding(false);
       return;
     }
@@ -394,7 +376,6 @@ export default function AddGoogleDiscoverySource(props: {
     oauthAuth,
     props,
     scopeId,
-    beginAdd,
     resolvedNamespace,
   ]);
 

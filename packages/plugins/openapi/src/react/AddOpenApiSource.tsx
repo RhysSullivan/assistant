@@ -16,7 +16,6 @@ import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/rea
 // state without a refresh.
 const addSpecWriteKeys = [...sourceWriteKeys, ...connectionWriteKeys] as const;
 const bindingWriteKeys = [...sourceWriteKeys, ...connectionWriteKeys] as const;
-import { usePendingSources } from "@executor-js/react/api/optimistic";
 import { HeadersList } from "@executor-js/react/plugins/headers-list";
 import {
   HttpCredentialsEditor,
@@ -67,7 +66,7 @@ import { SourceFavicon } from "@executor-js/react/components/source-favicon";
 import { RadioGroup, RadioGroupItem } from "@executor-js/react/components/radio-group";
 import { Skeleton } from "@executor-js/react/components/skeleton";
 import { IOSSpinner, Spinner } from "@executor-js/react/components/spinner";
-import { addOpenApiSpec, previewOpenApiSpec, setOpenApiSourceBinding } from "./atoms";
+import { addOpenApiSpecOptimistic, previewOpenApiSpec, setOpenApiSourceBinding } from "./atoms";
 import type { SpecPreview, HeaderPreset, OAuth2Preset } from "../sdk/preview";
 import {
   headerBindingSlot,
@@ -83,6 +82,9 @@ import {
   type ServerVariable,
 } from "../sdk/types";
 
+export const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
+export const OPENAPI_OAUTH_CALLBACK_PATH = "/api/oauth/callback";
+
 const ErrorMessage = Schema.Struct({ message: Schema.String });
 
 const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
@@ -93,9 +95,6 @@ const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: strin
       onSome: ({ message }) => message,
     },
   );
-
-export const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
-export const OPENAPI_OAUTH_CALLBACK_PATH = "/api/oauth/callback";
 
 const substituteUrlVariables = (url: string, values: Record<string, string>): string => {
   let out = url;
@@ -122,15 +121,28 @@ export const openApiOAuthConnectionId = (
  */
 export function resolveOAuthUrl(url: string, baseUrl: string): string {
   if (!url) return url;
-  if (URL.canParse(url)) {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor normalizes provider metadata URLs
+  try {
+    new URL(url);
     return url;
+  } catch {
+    if (!baseUrl) return url;
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor resolves relative provider metadata URLs
+    try {
+      return new URL(url, baseUrl).toString();
+    } catch {
+      return url;
+    }
   }
-  if (!baseUrl || !URL.canParse(url, baseUrl)) return url;
-  return new URL(url, baseUrl).toString();
 }
 
 export function inferOAuthIssuerUrl(authorizationUrl: string): string | null {
-  return URL.canParse(authorizationUrl) ? new URL(authorizationUrl).origin : null;
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor normalizes provider metadata URLs
+  try {
+    return new URL(authorizationUrl).origin;
+  } catch {
+    return null;
+  }
 }
 
 type StrategySelection =
@@ -246,10 +258,9 @@ export default function AddOpenApiSource(props: {
   const scopeId = useScope();
   const userScope = useUserScope();
   const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promiseExit" });
-  const doAdd = useAtomSet(addOpenApiSpec, { mode: "promiseExit" });
+  const doAdd = useAtomSet(addOpenApiSpecOptimistic(scopeId), { mode: "promiseExit" });
   const doStartOAuth = useAtomSet(startOAuth, { mode: "promiseExit" });
   const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promiseExit" });
-  const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
     popupName: OPENAPI_OAUTH_POPUP_NAME,
@@ -281,7 +292,7 @@ export default function AddOpenApiSource(props: {
     selectedServerIndex >= 0 ? (servers[selectedServerIndex] ?? null) : null;
 
   const serverVariables: Record<string, ServerVariable> = selectedServer
-    ? Option.getOrElse(selectedServer.variables, () => ({}))
+    ? Option.getOrElse(selectedServer.variables, () => ({}) as Record<string, ServerVariable>)
     : {};
   const serverVariableEntries: Array<[string, ServerVariable]> = Object.entries(serverVariables);
 
@@ -293,7 +304,10 @@ export default function AddOpenApiSource(props: {
   // Helper used by analyze + server selection: build a default selection map
   // from a server's variable defaults.
   const defaultSelectionsFor = (server: ServerInfo): Record<string, string> => {
-    const vars: Record<string, ServerVariable> = Option.getOrElse(server.variables, () => ({}));
+    const vars: Record<string, ServerVariable> = Option.getOrElse(
+      server.variables,
+      () => ({}) as Record<string, ServerVariable>,
+    );
     const out: Record<string, string> = {};
     for (const [name, v] of Object.entries(vars)) out[name] = v.default;
     return out;
@@ -384,33 +398,32 @@ export default function AddOpenApiSource(props: {
       setAnalyzing(false);
       return;
     }
-
     const result = exit.value;
     setPreview(result);
 
-    const firstServer = result.servers[0];
-    if (firstServer) {
-      setSelectedServerIndex(0);
-      setVariableSelections(defaultSelectionsFor(firstServer));
-      setCustomBaseUrl("");
-    } else {
-      setSelectedServerIndex(-1);
-      setVariableSelections({});
-      setCustomBaseUrl("");
-    }
+      const firstServer = result.servers[0];
+      if (firstServer) {
+        setSelectedServerIndex(0);
+        setVariableSelections(defaultSelectionsFor(firstServer));
+        setCustomBaseUrl("");
+      } else {
+        setSelectedServerIndex(-1);
+        setVariableSelections({});
+        setCustomBaseUrl("");
+      }
 
-    const firstPreset = result.headerPresets[0];
-    if (firstPreset) {
-      setStrategy({ kind: "header", presetIndex: 0 });
-      setCustomHeaders(entriesFromSpecPreset(firstPreset));
-    } else {
-      // No header presets — default to "custom" so the headers editor is
-      // visible immediately. Specs with no `security` block (e.g. Microsoft
-      // Graph) would otherwise leave the user staring at just the
-      // Authentication heading with no way to add headers.
-      setStrategy({ kind: "custom" });
-      setCustomHeaders([]);
-    }
+      const firstPreset = result.headerPresets[0];
+      if (firstPreset) {
+        setStrategy({ kind: "header", presetIndex: 0 });
+        setCustomHeaders(entriesFromSpecPreset(firstPreset));
+      } else {
+        // No header presets — default to "custom" so the headers editor is
+        // visible immediately. Specs with no `security` block (e.g. Microsoft
+        // Graph) would otherwise leave the user staring at just the
+        // Authentication heading with no way to add headers.
+        setStrategy({ kind: "custom" });
+        setCustomHeaders([]);
+      }
     setAnalyzing(false);
   };
 
@@ -477,59 +490,59 @@ export default function AddOpenApiSource(props: {
     const tokenUrl = resolveOAuthUrl(selectedOAuth2Preset.tokenUrl, resolvedBaseUrl);
 
     if (selectedOAuth2Preset.flow === "clientCredentials") {
-      // RFC 6749 §4.4: no user-interactive consent step. The client_secret
-      // is mandatory; the backend exchanges tokens inline and returns a
-      // completed OAuth2Auth we can attach to the source directly.
-      if (!oauth2ClientSecretSecretId) {
-        setOauth2Error("client_credentials requires a client secret");
-        return;
-      }
-      setStartingOAuth(true);
-      const connectionId = openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow);
-      const startOAuthExit = await doStartOAuth({
-        params: { scopeId },
-        payload: {
-          endpoint: tokenUrl,
-          redirectUrl: tokenUrl,
-          connectionId,
-          tokenScope: scopeId,
-          strategy: {
-            kind: "client-credentials",
-            tokenEndpoint: tokenUrl,
+        // RFC 6749 §4.4: no user-interactive consent step. The client_secret
+        // is mandatory; the backend exchanges tokens inline and returns a
+        // completed OAuth2Auth we can attach to the source directly.
+        if (!oauth2ClientSecretSecretId) {
+          setOauth2Error("client_credentials requires a client secret");
+          return;
+        }
+        setStartingOAuth(true);
+        const connectionId = openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow);
+        const exit = await doStartOAuth({
+          params: { scopeId },
+          payload: {
+            endpoint: tokenUrl,
+            redirectUrl: tokenUrl,
+            connectionId,
+            tokenScope: scopeId,
+            strategy: {
+              kind: "client-credentials",
+              tokenEndpoint: tokenUrl,
+              clientIdSecretId: oauth2ClientIdSecretId,
+              clientSecretSecretId: oauth2ClientSecretSecretId,
+              scopes: [...oauth2SelectedScopes],
+            },
+            pluginId: "openapi",
+            identityLabel: `${displayName} OAuth`,
+          },
+        });
+        setStartingOAuth(false);
+        if (Exit.isFailure(exit)) {
+          setOauth2Error(errorMessageFromExit(exit, "Failed to start OAuth"));
+          return;
+        }
+        const response = exit.value;
+        if (!response.completedConnection) {
+          setOauth2Error("client_credentials flow did not mint a connection");
+          return;
+        }
+        setOauth2AuthState({
+          fingerprint: selectedOAuth2Fingerprint,
+          auth: new OAuth2Auth({
+            kind: "oauth2",
+            connectionId: response.completedConnection.connectionId,
+            securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+            flow: "clientCredentials",
+            tokenUrl,
+            authorizationUrl: null,
             clientIdSecretId: oauth2ClientIdSecretId,
             clientSecretSecretId: oauth2ClientSecretSecretId,
             scopes: [...oauth2SelectedScopes],
-          },
-          pluginId: "openapi",
-          identityLabel: `${displayName} OAuth`,
-        },
-      });
-      setStartingOAuth(false);
-      if (Exit.isFailure(startOAuthExit)) {
-        setOauth2Error(errorMessageFromExit(startOAuthExit, "Failed to start OAuth"));
+          }),
+        });
+        setOauth2Error(null);
         return;
-      }
-      const response = startOAuthExit.value;
-      if (!response.completedConnection) {
-        setOauth2Error("client_credentials flow did not mint a connection");
-        return;
-      }
-      setOauth2AuthState({
-        fingerprint: selectedOAuth2Fingerprint,
-        auth: new OAuth2Auth({
-          kind: "oauth2",
-          connectionId: response.completedConnection.connectionId,
-          securitySchemeName: selectedOAuth2Preset.securitySchemeName,
-          flow: "clientCredentials",
-          tokenUrl,
-          authorizationUrl: null,
-          clientIdSecretId: oauth2ClientIdSecretId,
-          clientSecretSecretId: oauth2ClientSecretSecretId,
-          scopes: [...oauth2SelectedScopes],
-        }),
-      });
-      setOauth2Error(null);
-      return;
     }
 
     const authorizationUrl = resolveOAuthUrl(
@@ -537,61 +550,66 @@ export default function AddOpenApiSource(props: {
       resolvedBaseUrl,
     );
     const issuerUrl = inferOAuthIssuerUrl(authorizationUrl);
-    const startOAuthExit = await doStartOAuth({
-      params: { scopeId },
-      payload: {
-        endpoint: authorizationUrl,
-        connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
-        tokenScope: scopeId,
-        redirectUrl: oauth2RedirectUrl,
-        strategy: {
-          kind: "authorization-code",
-          authorizationEndpoint: authorizationUrl,
-          tokenEndpoint: tokenUrl,
-          issuerUrl,
-          clientIdSecretId: oauth2ClientIdSecretId,
-          clientSecretSecretId: oauth2ClientSecretSecretId ?? null,
-          scopes: [...oauth2SelectedScopes],
-        },
-        pluginId: "openapi",
-        identityLabel: `${displayName} OAuth`,
-      },
-    });
-    if (Exit.isFailure(startOAuthExit)) {
-      setOauth2Error(errorMessageFromExit(startOAuthExit, "Failed to start OAuth"));
-      return;
-    }
-    const response = startOAuthExit.value;
-    if (response.authorizationUrl === null) {
-      setOauth2Error("Unexpected response flow from server");
-      return;
-    }
 
     await oauth.openAuthorization({
-      run: async () => ({
-        sessionId: response.sessionId,
-        authorizationUrl: response.authorizationUrl,
-      }),
-      onSuccess: (result) => {
-        setOauth2AuthState({
-          fingerprint: selectedOAuth2Fingerprint,
-          auth: new OAuth2Auth({
-            kind: "oauth2",
-            connectionId: result.connectionId,
-            securitySchemeName: selectedOAuth2Preset.securitySchemeName,
-            flow: "authorizationCode",
-            tokenUrl,
-            authorizationUrl,
-            issuerUrl,
-            clientIdSecretId: oauth2ClientIdSecretId,
-            clientSecretSecretId: oauth2ClientSecretSecretId,
-            scopes: [...oauth2SelectedScopes],
-          }),
+        run: async () => {
+          const exit = await doStartOAuth({
+            params: { scopeId },
+            payload: {
+              endpoint: authorizationUrl,
+              connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
+              tokenScope: scopeId,
+              redirectUrl: oauth2RedirectUrl,
+              strategy: {
+                kind: "authorization-code",
+                authorizationEndpoint: authorizationUrl,
+                tokenEndpoint: tokenUrl,
+                issuerUrl,
+                clientIdSecretId: oauth2ClientIdSecretId,
+                clientSecretSecretId: oauth2ClientSecretSecretId ?? null,
+                scopes: [...oauth2SelectedScopes],
+              },
+              pluginId: "openapi",
+              identityLabel: `${displayName} OAuth`,
+            },
         });
-        setOauth2Error(null);
-      },
-      onError: setOauth2Error,
-    });
+        if (Exit.isFailure(exit)) {
+          // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: OAuth popup API represents start failure by rejecting run()
+          throw new Error(errorMessageFromExit(exit, "Failed to start OAuth"));
+        }
+        const response = exit.value;
+        if (response.authorizationUrl === null) {
+          // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: OAuth popup API represents start failure by rejecting run()
+          throw new Error("Unexpected response flow from server");
+        }
+          return {
+            sessionId: response.sessionId,
+            authorizationUrl: response.authorizationUrl,
+          };
+        },
+        onSuccess: (result) => {
+          setOauth2AuthState({
+            fingerprint: selectedOAuth2Fingerprint,
+            auth: new OAuth2Auth({
+              kind: "oauth2",
+              connectionId: result.connectionId,
+              securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+              flow: "authorizationCode",
+              tokenUrl,
+              authorizationUrl,
+              issuerUrl,
+              clientIdSecretId: oauth2ClientIdSecretId,
+              clientSecretSecretId: oauth2ClientSecretSecretId,
+              scopes: [...oauth2SelectedScopes],
+            }),
+          });
+          setOauth2Error(null);
+        },
+        onError: (message) => {
+          setStartingOAuth(false);
+          setOauth2Error(message);
+        },
+      });
   }, [
     selectedOAuth2Preset,
     oauth2ClientIdSecretId,
@@ -621,24 +639,13 @@ export default function AddOpenApiSource(props: {
     const displayName =
       identity.name.trim() ||
       (preview ? Option.getOrElse(preview.title, () => namespace) : namespace);
-    const placeholder = beginAdd({
-      id: namespace,
-      name: displayName,
-      kind: "openapi",
-      url: resolvedBaseUrl || undefined,
-    });
-    const failAdd = (message: string) => {
-      setAddError(message);
-      setAdding(false);
-      placeholder.done();
-    };
-    const resultExit = await doAdd({
+    const exit = await doAdd({
       params: { scopeId },
       payload: {
         spec: specUrl,
         specFetchCredentials: serializeHttpCredentials(specFetchCredentials),
-        name: identity.name.trim() || undefined,
-        namespace: slugifyNamespace(identity.namespace) || undefined,
+        name: displayName,
+        namespace,
         baseUrl: resolvedBaseUrl || undefined,
         ...(hasHeaders ? { headers: configuredHeaders } : {}),
         ...(Object.keys(serializeHttpCredentials(runtimeCredentials).queryParams).length > 0
@@ -648,13 +655,13 @@ export default function AddOpenApiSource(props: {
       },
       reactivityKeys: addSpecWriteKeys,
     });
-
-    if (Exit.isFailure(resultExit)) {
-      failAdd(errorMessageFromExit(resultExit, "Failed to add source"));
+    if (Exit.isFailure(exit)) {
+      setAddError(errorMessageFromExit(exit, "Failed to add source"));
+      setAdding(false);
       return;
     }
 
-    const sourceId = resultExit.value.namespace;
+    const sourceId = exit.value.namespace;
     const sourceScope = ScopeId.make(scopeId);
     const bindingScope = ScopeId.make(userScope);
 
@@ -674,13 +681,14 @@ export default function AddOpenApiSource(props: {
         reactivityKeys: bindingWriteKeys,
       });
       if (Exit.isFailure(bindingExit)) {
-        failAdd(errorMessageFromExit(bindingExit, "Failed to add source"));
+        setAddError(errorMessageFromExit(bindingExit, "Failed to add source"));
+        setAdding(false);
         return;
       }
     }
 
     if (configuredOAuth2 && oauth2ClientIdSecretId) {
-      const clientIdBindingExit = await doSetBinding({
+      const bindingExit = await doSetBinding({
         params: { scopeId },
         payload: {
           sourceId,
@@ -694,14 +702,15 @@ export default function AddOpenApiSource(props: {
         },
         reactivityKeys: bindingWriteKeys,
       });
-      if (Exit.isFailure(clientIdBindingExit)) {
-        failAdd(errorMessageFromExit(clientIdBindingExit, "Failed to add source"));
+      if (Exit.isFailure(bindingExit)) {
+        setAddError(errorMessageFromExit(bindingExit, "Failed to add source"));
+        setAdding(false);
         return;
       }
     }
 
     if (configuredOAuth2?.clientSecretSlot && oauth2ClientSecretSecretId) {
-      const clientSecretBindingExit = await doSetBinding({
+      const bindingExit = await doSetBinding({
         params: { scopeId },
         payload: {
           sourceId,
@@ -715,14 +724,15 @@ export default function AddOpenApiSource(props: {
         },
         reactivityKeys: bindingWriteKeys,
       });
-      if (Exit.isFailure(clientSecretBindingExit)) {
-        failAdd(errorMessageFromExit(clientSecretBindingExit, "Failed to add source"));
+      if (Exit.isFailure(bindingExit)) {
+        setAddError(errorMessageFromExit(bindingExit, "Failed to add source"));
+        setAdding(false);
         return;
       }
     }
 
     if (configuredOAuth2 && oauth2Auth) {
-      const connectionBindingExit = await doSetBinding({
+      const bindingExit = await doSetBinding({
         params: { scopeId },
         payload: {
           sourceId,
@@ -736,13 +746,13 @@ export default function AddOpenApiSource(props: {
         },
         reactivityKeys: bindingWriteKeys,
       });
-      if (Exit.isFailure(connectionBindingExit)) {
-        failAdd(errorMessageFromExit(connectionBindingExit, "Failed to add source"));
+      if (Exit.isFailure(bindingExit)) {
+        setAddError(errorMessageFromExit(bindingExit, "Failed to add source"));
+        setAdding(false);
         return;
       }
     }
 
-    placeholder.done();
     props.onComplete();
   };
 

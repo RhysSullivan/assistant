@@ -1,15 +1,15 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh } from "@effect/atom-react";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import * as Exit from "effect/Exit";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { effectivePolicyFromSorted } from "@executor-js/sdk";
 import {
   policiesOptimisticAtom,
   sourceToolsAtom,
-  sourcesAtom,
+  sourcesOptimisticAtom,
   sourceAtom,
-  removeSource,
+  removeSourceOptimistic,
   refreshSource,
 } from "../api/atoms";
 import { sourceWriteKeys } from "../api/reactivity-keys";
@@ -30,9 +30,9 @@ export function SourceDetailPage(props: { namespace: string }) {
   const source = useAtomValue(sourceAtom(namespace, scopeId));
   const tools = useAtomValue(sourceToolsAtom(namespace, scopeId));
   const policies = useAtomValue(policiesOptimisticAtom(scopeId));
-  const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
+  const refreshSources = useAtomRefresh(sourcesOptimisticAtom(scopeId));
   const refreshTools = useAtomRefresh(sourceToolsAtom(namespace, scopeId));
-  const doRemove = useAtomSet(removeSource, { mode: "promiseExit" });
+  const doRemove = useAtomSet(removeSourceOptimistic(scopeId), { mode: "promiseExit" });
   const doRefresh = useAtomSet(refreshSource, { mode: "promiseExit" });
   const policyActions = usePolicyActions(scopeId);
   const navigate = useNavigate();

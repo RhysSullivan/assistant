@@ -5,18 +5,17 @@
 // ---------------------------------------------------------------------------
 
 import { env } from "cloudflare:workers";
-import { Context, Data, Effect, Layer, Schema } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 
 export class SlackError extends Data.TaggedError("SlackError")<{
   method: string;
   error: string;
+  cause?: unknown;
 }> {}
 
 export type ISlackService = Readonly<{
   createConnectInvite: (input: {
     email: string;
-    name?: string;
-    note?: string;
     organization?: string;
   }) => Effect.Effect<
     {
@@ -27,8 +26,8 @@ export type ISlackService = Readonly<{
   >;
 }>;
 
-const slugifyEmail = (email: string): string =>
-  email
+const slugify = (s: string): string =>
+  s
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
@@ -40,95 +39,64 @@ const randomSuffix = (): string => {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 };
 
-const SlackErrorResponse = Schema.Struct({
-  ok: Schema.Literal(false),
-  error: Schema.optional(Schema.String),
-});
-
-const SlackChannel = Schema.Struct({ id: Schema.String, name: Schema.String });
-
-const SlackPostMessageResponse = Schema.Struct({ ok: Schema.Literal(true) });
-
-const SlackCreateChannelResponse = Schema.Struct({
-  ok: Schema.Literal(true),
-  channel: SlackChannel,
-});
-
-const SlackSharedInviteResponse = Schema.Struct({
-  ok: Schema.Literal(true),
-  invite_id: Schema.String,
-  url: Schema.String,
-});
+type SlackResponse = { ok: boolean; error?: string } & Record<string, unknown>;
 
 const make = Effect.sync(() => {
   const token = env.SLACK_BOT_TOKEN;
 
   if (!token) {
     const notConfigured = (method: string) =>
-      Effect.fail(new SlackError({ method, error: "SLACK_BOT_TOKEN is not configured" }));
+      Effect.fail(
+        new SlackError({ method, error: "SLACK_BOT_TOKEN is not configured" }),
+      );
     return {
       createConnectInvite: () => notConfigured("createConnectInvite"),
     } satisfies ISlackService;
   }
 
-  const call = <A extends { ok: true }>(
-    method: string,
-    body: Record<string, unknown>,
-    successSchema: Schema.Decoder<A>,
-  ) =>
-    Effect.gen(function* () {
-      const json = yield* Effect.tryPromise({
-        try: async (): Promise<unknown> => {
-          const res = await fetch(`https://slack.com/api/${method}`, {
-            method: "POST",
-            headers: {
-              "content-type": "application/json; charset=utf-8",
-              authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify(body),
-          });
-          return res.json();
-        },
-        catch: () =>
-          new SlackError({
-            method,
-            error: "Failed to read Slack API response",
-          }),
-      });
-
-      const response = yield* Schema.decodeUnknownEffect(
-        Schema.Union([successSchema, SlackErrorResponse]),
-      )(json).pipe(
-        Effect.mapError(
-          () =>
-            new SlackError({
-              method,
-              error: "Unexpected Slack API response",
-            }),
-        ),
-      );
-
-      if (!response.ok) {
-        return yield* new SlackError({
-          method,
-          error: response.error ?? "unknown_slack_error",
+  const call = <A extends SlackResponse>(method: string, body: Record<string, unknown>) =>
+    Effect.tryPromise({
+      try: async (): Promise<A> => {
+        const res = await fetch(`https://slack.com/api/${method}`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
         });
-      }
-
-      return response;
-    }).pipe(Effect.withSpan(`slack.${method}`));
+        const json = (await res.json()) as A;
+        return json;
+      },
+      catch: (cause) =>
+        new SlackError({
+          method,
+          error: "Slack request failed",
+          cause,
+        }),
+    }).pipe(
+      Effect.flatMap((json) =>
+        json.ok
+          ? Effect.succeed(json)
+          : Effect.fail(new SlackError({ method, error: json.error ?? "unknown_slack_error" })),
+      ),
+      Effect.withSpan(`slack.${method}`),
+    );
 
   const createConnectInvite: ISlackService["createConnectInvite"] = ({
     email,
-    name,
-    note,
     organization,
   }) =>
     Effect.gen(function* () {
-      // Slack channel names: lowercase, no spaces, max 80 chars, unique per workspace.
-      const baseName = `shared-${slugifyEmail(email)}`.slice(0, 80);
+      // Slack channel names: lowercase, no spaces, max 80 chars, unique per
+      // workspace. Use the org name when available; fall back to the email
+      // local-part for unauthenticated submissions.
+      const baseName = slugify(organization ?? email).slice(0, 80) || "contact";
       const tryCreate = (n: string) =>
-        call("conversations.create", { name: n, is_private: false }, SlackCreateChannelResponse);
+        call<SlackResponse & { channel: { id: string; name: string } }>(
+          "conversations.create",
+          { name: n, is_private: false },
+        );
 
       const created = yield* tryCreate(baseName).pipe(
         Effect.catchTag("SlackError", (err) =>
@@ -139,39 +107,27 @@ const make = Effect.sync(() => {
       );
       const channel = created.channel;
 
-      const helloLines = [
-        `:wave: New contact from pricing page: ${email}`,
-        name ? `Name: ${name}` : null,
-        organization ? `Org: ${organization}` : null,
-        note ? `Note: ${note}` : null,
-      ].filter(Boolean) as string[];
-
-      yield* call(
-        "chat.postMessage",
-        {
-          channel: channel.id,
-          text: helloLines.join("\n"),
-        },
-        SlackPostMessageResponse,
-      );
-
-      const invite = yield* call(
+      const invite = yield* call<SlackResponse & { invite_id: string; url: string }>(
         "conversations.inviteShared",
         {
           channel: channel.id,
           emails: [email],
-          // `external_limited: true` scopes the guest to just this channel,
-          // which is what we want for a focused 1:1 support conversation.
-          external_limited: true,
         },
-        SlackSharedInviteResponse,
+      );
+
+      // Best-effort: leave the channel so the bot doesn't sit in every
+      // contact channel forever. Don't fail the request if leave errors.
+      yield* call<SlackResponse>("conversations.leave", { channel: channel.id }).pipe(
+        Effect.ignore,
       );
 
       return {
         channel: { id: channel.id, name: channel.name },
         invite: { invite_id: invite.invite_id, url: invite.url },
       };
-    }).pipe(Effect.withSpan("slack.createConnectInvite", { attributes: { "slack.email": email } }));
+    }).pipe(
+      Effect.withSpan("slack.createConnectInvite", { attributes: { "slack.email": email } }),
+    );
 
   return { createConnectInvite } satisfies ISlackService;
 });

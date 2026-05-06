@@ -1,10 +1,10 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAtomRefresh } from "@effect/atom-react";
-import { Data, Effect, Exit } from "effect";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { sourcesAtom, toolsAtom } from "@executor-js/react/api/atoms";
-import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
+import { sourcesAtom, sourcesOptimisticAtom, toolsAtom } from "@executor-js/react/api/atoms";
 import { useScope, useScopeInfo } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
 import { SourceFavicon } from "@executor-js/react/components/source-favicon";
@@ -29,10 +29,6 @@ const { VITE_APP_VERSION, VITE_GITHUB_URL } = (
 type UpdateChannel = "latest" | "beta";
 
 const EXECUTOR_DIST_TAGS_PATH = "/v1/app/npm/dist-tags";
-
-class LatestVersionCheckError extends Data.TaggedError("LatestVersionCheckError")<{
-  readonly cause: unknown;
-}> {}
 
 type ParsedVersion = {
   readonly major: number;
@@ -100,22 +96,20 @@ function useLatestVersion(currentVersion: string) {
 
   useEffect(() => {
     let cancelled = false;
-
-    const latestVersionEffect = Effect.tryPromise({
-      try: async () => {
-        const res = await fetch(EXECUTOR_DIST_TAGS_PATH);
-        if (!res.ok) return {};
-        return (await res.json()) as Partial<Record<UpdateChannel, string>>;
-      },
-      catch: (cause) => new LatestVersionCheckError({ cause }),
-    });
-
-    void Effect.runPromiseExit(latestVersionEffect).then((exit) => {
+    void Effect.runPromiseExit(
+      Effect.tryPromise({
+        try: async () => {
+          const res = await fetch(EXECUTOR_DIST_TAGS_PATH);
+          if (!res.ok) return null;
+          return (await res.json()) as Partial<Record<UpdateChannel, string>>;
+        },
+        catch: (cause) => cause,
+      }),
+    ).then((exit) => {
       if (!cancelled && Exit.isSuccess(exit)) {
-        setLatestVersion(exit.value[channel] ?? null);
+        setLatestVersion(exit.value?.[channel] ?? null);
       }
     });
-
     return () => {
       cancelled = true;
     };
@@ -273,7 +267,7 @@ function PluginNav(props: { pathname: string; onNavigate?: () => void }) {
 
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const scopeId = useScope();
-  const sources = useSourcesWithPending(scopeId);
+  const sources = useAtomValue(sourcesOptimisticAtom(scopeId));
 
   return AsyncResult.match(sources, {
     onInitial: () => <div className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</div>,

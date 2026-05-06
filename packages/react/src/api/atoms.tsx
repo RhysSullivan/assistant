@@ -55,7 +55,10 @@ export const sourcesAtom = (scopeId: ScopeId) =>
 
 /** Single source by id — derived from the sources list */
 export const sourceAtom = (sourceId: string, scopeId: ScopeId) =>
-  Atom.mapResult(sourcesAtom(scopeId), (sources) => sources.find((s) => s.id === sourceId) ?? null);
+  Atom.mapResult(
+    sourcesOptimisticAtom(scopeId),
+    (sources) => sources.find((s) => s.id === sourceId) ?? null,
+  );
 
 export const secretsAtom = (scopeId: ScopeId) =>
   ExecutorApiClient.query("secrets", "list", {
@@ -85,25 +88,14 @@ export const secretUsagesAtom = (scopeId: ScopeId, secretId: SecretId) =>
     // Refresh whenever any source / connection / secret changes — adding
     // an oauth source pulls in a new connection-secret link and we want
     // the usage list to reflect it.
-    reactivityKeys: [
-      ReactivityKey.secrets,
-      ReactivityKey.sources,
-      ReactivityKey.connections,
-    ],
+    reactivityKeys: [ReactivityKey.secrets, ReactivityKey.sources, ReactivityKey.connections],
   });
 
-export const connectionUsagesAtom = (
-  scopeId: ScopeId,
-  connectionId: ConnectionId,
-) =>
+export const connectionUsagesAtom = (scopeId: ScopeId, connectionId: ConnectionId) =>
   ExecutorApiClient.query("connections", "usages", {
     params: { scopeId, connectionId },
     timeToLive: "30 seconds",
-    reactivityKeys: [
-      ReactivityKey.connections,
-      ReactivityKey.sources,
-      ReactivityKey.secrets,
-    ],
+    reactivityKeys: [ReactivityKey.connections, ReactivityKey.sources, ReactivityKey.secrets],
   });
 
 export const policiesAtom = (scopeId: ScopeId) =>
@@ -152,6 +144,46 @@ export const createPolicy = ExecutorApiClient.mutation("policies", "create");
 export const updatePolicy = ExecutorApiClient.mutation("policies", "update");
 
 export const removePolicy = ExecutorApiClient.mutation("policies", "remove");
+
+// ---------------------------------------------------------------------------
+// Sources — optimistic surface.
+// ---------------------------------------------------------------------------
+
+export const sourcesOptimisticAtom = Atom.family((scopeId: ScopeId) =>
+  Atom.optimistic(sourcesAtom(scopeId)),
+);
+
+export const removeSourceOptimistic = Atom.family((scopeId: ScopeId) =>
+  sourcesOptimisticAtom(scopeId).pipe(
+    Atom.optimisticFn({
+      reducer: (current, arg) =>
+        AsyncResult.map(current, (rows) =>
+          rows.filter((source) => source.id !== arg.params.sourceId),
+        ),
+      fn: removeSource,
+    }),
+  ),
+);
+
+// ---------------------------------------------------------------------------
+// Connections — optimistic removals.
+// ---------------------------------------------------------------------------
+
+export const connectionsOptimisticAtom = Atom.family((scopeId: ScopeId) =>
+  Atom.optimistic(connectionsAtom(scopeId)),
+);
+
+export const removeConnectionOptimistic = Atom.family((scopeId: ScopeId) =>
+  connectionsOptimisticAtom(scopeId).pipe(
+    Atom.optimisticFn({
+      reducer: (current, arg) =>
+        AsyncResult.map(current, (rows) =>
+          rows.filter((connection) => connection.id !== arg.params.connectionId),
+        ),
+      fn: removeConnection,
+    }),
+  ),
+);
 
 // ---------------------------------------------------------------------------
 // Secrets — optimistic removals.

@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import { useScope } from "@executor-js/react/api/scope-context";
 import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
-import { usePendingSources } from "@executor-js/react/api/optimistic";
 import {
   HttpCredentialsEditor,
   httpCredentialsValid,
@@ -34,9 +35,20 @@ import {
 import { FloatActions } from "@executor-js/react/components/float-actions";
 import { Input } from "@executor-js/react/components/input";
 import { Spinner } from "@executor-js/react/components/spinner";
-import { addGraphqlSource } from "./atoms";
+import { addGraphqlSourceOptimistic } from "./atoms";
 import { initialGraphqlCredentials } from "./defaults";
 import type { HeaderValue } from "../sdk/types";
+
+const ErrorMessage = Schema.Struct({ message: Schema.String });
+
+const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string =>
+  Option.match(
+    Option.flatMap(Exit.findErrorOption(exit), Schema.decodeUnknownOption(ErrorMessage)),
+    {
+      onNone: () => fallback,
+      onSome: ({ message }) => message,
+    },
+  );
 
 type AuthMode = "none" | "oauth2";
 
@@ -56,8 +68,7 @@ export default function AddGraphqlSource(props: {
   const [tokens, setTokens] = useState<OAuthCompletionPayload | null>(null);
 
   const scopeId = useScope();
-  const doAdd = useAtomSet(addGraphqlSource, { mode: "promiseExit" });
-  const { beginAdd } = usePendingSources();
+  const doAdd = useAtomSet(addGraphqlSourceOptimistic(scopeId), { mode: "promiseExit" });
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow({
     popupName: "graphql-oauth",
@@ -113,18 +124,12 @@ export default function AddGraphqlSource(props: {
     const { headers: headerMap, queryParams } = serializeHttpCredentials(credentials);
 
     const { trimmedEndpoint, namespace, displayName } = sourceIdentity();
-    const placeholder = beginAdd({
-      id: namespace,
-      name: displayName,
-      kind: "graphql",
-      url: trimmedEndpoint || undefined,
-    });
     const exit = await doAdd({
       params: { scopeId },
       payload: {
         endpoint: trimmedEndpoint,
-        name: identity.name.trim() || undefined,
-        namespace: slugifyNamespace(identity.namespace) || undefined,
+        name: displayName,
+        namespace,
         ...(Object.keys(headerMap).length > 0 ? { headers: headerMap } : {}),
         ...(Object.keys(queryParams).length > 0
           ? { queryParams: queryParams as Record<string, HeaderValue> }
@@ -140,14 +145,11 @@ export default function AddGraphqlSource(props: {
       },
       reactivityKeys: sourceWriteKeys,
     });
-    placeholder.done();
-
     if (Exit.isFailure(exit)) {
-      setAddError("Failed to add source");
+      setAddError(errorMessageFromExit(exit, "Failed to add source"));
       setAdding(false);
       return;
     }
-
     props.onComplete();
   };
 
