@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
-import { Option } from "effect";
+import { Exit, Option } from "effect";
 
 import { ConnectionId, ScopeId, SecretId } from "@executor-js/sdk/core";
 import { startOAuth } from "@executor-js/react/api/atoms";
@@ -92,6 +92,17 @@ const substituteUrlVariables = (url: string, values: Record<string, string>): st
   return out;
 };
 
+const hasStringMessage = (value: unknown): value is { readonly message: string } =>
+  typeof value === "object" &&
+  value !== null &&
+  "message" in value &&
+  typeof (value as { readonly message?: unknown }).message === "string";
+
+const errorMessageFromExit = (exit: Exit.Exit<unknown, unknown>, fallback: string): string => {
+  const error = Exit.findErrorOption(exit);
+  return Option.isSome(error) && hasStringMessage(error.value) ? error.value.message : fallback;
+};
+
 export const openApiOAuthConnectionId = (
   namespaceSlug: string,
   flow: OAuth2Preset["flow"],
@@ -109,25 +120,13 @@ export const openApiOAuthConnectionId = (
  */
 export function resolveOAuthUrl(url: string, baseUrl: string): string {
   if (!url) return url;
-  try {
-    new URL(url);
-    return url;
-  } catch {
-    if (!baseUrl) return url;
-    try {
-      return new URL(url, baseUrl).toString();
-    } catch {
-      return url;
-    }
-  }
+  if (URL.canParse(url)) return url;
+  if (!baseUrl || !URL.canParse(url, baseUrl)) return url;
+  return new URL(url, baseUrl).toString();
 }
 
 export function inferOAuthIssuerUrl(authorizationUrl: string): string | null {
-  try {
-    return new URL(authorizationUrl).origin;
-  } catch {
-    return null;
-  }
+  return URL.canParse(authorizationUrl) ? new URL(authorizationUrl).origin : null;
 }
 
 type StrategySelection =
@@ -242,10 +241,10 @@ export default function AddOpenApiSource(props: {
 
   const scopeId = useScope();
   const userScope = useUserScope();
-  const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promise" });
-  const doAdd = useAtomSet(addOpenApiSpec, { mode: "promise" });
-  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
-  const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
+  const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promiseExit" });
+  const doAdd = useAtomSet(addOpenApiSpec, { mode: "promiseExit" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promiseExit" });
+  const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promiseExit" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
@@ -371,45 +370,46 @@ export default function AddOpenApiSource(props: {
     setAnalyzing(true);
     setAnalyzeError(null);
     setAddError(null);
-    try {
-      const credentials = serializeHttpCredentials(specFetchCredentials);
-      const result = await doPreview({
-        params: { scopeId },
-        payload: {
-          spec: specUrl,
-          specFetchCredentials: credentials,
-        },
-      });
-      setPreview(result);
-
-      const firstServer = result.servers[0];
-      if (firstServer) {
-        setSelectedServerIndex(0);
-        setVariableSelections(defaultSelectionsFor(firstServer));
-        setCustomBaseUrl("");
-      } else {
-        setSelectedServerIndex(-1);
-        setVariableSelections({});
-        setCustomBaseUrl("");
-      }
-
-      const firstPreset = result.headerPresets[0];
-      if (firstPreset) {
-        setStrategy({ kind: "header", presetIndex: 0 });
-        setCustomHeaders(entriesFromSpecPreset(firstPreset));
-      } else {
-        // No header presets — default to "custom" so the headers editor is
-        // visible immediately. Specs with no `security` block (e.g. Microsoft
-        // Graph) would otherwise leave the user staring at just the
-        // Authentication heading with no way to add headers.
-        setStrategy({ kind: "custom" });
-        setCustomHeaders([]);
-      }
-    } catch (e) {
-      setAnalyzeError(e instanceof Error ? e.message : "Failed to parse spec");
-    } finally {
+    const credentials = serializeHttpCredentials(specFetchCredentials);
+    const previewExit = await doPreview({
+      params: { scopeId },
+      payload: {
+        spec: specUrl,
+        specFetchCredentials: credentials,
+      },
+    });
+    if (Exit.isFailure(previewExit)) {
+      setAnalyzeError(errorMessageFromExit(previewExit, "Failed to parse spec"));
       setAnalyzing(false);
+      return;
     }
+    const result = previewExit.value;
+    setPreview(result);
+
+    const firstServer = result.servers[0];
+    if (firstServer) {
+      setSelectedServerIndex(0);
+      setVariableSelections(defaultSelectionsFor(firstServer));
+      setCustomBaseUrl("");
+    } else {
+      setSelectedServerIndex(-1);
+      setVariableSelections({});
+      setCustomBaseUrl("");
+    }
+
+    const firstPreset = result.headerPresets[0];
+    if (firstPreset) {
+      setStrategy({ kind: "header", presetIndex: 0 });
+      setCustomHeaders(entriesFromSpecPreset(firstPreset));
+    } else {
+      // No header presets — default to "custom" so the headers editor is
+      // visible immediately. Specs with no `security` block (e.g. Microsoft
+      // Graph) would otherwise leave the user staring at just the
+      // Authentication heading with no way to add headers.
+      setStrategy({ kind: "custom" });
+      setCustomHeaders([]);
+    }
+    setAnalyzing(false);
   };
 
   handleAnalyzeRef.current = handleAnalyze;
@@ -470,122 +470,128 @@ export default function AddOpenApiSource(props: {
     if (!selectedOAuth2Preset || !oauth2ClientIdSecretId || !preview) return;
     oauth.cancel();
     setOauth2Error(null);
-    try {
-      const displayName = identity.name.trim() || selectedOAuth2Preset.securitySchemeName;
+    const displayName = identity.name.trim() || selectedOAuth2Preset.securitySchemeName;
 
-      const tokenUrl = resolveOAuthUrl(selectedOAuth2Preset.tokenUrl, resolvedBaseUrl);
+    const tokenUrl = resolveOAuthUrl(selectedOAuth2Preset.tokenUrl, resolvedBaseUrl);
 
-      if (selectedOAuth2Preset.flow === "clientCredentials") {
-        // RFC 6749 §4.4: no user-interactive consent step. The client_secret
-        // is mandatory; the backend exchanges tokens inline and returns a
-        // completed OAuth2Auth we can attach to the source directly.
-        if (!oauth2ClientSecretSecretId) {
-          setOauth2Error("client_credentials requires a client secret");
-          return;
-        }
-        setStartingOAuth(true);
-        const connectionId = openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow);
-        const response = await doStartOAuth({
+    if (selectedOAuth2Preset.flow === "clientCredentials") {
+      // RFC 6749 §4.4: no user-interactive consent step. The client_secret
+      // is mandatory; the backend exchanges tokens inline and returns a
+      // completed OAuth2Auth we can attach to the source directly.
+      if (!oauth2ClientSecretSecretId) {
+        setOauth2Error("client_credentials requires a client secret");
+        return;
+      }
+      setStartingOAuth(true);
+      const connectionId = openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow);
+      const startExit = await doStartOAuth({
+        params: { scopeId },
+        payload: {
+          endpoint: tokenUrl,
+          redirectUrl: tokenUrl,
+          connectionId,
+          tokenScope: scopeId,
+          strategy: {
+            kind: "client-credentials",
+            tokenEndpoint: tokenUrl,
+            clientIdSecretId: oauth2ClientIdSecretId,
+            clientSecretSecretId: oauth2ClientSecretSecretId,
+            scopes: [...oauth2SelectedScopes],
+          },
+          pluginId: "openapi",
+          identityLabel: `${displayName} OAuth`,
+        },
+      });
+      setStartingOAuth(false);
+      if (Exit.isFailure(startExit)) {
+        setOauth2Error(errorMessageFromExit(startExit, "Failed to start OAuth"));
+        return;
+      }
+      const response = startExit.value;
+      if (!response.completedConnection) {
+        setOauth2Error("client_credentials flow did not mint a connection");
+        return;
+      }
+      setOauth2AuthState({
+        fingerprint: selectedOAuth2Fingerprint,
+        auth: new OAuth2Auth({
+          kind: "oauth2",
+          connectionId: response.completedConnection.connectionId,
+          securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+          flow: "clientCredentials",
+          tokenUrl,
+          authorizationUrl: null,
+          clientIdSecretId: oauth2ClientIdSecretId,
+          clientSecretSecretId: oauth2ClientSecretSecretId,
+          scopes: [...oauth2SelectedScopes],
+        }),
+      });
+      setOauth2Error(null);
+      return;
+    }
+
+    const authorizationUrl = resolveOAuthUrl(
+      Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
+      resolvedBaseUrl,
+    );
+    const issuerUrl = inferOAuthIssuerUrl(authorizationUrl);
+
+    await oauth.openAuthorization({
+      run: async () => {
+        const startExit = await doStartOAuth({
           params: { scopeId },
           payload: {
-            endpoint: tokenUrl,
-            redirectUrl: tokenUrl,
-            connectionId,
-            tokenScope: scopeId as string,
+            endpoint: authorizationUrl,
+            connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
+            tokenScope: scopeId,
+            redirectUrl: oauth2RedirectUrl,
             strategy: {
-              kind: "client-credentials",
+              kind: "authorization-code",
+              authorizationEndpoint: authorizationUrl,
               tokenEndpoint: tokenUrl,
+              issuerUrl,
               clientIdSecretId: oauth2ClientIdSecretId,
-              clientSecretSecretId: oauth2ClientSecretSecretId,
+              clientSecretSecretId: oauth2ClientSecretSecretId ?? null,
               scopes: [...oauth2SelectedScopes],
             },
             pluginId: "openapi",
             identityLabel: `${displayName} OAuth`,
           },
         });
-        setStartingOAuth(false);
-        if (!response.completedConnection) {
-          setOauth2Error("client_credentials flow did not mint a connection");
-          return;
+        if (Exit.isFailure(startExit)) {
+          // oxlint-disable-next-line executor/no-try-catch-or-throw -- OAuth popup adapter boundary expects rejected run promises for start errors.
+          throw errorMessageFromExit(startExit, "Failed to start OAuth");
         }
+        const response = startExit.value;
+        if (response.authorizationUrl === null) {
+          // oxlint-disable-next-line executor/no-try-catch-or-throw -- OAuth popup adapter boundary expects rejected run promises for start errors.
+          throw "Unexpected response flow from server";
+        }
+        return {
+          sessionId: response.sessionId,
+          authorizationUrl: response.authorizationUrl,
+        };
+      },
+      onSuccess: (result) => {
         setOauth2AuthState({
           fingerprint: selectedOAuth2Fingerprint,
           auth: new OAuth2Auth({
             kind: "oauth2",
-            connectionId: response.completedConnection.connectionId,
+            connectionId: result.connectionId,
             securitySchemeName: selectedOAuth2Preset.securitySchemeName,
-            flow: "clientCredentials",
+            flow: "authorizationCode",
             tokenUrl,
-            authorizationUrl: null,
+            authorizationUrl,
+            issuerUrl,
             clientIdSecretId: oauth2ClientIdSecretId,
             clientSecretSecretId: oauth2ClientSecretSecretId,
             scopes: [...oauth2SelectedScopes],
           }),
         });
         setOauth2Error(null);
-        return;
-      }
-
-      const authorizationUrl = resolveOAuthUrl(
-        Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
-        resolvedBaseUrl,
-      );
-      const issuerUrl = inferOAuthIssuerUrl(authorizationUrl);
-
-      await oauth.openAuthorization({
-        run: async () => {
-          const response = await doStartOAuth({
-            params: { scopeId },
-            payload: {
-              endpoint: authorizationUrl,
-              connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
-              tokenScope: scopeId as string,
-              redirectUrl: oauth2RedirectUrl,
-              strategy: {
-                kind: "authorization-code",
-                authorizationEndpoint: authorizationUrl,
-                tokenEndpoint: tokenUrl,
-                issuerUrl,
-                clientIdSecretId: oauth2ClientIdSecretId,
-                clientSecretSecretId: oauth2ClientSecretSecretId ?? null,
-                scopes: [...oauth2SelectedScopes],
-              },
-              pluginId: "openapi",
-              identityLabel: `${displayName} OAuth`,
-            },
-          });
-          if (response.authorizationUrl === null) {
-            throw new Error("Unexpected response flow from server");
-          }
-          return {
-            sessionId: response.sessionId,
-            authorizationUrl: response.authorizationUrl,
-          };
-        },
-        onSuccess: (result) => {
-          setOauth2AuthState({
-            fingerprint: selectedOAuth2Fingerprint,
-            auth: new OAuth2Auth({
-              kind: "oauth2",
-              connectionId: result.connectionId,
-              securitySchemeName: selectedOAuth2Preset.securitySchemeName,
-              flow: "authorizationCode",
-              tokenUrl,
-              authorizationUrl,
-              issuerUrl,
-              clientIdSecretId: oauth2ClientIdSecretId,
-              clientSecretSecretId: oauth2ClientSecretSecretId,
-              scopes: [...oauth2SelectedScopes],
-            }),
-          });
-          setOauth2Error(null);
-        },
-        onError: setOauth2Error,
-      });
-    } catch (e) {
-      setStartingOAuth(false);
-      setOauth2Error(e instanceof Error ? e.message : "Failed to start OAuth");
-    }
+      },
+      onError: setOauth2Error,
+    });
   }, [
     selectedOAuth2Preset,
     oauth2ClientIdSecretId,
@@ -621,103 +627,94 @@ export default function AddOpenApiSource(props: {
       kind: "openapi",
       url: resolvedBaseUrl || undefined,
     });
-    try {
-      const result = await doAdd({
+    const addExit = await doAdd({
+      params: { scopeId },
+      payload: {
+        spec: specUrl,
+        specFetchCredentials: serializeHttpCredentials(specFetchCredentials),
+        name: identity.name.trim() || undefined,
+        namespace: slugifyNamespace(identity.namespace) || undefined,
+        baseUrl: resolvedBaseUrl || undefined,
+        ...(hasHeaders ? { headers: configuredHeaders } : {}),
+        ...(Object.keys(serializeHttpCredentials(runtimeCredentials).queryParams).length > 0
+          ? { queryParams: serializeHttpCredentials(runtimeCredentials).queryParams }
+          : {}),
+        ...(configuredOAuth2 ? { oauth2: configuredOAuth2 } : {}),
+      },
+      reactivityKeys: addSpecWriteKeys,
+    });
+
+    if (Exit.isFailure(addExit)) {
+      setAddError(errorMessageFromExit(addExit, "Failed to add source"));
+      setAdding(false);
+      placeholder.done();
+      return;
+    }
+
+    const sourceId = addExit.value.namespace;
+    const sourceScope = ScopeId.make(scopeId);
+    const bindingScope = ScopeId.make(userScope);
+
+    const setBinding = async (
+      slot: string,
+      value:
+        | { readonly kind: "secret"; readonly secretId: SecretId }
+        | { readonly kind: "connection"; readonly connectionId: ConnectionId },
+    ): Promise<boolean> => {
+      const bindingExit = await doSetBinding({
         params: { scopeId },
         payload: {
-          spec: specUrl,
-          specFetchCredentials: serializeHttpCredentials(specFetchCredentials),
-          name: identity.name.trim() || undefined,
-          namespace: slugifyNamespace(identity.namespace) || undefined,
-          baseUrl: resolvedBaseUrl || undefined,
-          ...(hasHeaders ? { headers: configuredHeaders } : {}),
-          ...(Object.keys(serializeHttpCredentials(runtimeCredentials).queryParams).length > 0
-            ? { queryParams: serializeHttpCredentials(runtimeCredentials).queryParams }
-            : {}),
-          ...(configuredOAuth2 ? { oauth2: configuredOAuth2 } : {}),
+          sourceId,
+          sourceScope,
+          scope: bindingScope,
+          slot,
+          value,
         },
-        reactivityKeys: addSpecWriteKeys,
+        reactivityKeys: bindingWriteKeys,
       });
-
-      const sourceId = result.namespace;
-      const sourceScope = ScopeId.make(scopeId);
-      const bindingScope = ScopeId.make(userScope);
-
-      for (const binding of headerBindings) {
-        await doSetBinding({
-          params: { scopeId },
-          payload: {
-            sourceId,
-            sourceScope,
-            scope: bindingScope,
-            slot: binding.slot,
-            value: {
-              kind: "secret",
-              secretId: SecretId.make(binding.secretId),
-            },
-          },
-          reactivityKeys: bindingWriteKeys,
-        });
+      if (Exit.isFailure(bindingExit)) {
+        setAddError(errorMessageFromExit(bindingExit, "Failed to add source"));
+        setAdding(false);
+        placeholder.done();
+        return false;
       }
+      return true;
+    };
 
-      if (configuredOAuth2 && oauth2ClientIdSecretId) {
-        await doSetBinding({
-          params: { scopeId },
-          payload: {
-            sourceId,
-            sourceScope,
-            scope: bindingScope,
-            slot: configuredOAuth2.clientIdSlot,
-            value: {
-              kind: "secret",
-              secretId: SecretId.make(oauth2ClientIdSecretId),
-            },
-          },
-          reactivityKeys: bindingWriteKeys,
-        });
-      }
-
-      if (configuredOAuth2?.clientSecretSlot && oauth2ClientSecretSecretId) {
-        await doSetBinding({
-          params: { scopeId },
-          payload: {
-            sourceId,
-            sourceScope,
-            scope: bindingScope,
-            slot: configuredOAuth2.clientSecretSlot,
-            value: {
-              kind: "secret",
-              secretId: SecretId.make(oauth2ClientSecretSecretId),
-            },
-          },
-          reactivityKeys: bindingWriteKeys,
-        });
-      }
-
-      if (configuredOAuth2 && oauth2Auth) {
-        await doSetBinding({
-          params: { scopeId },
-          payload: {
-            sourceId,
-            sourceScope,
-            scope: bindingScope,
-            slot: configuredOAuth2.connectionSlot,
-            value: {
-              kind: "connection",
-              connectionId: ConnectionId.make(oauth2Auth.connectionId),
-            },
-          },
-          reactivityKeys: bindingWriteKeys,
-        });
-      }
-
-      props.onComplete();
-    } catch (e) {
-      setAddError(e instanceof Error ? e.message : "Failed to add source");
-      setAdding(false);
-    } finally {
-      placeholder.done();
+    for (const binding of headerBindings) {
+      const saved = await setBinding(binding.slot, {
+        kind: "secret",
+        secretId: SecretId.make(binding.secretId),
+      });
+      if (!saved) return;
     }
+
+    if (configuredOAuth2 && oauth2ClientIdSecretId) {
+      const saved = await setBinding(configuredOAuth2.clientIdSlot, {
+        kind: "secret",
+        secretId: SecretId.make(oauth2ClientIdSecretId),
+      });
+      if (!saved) return;
+    }
+
+    if (configuredOAuth2?.clientSecretSlot && oauth2ClientSecretSecretId) {
+      const saved = await setBinding(configuredOAuth2.clientSecretSlot, {
+        kind: "secret",
+        secretId: SecretId.make(oauth2ClientSecretSecretId),
+      });
+      if (!saved) return;
+    }
+
+    if (configuredOAuth2 && oauth2Auth) {
+      const saved = await setBinding(configuredOAuth2.connectionSlot, {
+        kind: "connection",
+        connectionId: ConnectionId.make(oauth2Auth.connectionId),
+      });
+      if (!saved) return;
+    }
+
+    placeholder.done();
+    props.onComplete();
   };
 
   // ---- Render ----
