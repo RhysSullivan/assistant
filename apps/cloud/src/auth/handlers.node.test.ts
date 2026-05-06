@@ -1,7 +1,7 @@
 import { HttpApiBuilder, HttpApi } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Data, Effect, Layer } from "effect";
 import type { Effect as EffectType } from "effect/Effect";
 
 import { CloudAuthPublicApi } from "./api";
@@ -31,15 +31,22 @@ const fakeUser: AuthenticateWithCodeResult["user"] = {
   metadata: {},
 };
 
+class UnstubbedWorkOSMethod extends Data.TaggedError("UnstubbedWorkOSMethod")<{
+  method: string;
+}> {}
+
 const makeAuthFetch = (workos: Partial<WorkOSAuth["Service"]>) => {
   const WorkOSTest = Layer.succeed(
     WorkOSAuth,
     new Proxy(workos as WorkOSAuth["Service"], {
       get: (target, prop) => {
         if (prop in target) return target[prop as keyof typeof target];
-        return () => {
-          throw new Error(`WorkOSAuth.${String(prop)} not stubbed`);
-        };
+        return () =>
+          Effect.fail(
+            new UnstubbedWorkOSMethod({
+              method: typeof prop === "string" ? prop : (prop.description ?? "symbol"),
+            }),
+          );
       },
     }),
   );
