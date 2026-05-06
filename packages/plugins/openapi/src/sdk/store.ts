@@ -174,9 +174,7 @@ export interface StoredSource {
 // an encodable/decodable shape for HTTP responses.
 // ---------------------------------------------------------------------------
 
-export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
-  "OpenApiStoredSource",
-)({
+export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>("OpenApiStoredSource")({
   namespace: Schema.String,
   name: Schema.String,
   config: Schema.Struct({
@@ -184,20 +182,12 @@ export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
     sourceUrl: Schema.optional(Schema.String),
     baseUrl: Schema.optional(Schema.String),
     namespace: Schema.optional(Schema.String),
-    headers: Schema.optional(
-      Schema.Record(Schema.String, ConfiguredHeaderValue),
-    ),
-    queryParams: Schema.optional(
-      Schema.Record(Schema.String, HeaderValue),
-    ),
+    headers: Schema.optional(Schema.Record(Schema.String, ConfiguredHeaderValue)),
+    queryParams: Schema.optional(Schema.Record(Schema.String, HeaderValue)),
     specFetchCredentials: Schema.optional(
       Schema.Struct({
-        headers: Schema.optional(
-          Schema.Record(Schema.String, HeaderValue),
-        ),
-        queryParams: Schema.optional(
-          Schema.Record(Schema.String, HeaderValue),
-        ),
+        headers: Schema.optional(Schema.Record(Schema.String, HeaderValue)),
+        queryParams: Schema.optional(Schema.Record(Schema.String, HeaderValue)),
       }),
     ),
     // Canonical source-owned OAuth config. Concrete client credentials
@@ -220,24 +210,78 @@ export interface StoredOperation {
 // ---------------------------------------------------------------------------
 
 const encodeBinding = Schema.encodeSync(OperationBinding);
-const decodeBinding = Schema.decodeUnknownSync(OperationBinding);
 
-const decodeOAuth2 = Schema.decodeUnknownSync(OAuth2Auth);
 const encodeOAuth2SourceConfig = Schema.encodeSync(OAuth2SourceConfig);
 
-interface ChildRow {
-  readonly id: string;
-  readonly scope_id: string;
-  readonly source_id: string;
-  readonly name: string;
-  readonly kind: "text" | "secret";
-  readonly text_value?: string;
-  readonly secret_id?: string;
-  readonly secret_prefix?: string;
-  // Index signature to satisfy adapter's `RowInput` shape (the typed
-  // adapter exposes its row shape with one).
-  readonly [k: string]: unknown;
-}
+const ConfiguredHeaderValueMap = Schema.Record(Schema.String, ConfiguredHeaderValue);
+const StoredHeaderValueMap = Schema.Record(
+  Schema.String,
+  Schema.Union([HeaderValue, ConfiguredHeaderBinding]),
+);
+const JsonStoredHeaderValueMap = Schema.fromJsonString(StoredHeaderValueMap);
+const JsonOAuth2Auth = Schema.fromJsonString(OAuth2Auth);
+const JsonOAuth2SourceConfig = Schema.fromJsonString(OAuth2SourceConfig);
+const JsonOperationBinding = Schema.fromJsonString(OperationBinding);
+
+const ChildRowSchema = Schema.Struct({
+  id: Schema.String,
+  scope_id: Schema.String,
+  source_id: Schema.String,
+  name: Schema.String,
+  kind: Schema.Literals(["text", "secret"]),
+  text_value: Schema.optional(Schema.String),
+  secret_id: Schema.optional(Schema.String),
+  secret_prefix: Schema.optional(Schema.String),
+});
+
+const OpenApiSourceRowSchema = Schema.Struct({
+  id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+  spec: Schema.String,
+  source_url: Schema.optional(Schema.NullOr(Schema.String)),
+  base_url: Schema.optional(Schema.NullOr(Schema.String)),
+  headers: Schema.optional(Schema.Unknown),
+  oauth2: Schema.optional(Schema.Unknown),
+});
+
+const OpenApiOperationRowSchema = Schema.Struct({
+  id: Schema.String,
+  source_id: Schema.String,
+  binding: Schema.Unknown,
+});
+
+const OpenApiSourceBindingRowSchema = Schema.Struct({
+  source_id: Schema.String,
+  source_scope_id: Schema.String,
+  target_scope_id: Schema.String,
+  slot: Schema.String,
+  kind: Schema.Literals(["secret", "connection", "text"]),
+  secret_id: Schema.optional(Schema.String),
+  connection_id: Schema.optional(Schema.String),
+  text_value: Schema.optional(Schema.NullOr(Schema.String)),
+  created_at: Schema.Union([Schema.Date, Schema.DateFromString]),
+  updated_at: Schema.Union([Schema.Date, Schema.DateFromString]),
+});
+
+const SourceChildUsageRowSchema = Schema.Struct({
+  source_id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+});
+
+const SourceNameRowSchema = Schema.Struct({
+  id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+});
+
+const isConfiguredHeaderBinding = Schema.is(ConfiguredHeaderBinding);
+
+type DecodedChildRow = typeof ChildRowSchema.Type;
+// Index signature satisfies the adapter's `RowInput` shape; field types come
+// from the schema above.
+type ChildRow = DecodedChildRow & Record<string, unknown>;
 
 // Collapse a SecretBackedValue map into the flat child-table column
 // shape used by openapi_source_query_param and the two
@@ -274,40 +318,48 @@ const valueMapToChildRows = (
 
 const childRowsToValueMap = (
   rows: readonly Record<string, unknown>[],
-): Record<string, HeaderValue> => {
-  const out: Record<string, HeaderValue> = {};
-  for (const row of rows) {
-    const name = row.name as string;
-    if (row.kind === "secret" && typeof row.secret_id === "string") {
-      const prefix = row.secret_prefix as string | undefined | null;
-      out[name] = prefix
-        ? { secretId: row.secret_id, prefix }
-        : { secretId: row.secret_id };
-    } else if (row.kind === "text" && typeof row.text_value === "string") {
-      out[name] = row.text_value;
+): Effect.Effect<Record<string, HeaderValue>, StorageFailure> =>
+  Effect.gen(function* () {
+    const decodedRows = yield* Schema.decodeUnknownEffect(Schema.Array(ChildRowSchema))(rows).pipe(
+      Effect.mapError(
+        (cause) =>
+          new StorageError({
+            message: "Failed to decode OpenAPI source child rows",
+            cause,
+          }),
+      ),
+    );
+    const out: Record<string, HeaderValue> = {};
+    for (const row of decodedRows) {
+      if (row.kind === "secret" && row.secret_id !== undefined) {
+        out[row.name] =
+          row.secret_prefix !== undefined
+            ? { secretId: row.secret_id, prefix: row.secret_prefix }
+            : { secretId: row.secret_id };
+      } else if (row.kind === "text" && row.text_value !== undefined) {
+        out[row.name] = row.text_value;
+      }
     }
-  }
-  return out;
-};
-
-const toJsonRecord = (value: unknown): Record<string, unknown> =>
-  value as Record<string, unknown>;
-
-const toConfiguredHeaderBinding = (value: {
-  readonly slot?: unknown;
-  readonly prefix?: unknown;
-}): ConfiguredHeaderBinding =>
-  new ConfiguredHeaderBinding({
-    kind: "binding",
-    slot: String(value.slot ?? ""),
-    ...(typeof value.prefix === "string" ? { prefix: value.prefix } : {}),
+    return out;
   });
 
-const decodeHeaders = (value: unknown): Record<string, HeaderValue> => {
-  if (value == null) return {};
-  if (typeof value === "string")
-    return JSON.parse(value) as Record<string, HeaderValue>;
-  return value as Record<string, HeaderValue>;
+const toJsonRecord = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
+
+const decodeHeaders = (
+  value: unknown,
+): Effect.Effect<Record<string, HeaderValue | ConfiguredHeaderBinding>, StorageFailure> => {
+  if (value == null) return Effect.succeed({});
+  return Schema.decodeUnknownEffect(
+    typeof value === "string" ? JsonStoredHeaderValueMap : StoredHeaderValueMap,
+  )(value).pipe(
+    Effect.mapError(
+      (cause) =>
+        new StorageError({
+          message: "Failed to decode OpenAPI source headers",
+          cause,
+        }),
+    ),
+  );
 };
 
 const slugifySlotPart = (value: string): string =>
@@ -331,69 +383,93 @@ export const oauth2ConnectionSlot = (securitySchemeName: string): string =>
 
 const normalizeStoredHeaders = (
   value: unknown,
-): {
-  readonly headers: Record<string, ConfiguredHeaderValue>;
-  readonly legacy: Record<string, HeaderValue>;
-} => {
-  const raw = decodeHeaders(value);
-  const headers: Record<string, ConfiguredHeaderValue> = {};
-  const legacy: Record<string, HeaderValue> = {};
-  for (const [name, header] of Object.entries(raw)) {
-    if (typeof header === "string") {
-      headers[name] = header;
+): Effect.Effect<
+  {
+    readonly headers: Record<string, ConfiguredHeaderValue>;
+    readonly legacy: Record<string, HeaderValue>;
+  },
+  StorageFailure
+> =>
+  Effect.gen(function* () {
+    const raw = yield* decodeHeaders(value);
+    const headers: Record<string, ConfiguredHeaderValue> = {};
+    const legacy: Record<string, HeaderValue> = {};
+    for (const [name, header] of Object.entries(raw)) {
+      if (typeof header === "string") {
+        headers[name] = header;
+        legacy[name] = header;
+        continue;
+      }
+      if (isConfiguredHeaderBinding(header)) {
+        headers[name] = header;
+        continue;
+      }
       legacy[name] = header;
-      continue;
+      headers[name] = new ConfiguredHeaderBinding({
+        kind: "binding",
+        slot: headerBindingSlot(name),
+        prefix: header.prefix,
+      });
     }
-    if (
-      header &&
-      typeof header === "object" &&
-      "kind" in header &&
-      (header as { kind?: unknown }).kind === "binding"
-    ) {
-      headers[name] = toConfiguredHeaderBinding(header);
-      continue;
-    }
-    legacy[name] = header;
-    headers[name] = new ConfiguredHeaderBinding({
-      kind: "binding",
-      slot: headerBindingSlot(name),
-      prefix: header.prefix,
-    });
-  }
-  return { headers, legacy };
-};
+    yield* Schema.decodeUnknownEffect(ConfiguredHeaderValueMap)(headers).pipe(
+      Effect.mapError(
+        (cause) =>
+          new StorageError({
+            message: "Failed to decode normalized OpenAPI source headers",
+            cause,
+          }),
+      ),
+    );
+    return { headers, legacy };
+  });
 
 const normalizeStoredOAuth2 = (
   value: unknown,
-): {
-  readonly oauth2?: OAuth2SourceConfig;
-  readonly legacy?: OAuth2Auth;
-} => {
-  if (value == null) return {};
-  const parsed = typeof value === "string" ? JSON.parse(value) : value;
-  if (parsed && typeof parsed === "object" && "connectionSlot" in parsed) {
-    return {
-      oauth2: Schema.decodeUnknownSync(OAuth2SourceConfig)(parsed),
-    };
-  }
-  const legacy = decodeOAuth2(parsed);
-  return {
-    legacy,
-    oauth2: new OAuth2SourceConfig({
-      kind: "oauth2",
-      securitySchemeName: legacy.securitySchemeName,
-      flow: legacy.flow,
-      tokenUrl: legacy.tokenUrl,
-      authorizationUrl: legacy.authorizationUrl,
-      clientIdSlot: oauth2ClientIdSlot(legacy.securitySchemeName),
-      clientSecretSlot: legacy.clientSecretSecretId
-        ? oauth2ClientSecretSlot(legacy.securitySchemeName)
-        : null,
-      connectionSlot: oauth2ConnectionSlot(legacy.securitySchemeName),
-      scopes: [...legacy.scopes],
-    }),
-  };
-};
+): Effect.Effect<
+  {
+    readonly oauth2?: OAuth2SourceConfig;
+    readonly legacy?: OAuth2Auth;
+  },
+  StorageFailure
+> =>
+  Effect.gen(function* () {
+    if (value == null) return {};
+    return yield* Schema.decodeUnknownEffect(
+      typeof value === "string" ? JsonOAuth2SourceConfig : OAuth2SourceConfig,
+    )(value).pipe(
+      Effect.matchEffect({
+        onSuccess: (oauth2) => Effect.succeed({ oauth2 }),
+        onFailure: () =>
+          Schema.decodeUnknownEffect(typeof value === "string" ? JsonOAuth2Auth : OAuth2Auth)(
+            value,
+          ).pipe(
+            Effect.mapError(
+              (cause) =>
+                new StorageError({
+                  message: "Failed to decode OpenAPI source OAuth2 configuration",
+                  cause,
+                }),
+            ),
+            Effect.map((legacy) => ({
+              legacy,
+              oauth2: new OAuth2SourceConfig({
+                kind: "oauth2",
+                securitySchemeName: legacy.securitySchemeName,
+                flow: legacy.flow,
+                tokenUrl: legacy.tokenUrl,
+                authorizationUrl: legacy.authorizationUrl,
+                clientIdSlot: oauth2ClientIdSlot(legacy.securitySchemeName),
+                clientSecretSlot: legacy.clientSecretSecretId
+                  ? oauth2ClientSecretSlot(legacy.securitySchemeName)
+                  : null,
+                connectionSlot: oauth2ConnectionSlot(legacy.securitySchemeName),
+                scopes: [...legacy.scopes],
+              }),
+            })),
+          ),
+      }),
+    );
+  });
 
 // ---------------------------------------------------------------------------
 // Store interface
@@ -438,10 +514,7 @@ export interface OpenapiStore {
     scope: string,
   ) => Effect.Effect<StoredSource | null, StorageFailure>;
 
-  readonly listSources: () => Effect.Effect<
-    readonly StoredSource[],
-    StorageFailure
-  >;
+  readonly listSources: () => Effect.Effect<readonly StoredSource[], StorageFailure>;
 
   readonly getOperationByToolId: (
     toolId: string,
@@ -453,10 +526,7 @@ export interface OpenapiStore {
     scope: string,
   ) => Effect.Effect<readonly StoredOperation[], StorageFailure>;
 
-  readonly removeSource: (
-    namespace: string,
-    scope: string,
-  ) => Effect.Effect<void, StorageFailure>;
+  readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
 
   readonly listSourceBindings: (
     sourceId: string,
@@ -501,10 +571,7 @@ export interface OpenapiStore {
    *  `query_param:foo` or `spec_fetch_header:Authorization`. */
   readonly findChildRowsBySecret: (secretId: string) => Effect.Effect<
     readonly {
-      readonly kind:
-        | "query_param"
-        | "spec_fetch_header"
-        | "spec_fetch_query_param";
+      readonly kind: "query_param" | "spec_fetch_header" | "spec_fetch_query_param";
       readonly source_id: string;
       readonly scope_id: string;
       readonly name: string;
@@ -527,14 +594,12 @@ export const makeDefaultOpenapiStore = ({
   adapter,
   scopes,
 }: StorageDeps<OpenapiSchema>): OpenapiStore => {
-  const scopeIds = scopes.map((scope) => scope.id as string);
+  const scopeIds = scopes.map((scope) => String(scope.id));
   const scopePrecedence = new Map<string, number>();
   scopeIds.forEach((scope, index) => scopePrecedence.set(scope, index));
-  const scopeRank = (scopeId: string): number =>
-    scopePrecedence.get(scopeId) ?? Infinity;
+  const scopeRank = (scopeId: string): number => scopePrecedence.get(scopeId) ?? Infinity;
 
-  const encodeSyntheticRowIdPart = (value: string): string =>
-    encodeURIComponent(value);
+  const encodeSyntheticRowIdPart = (value: string): string => encodeURIComponent(value);
 
   const sourceBindingRowId = (
     sourceId: string,
@@ -551,13 +616,12 @@ export const makeDefaultOpenapiStore = ({
     ].join("::");
 
   const rowToSourceBindingValue = (
-    row: Record<string, unknown>,
+    row: typeof OpenApiSourceBindingRowSchema.Type,
   ): OpenApiSourceBindingValue => {
-    const kind = row.kind as string;
-    if (kind === "secret" && typeof row.secret_id === "string") {
+    if (row.kind === "secret" && row.secret_id !== undefined) {
       return { kind: "secret", secretId: SecretId.make(row.secret_id) };
     }
-    if (kind === "connection" && typeof row.connection_id === "string") {
+    if (row.kind === "connection" && row.connection_id !== undefined) {
       return {
         kind: "connection",
         connectionId: ConnectionId.make(row.connection_id),
@@ -570,22 +634,27 @@ export const makeDefaultOpenapiStore = ({
   };
 
   const rowToSourceBinding = (
-    row: Record<string, unknown>,
-  ): OpenApiSourceBindingRef =>
-    new OpenApiSourceBindingRef({
-      sourceId: row.source_id as string,
-      sourceScopeId: ScopeId.make(row.source_scope_id as string),
-      scopeId: ScopeId.make(row.target_scope_id as string),
-      slot: row.slot as string,
-      value: rowToSourceBindingValue(row),
-      createdAt:
-        row.created_at instanceof Date
-          ? row.created_at
-          : new Date(row.created_at as string),
-      updatedAt:
-        row.updated_at instanceof Date
-          ? row.updated_at
-          : new Date(row.updated_at as string),
+    row: unknown,
+  ): Effect.Effect<OpenApiSourceBindingRef, StorageFailure> =>
+    Effect.gen(function* () {
+      const decoded = yield* Schema.decodeUnknownEffect(OpenApiSourceBindingRowSchema)(row).pipe(
+        Effect.mapError(
+          (cause) =>
+            new StorageError({
+              message: "Failed to decode OpenAPI source binding row",
+              cause,
+            }),
+        ),
+      );
+      return new OpenApiSourceBindingRef({
+        sourceId: decoded.source_id,
+        sourceScopeId: ScopeId.make(decoded.source_scope_id),
+        scopeId: ScopeId.make(decoded.target_scope_id),
+        slot: decoded.slot,
+        value: rowToSourceBindingValue(decoded),
+        createdAt: decoded.created_at,
+        updatedAt: decoded.updated_at,
+      });
     });
 
   const sourceBindingValueColumns = (
@@ -606,24 +675,20 @@ export const makeDefaultOpenapiStore = ({
   }) =>
     Effect.gen(function* () {
       if (!scopeIds.includes(params.sourceScope)) {
-        return yield* Effect.fail(
-          new StorageError({
-            message:
-              `OpenAPI source binding references source scope "${params.sourceScope}" ` +
-              `which is not in the executor's scope stack [${scopeIds.join(", ")}].`,
-            cause: undefined,
-          }),
-        );
+        return yield* new StorageError({
+          message:
+            `OpenAPI source binding references source scope "${params.sourceScope}" ` +
+            `which is not in the executor's scope stack [${scopeIds.join(", ")}].`,
+          cause: undefined,
+        });
       }
       if (!scopeIds.includes(params.targetScope)) {
-        return yield* Effect.fail(
-          new StorageError({
-            message:
-              `OpenAPI source binding targets scope "${params.targetScope}" which is not ` +
-              `in the executor's scope stack [${scopeIds.join(", ")}].`,
-            cause: undefined,
-          }),
-        );
+        return yield* new StorageError({
+          message:
+            `OpenAPI source binding targets scope "${params.targetScope}" which is not ` +
+            `in the executor's scope stack [${scopeIds.join(", ")}].`,
+          cause: undefined,
+        });
       }
     });
 
@@ -645,23 +710,19 @@ export const makeDefaultOpenapiStore = ({
         ],
       });
       if (!source) {
-        return yield* Effect.fail(
-          new StorageError({
-            message: `OpenAPI source "${params.sourceId}" does not exist at scope "${params.sourceScope}"`,
-            cause: undefined,
-          }),
-        );
+        return yield* new StorageError({
+          message: `OpenAPI source "${params.sourceId}" does not exist at scope "${params.sourceScope}"`,
+          cause: undefined,
+        });
       }
       if (scopeRank(params.targetScope) > scopeRank(params.sourceScope)) {
-        return yield* Effect.fail(
-          new StorageError({
-            message:
-              `OpenAPI source bindings for "${params.sourceId}" cannot be written at ` +
-              `outer scope "${params.targetScope}" because the base source lives at ` +
-              `"${params.sourceScope}"`,
-            cause: undefined,
-          }),
-        );
+        return yield* new StorageError({
+          message:
+            `OpenAPI source bindings for "${params.sourceId}" cannot be written at ` +
+            `outer scope "${params.targetScope}" because the base source lives at ` +
+            `"${params.sourceScope}"`,
+          cause: undefined,
+        });
       }
       return source;
     });
@@ -682,22 +743,25 @@ export const makeDefaultOpenapiStore = ({
           { field: "scope_id", value: scope },
         ],
       })
-      .pipe(Effect.map(childRowsToValueMap));
+      .pipe(Effect.flatMap(childRowsToValueMap));
 
-  const rowToSource = (
-    row: Record<string, unknown>,
-  ): Effect.Effect<StoredSource, StorageFailure> =>
+  const rowToSource = (row: Record<string, unknown>): Effect.Effect<StoredSource, StorageFailure> =>
     Effect.gen(function* () {
-      const sourceId = row.id as string;
-      const scope = row.scope_id as string;
-      const normalizedHeaders = normalizeStoredHeaders(row.headers);
-      const normalizedOAuth2 = normalizeStoredOAuth2(row.oauth2);
-
-      const queryParams = yield* loadChildValueMap(
-        "openapi_source_query_param",
-        sourceId,
-        scope,
+      const decoded = yield* Schema.decodeUnknownEffect(OpenApiSourceRowSchema)(row).pipe(
+        Effect.mapError(
+          (cause) =>
+            new StorageError({
+              message: "Failed to decode OpenAPI source row",
+              cause,
+            }),
+        ),
       );
+      const sourceId = decoded.id;
+      const scope = decoded.scope_id;
+      const normalizedHeaders = yield* normalizeStoredHeaders(decoded.headers);
+      const normalizedOAuth2 = yield* normalizeStoredOAuth2(decoded.oauth2);
+
+      const queryParams = yield* loadChildValueMap("openapi_source_query_param", sourceId, scope);
       const specFetchHeaders = yield* loadChildValueMap(
         "openapi_source_spec_fetch_header",
         sourceId,
@@ -709,13 +773,10 @@ export const makeDefaultOpenapiStore = ({
         scope,
       );
       const specFetchCredentials: OpenApiSpecFetchCredentials | undefined =
-        Object.keys(specFetchHeaders).length === 0 &&
-        Object.keys(specFetchQueryParams).length === 0
+        Object.keys(specFetchHeaders).length === 0 && Object.keys(specFetchQueryParams).length === 0
           ? undefined
           : {
-              ...(Object.keys(specFetchHeaders).length > 0
-                ? { headers: specFetchHeaders }
-                : {}),
+              ...(Object.keys(specFetchHeaders).length > 0 ? { headers: specFetchHeaders } : {}),
               ...(Object.keys(specFetchQueryParams).length > 0
                 ? { queryParams: specFetchQueryParams }
                 : {}),
@@ -724,38 +785,58 @@ export const makeDefaultOpenapiStore = ({
       return {
         namespace: sourceId,
         scope,
-        name: row.name as string,
+        name: decoded.name,
         config: {
-          spec: row.spec as string,
-          sourceUrl: (row.source_url as string | null | undefined) ?? undefined,
-          baseUrl: (row.base_url as string | null | undefined) ?? undefined,
+          spec: decoded.spec,
+          sourceUrl: decoded.source_url ?? undefined,
+          baseUrl: decoded.base_url ?? undefined,
           headers: normalizedHeaders.headers,
           queryParams,
           specFetchCredentials,
           oauth2: normalizedOAuth2.oauth2,
         },
         legacy:
-          Object.keys(normalizedHeaders.legacy).length > 0 ||
-          normalizedOAuth2.legacy
+          Object.keys(normalizedHeaders.legacy).length > 0 || normalizedOAuth2.legacy
             ? {
                 ...(Object.keys(normalizedHeaders.legacy).length > 0
                   ? { headers: normalizedHeaders.legacy }
                   : {}),
-                ...(normalizedOAuth2.legacy
-                  ? { oauth2: normalizedOAuth2.legacy }
-                  : {}),
+                ...(normalizedOAuth2.legacy ? { oauth2: normalizedOAuth2.legacy } : {}),
               }
             : undefined,
       };
     });
 
-  const rowToOperation = (row: Record<string, unknown>): StoredOperation => ({
-    toolId: row.id as string,
-    sourceId: row.source_id as string,
-    binding: decodeBinding(
-      typeof row.binding === "string" ? JSON.parse(row.binding) : row.binding,
-    ),
-  });
+  const rowToOperation = (
+    row: Record<string, unknown>,
+  ): Effect.Effect<StoredOperation, StorageFailure> =>
+    Effect.gen(function* () {
+      const decoded = yield* Schema.decodeUnknownEffect(OpenApiOperationRowSchema)(row).pipe(
+        Effect.mapError(
+          (cause) =>
+            new StorageError({
+              message: "Failed to decode OpenAPI operation row",
+              cause,
+            }),
+        ),
+      );
+      const binding = yield* Schema.decodeUnknownEffect(
+        typeof decoded.binding === "string" ? JsonOperationBinding : OperationBinding,
+      )(decoded.binding).pipe(
+        Effect.mapError(
+          (cause) =>
+            new StorageError({
+              message: "Failed to decode OpenAPI operation binding",
+              cause,
+            }),
+        ),
+      );
+      return {
+        toolId: decoded.id,
+        sourceId: decoded.source_id,
+        binding,
+      };
+    });
 
   // Replace the rows of one child table for a source: delete then bulk
   // insert. Single helper so upsertSource and updateSourceMeta both
@@ -845,20 +926,18 @@ export const makeDefaultOpenapiStore = ({
             source_url: input.config.sourceUrl ?? undefined,
             base_url: input.config.baseUrl ?? undefined,
             headers: Object.fromEntries(
-              Object.entries(input.config.headers ?? {}).map(
-                ([name, value]) => [
-                  name,
-                  typeof value === "string"
-                    ? value
-                    : value.kind === "binding"
-                      ? {
-                          kind: value.kind,
-                          slot: value.slot,
-                          ...(value.prefix ? { prefix: value.prefix } : {}),
-                        }
-                      : value,
-                ],
-              ),
+              Object.entries(input.config.headers ?? {}).map(([name, value]) => [
+                name,
+                typeof value === "string"
+                  ? value
+                  : value.kind === "binding"
+                    ? {
+                        kind: value.kind,
+                        slot: value.slot,
+                        ...(value.prefix ? { prefix: value.prefix } : {}),
+                      }
+                    : value,
+              ]),
             ) as Record<string, unknown>,
             oauth2: input.config.oauth2
               ? toJsonRecord(encodeOAuth2SourceConfig(input.config.oauth2))
@@ -911,14 +990,10 @@ export const makeDefaultOpenapiStore = ({
         const existing = yield* rowToSource(existingRow);
 
         const nextName = patch.name?.trim() || existing.name;
-        const nextBaseUrl =
-          patch.baseUrl !== undefined ? patch.baseUrl : existing.config.baseUrl;
+        const nextBaseUrl = patch.baseUrl !== undefined ? patch.baseUrl : existing.config.baseUrl;
         const nextHeaders =
-          patch.headers !== undefined
-            ? patch.headers
-            : (existing.config.headers ?? {});
-        const nextOAuth2 =
-          patch.oauth2 !== undefined ? patch.oauth2 : existing.config.oauth2;
+          patch.headers !== undefined ? patch.headers : (existing.config.headers ?? {});
+        const nextOAuth2 = patch.oauth2 !== undefined ? patch.oauth2 : existing.config.oauth2;
 
         yield* adapter.update({
           model: "openapi_source",
@@ -941,9 +1016,7 @@ export const makeDefaultOpenapiStore = ({
                     },
               ]),
             ) as Record<string, unknown>,
-            oauth2: nextOAuth2
-              ? toJsonRecord(encodeOAuth2SourceConfig(nextOAuth2))
-              : undefined,
+            oauth2: nextOAuth2 ? toJsonRecord(encodeOAuth2SourceConfig(nextOAuth2)) : undefined,
           },
         });
         if (patch.queryParams !== undefined) {
@@ -986,7 +1059,7 @@ export const makeDefaultOpenapiStore = ({
             { field: "scope_id", value: scope },
           ],
         })
-        .pipe(Effect.map((row) => (row ? rowToOperation(row) : null))),
+        .pipe(Effect.flatMap((row) => (row ? rowToOperation(row) : Effect.succeed(null)))),
 
     listOperationsBySource: (sourceId, scope) =>
       adapter
@@ -997,10 +1070,13 @@ export const makeDefaultOpenapiStore = ({
             { field: "scope_id", value: scope },
           ],
         })
-        .pipe(Effect.map((rows) => rows.map(rowToOperation))),
+        .pipe(
+          Effect.flatMap((rows) =>
+            Effect.forEach(rows, rowToOperation, { concurrency: "unbounded" }),
+          ),
+        ),
 
-    removeSource: (namespace, scope) =>
-      deleteSource(namespace, scope, { includeBindings: true }),
+    removeSource: (namespace, scope) => deleteSource(namespace, scope, { includeBindings: true }),
 
     listSourceBindings: (sourceId, sourceScope) =>
       Effect.gen(function* () {
@@ -1016,17 +1092,23 @@ export const makeDefaultOpenapiStore = ({
             { field: "source_scope_id", value: sourceScope },
           ],
         });
-        return rows
-          .filter(
-            (row) =>
-              scopeRank(row.target_scope_id as string) <= sourceScopeRank,
-          )
-          .sort(
-            (a, b) =>
-              scopeRank(a.target_scope_id as string) -
-              scopeRank(b.target_scope_id as string),
-          )
-          .map(rowToSourceBinding);
+        const decodedRows = yield* Schema.decodeUnknownEffect(
+          Schema.Array(OpenApiSourceBindingRowSchema),
+        )(rows).pipe(
+          Effect.mapError(
+            (cause) =>
+              new StorageError({
+                message: "Failed to decode OpenAPI source binding rows",
+                cause,
+              }),
+          ),
+        );
+        const visibleRows = decodedRows
+          .filter((row) => scopeRank(row.target_scope_id) <= sourceScopeRank)
+          .sort((a, b) => scopeRank(a.target_scope_id) - scopeRank(b.target_scope_id));
+        return yield* Effect.forEach(visibleRows, (row) => rowToSourceBinding(row), {
+          concurrency: "unbounded",
+        });
       }),
 
     resolveSourceBinding: (sourceId, sourceScope, slot) =>
@@ -1044,32 +1126,31 @@ export const makeDefaultOpenapiStore = ({
           ],
         });
         const sourceScopeRank = scopeRank(sourceScope);
-        const row = rows
-          .filter(
-            (candidate) =>
-              scopeRank(candidate.target_scope_id as string) <= sourceScopeRank,
-          )
-          .sort(
-            (a, b) =>
-              scopeRank(a.target_scope_id as string) -
-              scopeRank(b.target_scope_id as string),
-          )[0];
-        return row ? rowToSourceBinding(row) : null;
+        const decodedRows = yield* Schema.decodeUnknownEffect(
+          Schema.Array(OpenApiSourceBindingRowSchema),
+        )(rows).pipe(
+          Effect.mapError(
+            (cause) =>
+              new StorageError({
+                message: "Failed to decode OpenAPI source binding rows",
+                cause,
+              }),
+          ),
+        );
+        const row = decodedRows
+          .filter((candidate) => scopeRank(candidate.target_scope_id) <= sourceScopeRank)
+          .sort((a, b) => scopeRank(a.target_scope_id) - scopeRank(b.target_scope_id))[0];
+        return row ? yield* rowToSourceBinding(row) : null;
       }),
 
     setSourceBinding: (input) =>
       Effect.gen(function* () {
         yield* validateBindingTarget({
           sourceId: input.sourceId,
-          sourceScope: input.sourceScope as string,
-          targetScope: input.scope as string,
+          sourceScope: input.sourceScope,
+          targetScope: input.scope,
         });
-        const id = sourceBindingRowId(
-          input.sourceId,
-          input.sourceScope as string,
-          input.slot,
-          input.scope as string,
-        );
+        const id = sourceBindingRowId(input.sourceId, input.sourceScope, input.slot, input.scope);
         const now = new Date();
         const valueColumns = sourceBindingValueColumns(input.value);
         yield* adapter.delete({
@@ -1081,8 +1162,8 @@ export const makeDefaultOpenapiStore = ({
           data: {
             id,
             source_id: input.sourceId,
-            source_scope_id: input.sourceScope as string,
-            target_scope_id: input.scope as string,
+            source_scope_id: input.sourceScope,
+            target_scope_id: input.scope,
             slot: input.slot,
             ...valueColumns,
             created_at: now,
@@ -1125,7 +1206,13 @@ export const makeDefaultOpenapiStore = ({
           model: "openapi_source_binding",
           where: [{ field: "secret_id", value: secretId }],
         })
-        .pipe(Effect.map((rows) => rows.map(rowToSourceBinding))),
+        .pipe(
+          Effect.flatMap((rows) =>
+            Effect.forEach(rows, rowToSourceBinding, {
+              concurrency: "unbounded",
+            }),
+          ),
+        ),
 
     findBindingsByConnection: (connectionId) =>
       adapter
@@ -1133,14 +1220,26 @@ export const makeDefaultOpenapiStore = ({
           model: "openapi_source_binding",
           where: [{ field: "connection_id", value: connectionId }],
         })
-        .pipe(Effect.map((rows) => rows.map(rowToSourceBinding))),
+        .pipe(
+          Effect.flatMap((rows) =>
+            Effect.forEach(rows, rowToSourceBinding, {
+              concurrency: "unbounded",
+            }),
+          ),
+        ),
 
     findChildRowsBySecret: (secretId) =>
       Effect.gen(function* () {
         const tables = [
           { model: "openapi_source_query_param" as const, kind: "query_param" as const },
-          { model: "openapi_source_spec_fetch_header" as const, kind: "spec_fetch_header" as const },
-          { model: "openapi_source_spec_fetch_query_param" as const, kind: "spec_fetch_query_param" as const },
+          {
+            model: "openapi_source_spec_fetch_header" as const,
+            kind: "spec_fetch_header" as const,
+          },
+          {
+            model: "openapi_source_spec_fetch_query_param" as const,
+            kind: "spec_fetch_query_param" as const,
+          },
         ];
         const perTable = yield* Effect.forEach(
           tables,
@@ -1151,13 +1250,24 @@ export const makeDefaultOpenapiStore = ({
                 where: [{ field: "secret_id", value: secretId }],
               })
               .pipe(
-                Effect.map((rows) =>
-                  rows.map((r) => ({
-                    kind: t.kind,
-                    source_id: r.source_id as string,
-                    scope_id: r.scope_id as string,
-                    name: r.name as string,
-                  })),
+                Effect.flatMap((rows) =>
+                  Schema.decodeUnknownEffect(Schema.Array(SourceChildUsageRowSchema))(rows).pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new StorageError({
+                          message: "Failed to decode OpenAPI source child usage rows",
+                          cause,
+                        }),
+                    ),
+                    Effect.map((decodedRows) =>
+                      decodedRows.map((r) => ({
+                        kind: t.kind,
+                        source_id: r.source_id,
+                        scope_id: r.scope_id,
+                        name: r.name,
+                      })),
+                    ),
+                  ),
                 ),
               ),
           { concurrency: "unbounded" },
@@ -1169,11 +1279,22 @@ export const makeDefaultOpenapiStore = ({
       Effect.gen(function* () {
         if (keys.length === 0) return new Map<string, string>();
         const rows = yield* adapter.findMany({ model: "openapi_source" });
+        const decodedRows = yield* Schema.decodeUnknownEffect(Schema.Array(SourceNameRowSchema))(
+          rows,
+        ).pipe(
+          Effect.mapError(
+            (cause) =>
+              new StorageError({
+                message: "Failed to decode OpenAPI source name rows",
+                cause,
+              }),
+          ),
+        );
         const requested = new Set(keys);
         const out = new Map<string, string>();
-        for (const r of rows) {
-          const key = `${r.scope_id as string}:${r.id as string}`;
-          if (requested.has(key)) out.set(key, r.name as string);
+        for (const r of decodedRows) {
+          const key = `${r.scope_id}:${r.id}`;
+          if (requested.has(key)) out.set(key, r.name);
         }
         return out;
       }),
