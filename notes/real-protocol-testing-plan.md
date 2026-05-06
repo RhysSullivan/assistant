@@ -12,6 +12,8 @@ needed to make protocol tests mockable through Effect.
 ## Goals
 
 - Make realistic protocol scenarios easy to test for OpenAPI, MCP, and GraphQL.
+- Reuse those same real protocol fixtures in CLI, local app, and cloud app e2e
+  tests so app-level suites prove the full invoke flow still works.
 - Keep protocol-specific test services inside the plugin packages that own the
   protocol.
 - Keep shared SDK testing support limited to protocol-agnostic fixtures.
@@ -55,6 +57,12 @@ Use `Layer.provideMerge` when a test needs access to both the live behavior and
 the test service state, such as captured requests, session counts, issued
 tokens, or mutable scenario refs. Use `Layer.fresh` where shared layer
 memoization would leak state across tests.
+
+The same fixtures should be usable above the plugin SDK layer. A real OpenAPI,
+MCP, or GraphQL fixture should be able to sit beside an `apps/cli`,
+`apps/local`, or `apps/cloud` e2e harness and prove that the complete source
+add, discovery, execute, approval, auth, and invoke path works through the
+product entrypoint, not only through direct plugin calls.
 
 ## Current State
 
@@ -102,8 +110,8 @@ plugin package.
 {
   "exports": {
     ".": "./src/sdk/index.ts",
-    "./testing": "./src/testing/index.ts"
-  }
+    "./testing": "./src/testing/index.ts",
+  },
 }
 ```
 
@@ -137,18 +145,15 @@ The public testing surface should export services and layers, not large
 scenario-specific suites.
 
 ```ts
-export class OpenApiTestServer extends Context.Service<OpenApiTestServer>()(
-  "OpenApiTestServer",
-  {
-    effect: Effect.gen(function* () {
-      return {
-        baseUrl,
-        specJson,
-        requests,
-      } as const;
-    }),
-  },
-) {
+export class OpenApiTestServer extends Context.Service<OpenApiTestServer>()("OpenApiTestServer", {
+  effect: Effect.gen(function* () {
+    return {
+      baseUrl,
+      specJson,
+      requests,
+    } as const;
+  }),
+}) {
   static readonly layer = (options: OpenApiTestServerOptions) =>
     Layer.effect(this, makeOpenApiTestServer(options));
 }
@@ -163,18 +168,17 @@ The exact class/factory shape can follow local Effect style, but tests should
 compose layers directly:
 
 ```ts
-layer(
-  OpenApiTestLayers.itemsApi.pipe(
-    Layer.provideMerge(SdkTestLayers.executor()),
-  ),
-)("OpenAPI plugin", (it) => {
-  it.effect("invokes a real endpoint", () =>
-    Effect.gen(function* () {
-      const server = yield* OpenApiTestServer;
-      // add source with server.specJson and invoke through the plugin
-    }),
-  );
-});
+layer(OpenApiTestLayers.itemsApi.pipe(Layer.provideMerge(SdkTestLayers.executor())))(
+  "OpenAPI plugin",
+  (it) => {
+    it.effect("invokes a real endpoint", () =>
+      Effect.gen(function* () {
+        const server = yield* OpenApiTestServer;
+        // add source with server.specJson and invoke through the plugin
+      }),
+    );
+  },
+);
 ```
 
 ## Shared SDK Testing
@@ -323,27 +327,23 @@ has to invent its own local escape hatch.
 ## Migration Order
 
 1. Add `./testing` exports and SDK test primitives.
-
    - Expose `@executor-js/sdk/testing`.
    - Add memory secrets test support.
    - Add the Effect HTTP to fetch-shaped adapter.
    - Keep `makeTestConfig` available from the root SDK.
 
 2. Build the GraphQL vertical slice.
-
    - Add the real GraphQL test server layer.
    - Migrate a representative set of GraphQL plugin tests off canned
      `introspectionJson`.
    - Keep pure extractor tests separate.
 
 3. Promote OpenAPI and MCP existing helpers.
-
    - Move OpenAPI real `HttpApi` helpers into `./testing`.
    - Move MCP streamable HTTP helper into `./testing`.
    - Migrate current tests to import from the new public testing subpaths.
 
 4. Replace global fetch patching.
-
    - Convert core OAuth discovery/helper tests to real local servers or the
      Effect-backed fetch adapter.
    - Convert OpenAPI OAuth tests to the OAuth test server.
@@ -351,17 +351,27 @@ has to invent its own local escape hatch.
    - Convert Google Discovery tests using the same boundary pattern.
 
 5. Add and enforce the raw fetch lint rule.
-
    - First enforce it for plugin SDK packages and core SDK.
    - Then tighten app code once cloud/local worker-specific boundaries are
      classified.
    - Remove temporary allowlist entries as each package is migrated.
 
 6. Broaden scenario coverage.
-
    - Add failure-mode suites for auth, malformed protocol responses, refresh
      flows, schema changes, and multi-scope source shadowing.
    - Prefer one real server layer plus scenario state over many one-off stubs.
+
+7. Reuse fixtures in app-level e2e tests.
+   - Add CLI e2e coverage that starts a real protocol fixture, adds the source
+     through the CLI-supported path, invokes a tool, and asserts the fixture saw
+     the expected request.
+   - Add local app coverage that drives the local API/server path through the
+     same source add and invoke flow.
+   - Add cloud app coverage that runs the worker/miniflare harness against real
+     protocol fixtures where the runtime supports it.
+   - Keep app e2e assertions focused on integration boundaries: transport,
+     source persistence, auth/secret resolution, tool discovery, elicitation,
+     and invocation.
 
 ## Verification
 
@@ -374,6 +384,8 @@ vitest run packages/plugins/graphql/src/**/*.test.ts
 vitest run packages/plugins/openapi/src/**/*.test.ts
 vitest run packages/plugins/mcp/src/**/*.test.ts
 vitest run packages/core/sdk/src/**/*oauth*.test.ts
+vitest run apps/local/src/**/*.test.ts
+vitest run apps/cloud/src/**/*.test.ts
 ```
 
 Repo-level checks before merging:
