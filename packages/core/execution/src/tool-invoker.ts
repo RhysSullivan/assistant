@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
 import * as Cause from "effect/Cause";
 import type {
   Executor,
@@ -23,30 +23,32 @@ const extractSourceNamespace = (path: string): string => {
   return idx === -1 ? path : path.slice(0, idx);
 };
 
-const stringifyUnknown = (value: unknown): string => {
-  try {
-    return JSON.stringify(value) ?? String(value);
-  } catch {
-    return String(value);
-  }
-};
+const ToolErrorMessage = Schema.Struct({
+  message: Schema.String,
+});
 
-const hasStringMessage = (value: unknown): value is { readonly message: string } =>
-  value !== null &&
-  typeof value === "object" &&
-  "message" in value &&
-  typeof value.message === "string";
+const decodeToolErrorMessage = Schema.decodeUnknownOption(ToolErrorMessage);
 
-const messageFromErrorLike = (value: unknown): string | undefined => {
-  if (value instanceof Error || hasStringMessage(value)) {
-    return value.message;
-  }
-  return undefined;
-};
+const ElicitationDeclinedErrorShape = Schema.TaggedStruct("ElicitationDeclinedError", {
+  toolId: Schema.String,
+  action: Schema.Literals(["cancel", "decline"]),
+});
+type ElicitationDeclinedErrorShape = typeof ElicitationDeclinedErrorShape.Type;
+
+const decodeElicitationDeclinedError = Schema.decodeUnknownOption(ElicitationDeclinedErrorShape);
+
+const ToolErrorResult = Schema.Struct({ error: Schema.Unknown });
+const ToolDataResult = Schema.Struct({ data: Schema.Unknown });
+const decodeToolErrorResult = Schema.decodeUnknownOption(ToolErrorResult);
+const decodeToolDataResult = Schema.decodeUnknownOption(ToolDataResult);
 
 const renderToolErrorMessage = (error: unknown): string =>
-  messageFromErrorLike(error) ??
-  (typeof error === "undefined" ? "Tool execution failed" : stringifyUnknown(error));
+  decodeToolErrorMessage(error).pipe(
+    Option.match({
+      onNone: () => "Tool execution failed",
+      onSome: ({ message }) => message,
+    }),
+  );
 
 /**
  * Bridges QuickJS `tools.someSource.someOp(args)` calls into
@@ -90,40 +92,24 @@ export const makeExecutorToolInvoker = (
         );
       }),
     );
-    const r = result as { readonly error?: unknown; readonly data?: unknown } | unknown;
-    if (
-      r !== null &&
-      typeof r === "object" &&
-      "error" in r &&
-      (r as { error?: unknown }).error !== null &&
-      (r as { error?: unknown }).error !== undefined
-    ) {
-      const error = (r as { error: unknown }).error;
-      return yield* Effect.fail(
-        new ExecutionToolError({
-          message: renderToolErrorMessage(error),
-          cause: error,
-        }),
-      );
+    const errorResult = decodeToolErrorResult(result);
+    if (Option.isSome(errorResult) && errorResult.value.error != null) {
+      const error = errorResult.value.error;
+      return yield* new ExecutionToolError({
+        message: renderToolErrorMessage(error),
+        cause: error,
+      });
     }
-    if (r !== null && typeof r === "object" && "data" in r) {
-      return (r as { data: unknown }).data;
+    const dataResult = decodeToolDataResult(result);
+    if (Option.isSome(dataResult)) {
+      return dataResult.value.data;
     }
-    return r;
+    return result;
   }),
 });
 
-const isElicitationDeclinedError = (
-  value: unknown,
-): value is { readonly _tag: "ElicitationDeclinedError"; readonly toolId: string; readonly action: "cancel" | "decline" } =>
-  value !== null &&
-  typeof value === "object" &&
-  "_tag" in value &&
-  value._tag === "ElicitationDeclinedError" &&
-  "toolId" in value &&
-  typeof value.toolId === "string" &&
-  "action" in value &&
-  (value.action === "cancel" || value.action === "decline");
+const isElicitationDeclinedError = (value: unknown): value is ElicitationDeclinedErrorShape =>
+  Option.isSome(decodeElicitationDeclinedError(value));
 
 export type ToolDiscoveryResult = {
   readonly path: string;
