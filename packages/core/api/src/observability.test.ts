@@ -32,7 +32,7 @@ describe("capture", () => {
   it.effect("translates StorageError to InternalError with ErrorCapture trace id", () =>
     Effect.gen(function* () {
       const { layer, seen } = yield* makeRecorder("trace-abc");
-      const err = new StorageError({ message: "db down", cause: new Error("x") });
+      const err = new StorageError({ message: "db down", cause: "x" });
 
       const eff = capture(Effect.fail(err));
       const result = yield* Effect.flip(eff).pipe(Effect.provide(layer));
@@ -81,7 +81,7 @@ describe("capture", () => {
         DomainError
       >;
       const result = yield* Effect.flip(capture(eff));
-      expect(result._tag).toBe("DomainError");
+      expect(result).toBeInstanceOf(DomainError);
     }),
   );
 });

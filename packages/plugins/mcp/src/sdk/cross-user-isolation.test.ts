@@ -69,9 +69,9 @@ const makeSharedOrgExecutors = () =>
     return {
       execA,
       execB,
-      aInnerId: aInnerId as string,
-      bInnerId: bInnerId as string,
-      orgScopeId: orgScopeId as string,
+      aInnerId,
+      bInnerId,
+      orgScopeId,
     };
   });
 

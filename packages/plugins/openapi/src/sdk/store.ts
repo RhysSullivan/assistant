@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 import {
   ConnectionId,
@@ -174,9 +174,7 @@ export interface StoredSource {
 // an encodable/decodable shape for HTTP responses.
 // ---------------------------------------------------------------------------
 
-export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
-  "OpenApiStoredSource",
-)({
+export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>("OpenApiStoredSource")({
   namespace: Schema.String,
   name: Schema.String,
   config: Schema.Struct({
@@ -184,20 +182,12 @@ export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
     sourceUrl: Schema.optional(Schema.String),
     baseUrl: Schema.optional(Schema.String),
     namespace: Schema.optional(Schema.String),
-    headers: Schema.optional(
-      Schema.Record(Schema.String, ConfiguredHeaderValue),
-    ),
-    queryParams: Schema.optional(
-      Schema.Record(Schema.String, HeaderValue),
-    ),
+    headers: Schema.optional(Schema.Record(Schema.String, ConfiguredHeaderValue)),
+    queryParams: Schema.optional(Schema.Record(Schema.String, HeaderValue)),
     specFetchCredentials: Schema.optional(
       Schema.Struct({
-        headers: Schema.optional(
-          Schema.Record(Schema.String, HeaderValue),
-        ),
-        queryParams: Schema.optional(
-          Schema.Record(Schema.String, HeaderValue),
-        ),
+        headers: Schema.optional(Schema.Record(Schema.String, HeaderValue)),
+        queryParams: Schema.optional(Schema.Record(Schema.String, HeaderValue)),
       }),
     ),
     // Canonical source-owned OAuth config. Concrete client credentials
@@ -221,9 +211,84 @@ export interface StoredOperation {
 
 const encodeBinding = Schema.encodeSync(OperationBinding);
 const decodeBinding = Schema.decodeUnknownSync(OperationBinding);
+const decodeBindingJson = Schema.decodeUnknownSync(Schema.fromJsonString(OperationBinding));
 
 const decodeOAuth2 = Schema.decodeUnknownSync(OAuth2Auth);
+const decodeOAuth2Option = Schema.decodeUnknownOption(OAuth2Auth);
+const decodeOAuth2JsonOption = Schema.decodeUnknownOption(Schema.fromJsonString(OAuth2Auth));
+const decodeOAuth2SourceConfigOption = Schema.decodeUnknownOption(OAuth2SourceConfig);
+const decodeOAuth2SourceConfigJsonOption = Schema.decodeUnknownOption(
+  Schema.fromJsonString(OAuth2SourceConfig),
+);
 const encodeOAuth2SourceConfig = Schema.encodeSync(OAuth2SourceConfig);
+
+const decodeHeaderValueOption = Schema.decodeUnknownOption(HeaderValue);
+const UnknownRecord = Schema.Record(Schema.String, Schema.Unknown);
+const decodeUnknownRecord = Schema.decodeUnknownSync(UnknownRecord);
+const decodeUnknownRecordJson = Schema.decodeUnknownSync(Schema.fromJsonString(UnknownRecord));
+const decodeConfiguredHeaderBindingOption = Schema.decodeUnknownOption(ConfiguredHeaderBinding);
+
+const NullableString = Schema.NullOr(Schema.String);
+const OptionalNullableString = Schema.optional(NullableString);
+
+const ChildStorageRow = Schema.Struct({
+  name: Schema.String,
+  kind: Schema.Literals(["text", "secret"]),
+  text_value: OptionalNullableString,
+  secret_id: OptionalNullableString,
+  secret_prefix: OptionalNullableString,
+});
+const decodeChildStorageRowOption = Schema.decodeUnknownOption(ChildStorageRow);
+
+const SourceBindingStorageRow = Schema.Struct({
+  source_id: Schema.String,
+  source_scope_id: Schema.String,
+  target_scope_id: Schema.String,
+  slot: Schema.String,
+  kind: Schema.Literals(["secret", "connection", "text"]),
+  secret_id: OptionalNullableString,
+  connection_id: OptionalNullableString,
+  text_value: OptionalNullableString,
+  created_at: Schema.Unknown,
+  updated_at: Schema.Unknown,
+});
+const decodeSourceBindingStorageRow = Schema.decodeUnknownSync(SourceBindingStorageRow);
+
+const SourceStorageRow = Schema.Struct({
+  id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+  spec: Schema.String,
+  source_url: OptionalNullableString,
+  base_url: OptionalNullableString,
+  headers: Schema.optional(Schema.Unknown),
+  oauth2: Schema.optional(Schema.Unknown),
+});
+const decodeSourceStorageRow = Schema.decodeUnknownSync(SourceStorageRow);
+
+const OperationStorageRow = Schema.Struct({
+  id: Schema.String,
+  source_id: Schema.String,
+  binding: Schema.Unknown,
+});
+const decodeOperationStorageRow = Schema.decodeUnknownSync(OperationStorageRow);
+
+const ChildUsageStorageRow = Schema.Struct({
+  source_id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+});
+const decodeChildUsageStorageRow = Schema.decodeUnknownSync(ChildUsageStorageRow);
+
+const SourceNameStorageRow = Schema.Struct({
+  id: Schema.String,
+  scope_id: Schema.String,
+  name: Schema.String,
+});
+const decodeSourceNameStorageRow = Schema.decodeUnknownSync(SourceNameStorageRow);
+
+const decodeStorageDate = (value: unknown): Date =>
+  value instanceof Date ? value : new Date(Schema.decodeUnknownSync(Schema.String)(value));
 
 interface ChildRow {
   readonly id: string;
@@ -277,21 +342,24 @@ const childRowsToValueMap = (
 ): Record<string, HeaderValue> => {
   const out: Record<string, HeaderValue> = {};
   for (const row of rows) {
-    const name = row.name as string;
-    if (row.kind === "secret" && typeof row.secret_id === "string") {
-      const prefix = row.secret_prefix as string | undefined | null;
-      out[name] = prefix
-        ? { secretId: row.secret_id, prefix }
-        : { secretId: row.secret_id };
-    } else if (row.kind === "text" && typeof row.text_value === "string") {
-      out[name] = row.text_value;
+    const decoded = decodeChildStorageRowOption(row);
+    if (Option.isSome(decoded)) {
+      const child = decoded.value;
+      if (child.kind === "secret" && child.secret_id != null) {
+        out[child.name] =
+          child.secret_prefix != null
+            ? { secretId: child.secret_id, prefix: child.secret_prefix }
+            : { secretId: child.secret_id };
+      } else if (child.kind === "text" && child.text_value != null) {
+        out[child.name] = child.text_value;
+      }
     }
   }
   return out;
 };
 
-const toJsonRecord = (value: unknown): Record<string, unknown> =>
-  value as Record<string, unknown>;
+// oxlint-disable-next-line executor/no-explicit-unknown-record -- boundary: storage adapter accepts JSON object columns
+const toJsonRecord = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
 
 const toConfiguredHeaderBinding = (value: {
   readonly slot?: unknown;
@@ -303,11 +371,10 @@ const toConfiguredHeaderBinding = (value: {
     ...(typeof value.prefix === "string" ? { prefix: value.prefix } : {}),
   });
 
-const decodeHeaders = (value: unknown): Record<string, HeaderValue> => {
+const decodeHeaders = (value: unknown): Record<string, unknown> => {
   if (value == null) return {};
-  if (typeof value === "string")
-    return JSON.parse(value) as Record<string, HeaderValue>;
-  return value as Record<string, HeaderValue>;
+  if (typeof value === "string") return decodeUnknownRecordJson(value);
+  return decodeUnknownRecord(value);
 };
 
 const slugifySlotPart = (value: string): string =>
@@ -344,20 +411,18 @@ const normalizeStoredHeaders = (
       legacy[name] = header;
       continue;
     }
-    if (
-      header &&
-      typeof header === "object" &&
-      "kind" in header &&
-      (header as { kind?: unknown }).kind === "binding"
-    ) {
-      headers[name] = toConfiguredHeaderBinding(header);
+    const binding = decodeConfiguredHeaderBindingOption(header);
+    if (Option.isSome(binding)) {
+      headers[name] = toConfiguredHeaderBinding(binding.value);
       continue;
     }
-    legacy[name] = header;
+    const legacyHeader = decodeHeaderValueOption(header);
+    if (Option.isNone(legacyHeader)) continue;
+    legacy[name] = legacyHeader.value;
     headers[name] = new ConfiguredHeaderBinding({
       kind: "binding",
       slot: headerBindingSlot(name),
-      prefix: header.prefix,
+      prefix: typeof legacyHeader.value === "string" ? undefined : legacyHeader.value.prefix,
     });
   }
   return { headers, legacy };
@@ -370,13 +435,16 @@ const normalizeStoredOAuth2 = (
   readonly legacy?: OAuth2Auth;
 } => {
   if (value == null) return {};
-  const parsed = typeof value === "string" ? JSON.parse(value) : value;
-  if (parsed && typeof parsed === "object" && "connectionSlot" in parsed) {
-    return {
-      oauth2: Schema.decodeUnknownSync(OAuth2SourceConfig)(parsed),
-    };
+  const sourceConfig =
+    typeof value === "string"
+      ? decodeOAuth2SourceConfigJsonOption(value)
+      : decodeOAuth2SourceConfigOption(value);
+  if (Option.isSome(sourceConfig)) {
+    return { oauth2: sourceConfig.value };
   }
-  const legacy = decodeOAuth2(parsed);
+  const legacyOption =
+    typeof value === "string" ? decodeOAuth2JsonOption(value) : decodeOAuth2Option(value);
+  const legacy = Option.isSome(legacyOption) ? legacyOption.value : decodeOAuth2(value);
   return {
     legacy,
     oauth2: new OAuth2SourceConfig({
@@ -438,10 +506,7 @@ export interface OpenapiStore {
     scope: string,
   ) => Effect.Effect<StoredSource | null, StorageFailure>;
 
-  readonly listSources: () => Effect.Effect<
-    readonly StoredSource[],
-    StorageFailure
-  >;
+  readonly listSources: () => Effect.Effect<readonly StoredSource[], StorageFailure>;
 
   readonly getOperationByToolId: (
     toolId: string,
@@ -453,10 +518,7 @@ export interface OpenapiStore {
     scope: string,
   ) => Effect.Effect<readonly StoredOperation[], StorageFailure>;
 
-  readonly removeSource: (
-    namespace: string,
-    scope: string,
-  ) => Effect.Effect<void, StorageFailure>;
+  readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
 
   readonly listSourceBindings: (
     sourceId: string,
@@ -501,10 +563,7 @@ export interface OpenapiStore {
    *  `query_param:foo` or `spec_fetch_header:Authorization`. */
   readonly findChildRowsBySecret: (secretId: string) => Effect.Effect<
     readonly {
-      readonly kind:
-        | "query_param"
-        | "spec_fetch_header"
-        | "spec_fetch_query_param";
+      readonly kind: "query_param" | "spec_fetch_header" | "spec_fetch_query_param";
       readonly source_id: string;
       readonly scope_id: string;
       readonly name: string;
@@ -527,14 +586,12 @@ export const makeDefaultOpenapiStore = ({
   adapter,
   scopes,
 }: StorageDeps<OpenapiSchema>): OpenapiStore => {
-  const scopeIds = scopes.map((scope) => scope.id as string);
+  const scopeIds = scopes.map((scope) => String(scope.id));
   const scopePrecedence = new Map<string, number>();
   scopeIds.forEach((scope, index) => scopePrecedence.set(scope, index));
-  const scopeRank = (scopeId: string): number =>
-    scopePrecedence.get(scopeId) ?? Infinity;
+  const scopeRank = (scopeId: string): number => scopePrecedence.get(scopeId) ?? Infinity;
 
-  const encodeSyntheticRowIdPart = (value: string): string =>
-    encodeURIComponent(value);
+  const encodeSyntheticRowIdPart = (value: string): string => encodeURIComponent(value);
 
   const sourceBindingRowId = (
     sourceId: string,
@@ -550,47 +607,47 @@ export const makeDefaultOpenapiStore = ({
       encodeSyntheticRowIdPart(scopeId),
     ].join("::");
 
-  const rowToSourceBindingValue = (
-    row: Record<string, unknown>,
-  ): OpenApiSourceBindingValue => {
-    const kind = row.kind as string;
-    if (kind === "secret" && typeof row.secret_id === "string") {
-      return { kind: "secret", secretId: SecretId.make(row.secret_id) };
+  const rowToSourceBindingValue = (row: Record<string, unknown>): OpenApiSourceBindingValue => {
+    const decoded = decodeSourceBindingStorageRow(row);
+    if (decoded.kind === "secret" && decoded.secret_id != null) {
+      return { kind: "secret", secretId: SecretId.make(decoded.secret_id) };
     }
-    if (kind === "connection" && typeof row.connection_id === "string") {
+    if (decoded.kind === "connection" && decoded.connection_id != null) {
       return {
         kind: "connection",
-        connectionId: ConnectionId.make(row.connection_id),
+        connectionId: ConnectionId.make(decoded.connection_id),
       };
     }
     // text fallback covers both well-formed text rows and any
     // partial/null row that survived a malformed write — `text_value`
     // defaults to "" so the type stays satisfied without a throw.
-    return { kind: "text", text: (row.text_value as string | null) ?? "" };
+    return { kind: "text", text: decoded.text_value ?? "" };
   };
 
-  const rowToSourceBinding = (
-    row: Record<string, unknown>,
-  ): OpenApiSourceBindingRef =>
-    new OpenApiSourceBindingRef({
-      sourceId: row.source_id as string,
-      sourceScopeId: ScopeId.make(row.source_scope_id as string),
-      scopeId: ScopeId.make(row.target_scope_id as string),
-      slot: row.slot as string,
+  const rowToSourceBinding = (row: Record<string, unknown>): OpenApiSourceBindingRef => {
+    const decoded = decodeSourceBindingStorageRow(row);
+    return new OpenApiSourceBindingRef({
+      sourceId: decoded.source_id,
+      sourceScopeId: ScopeId.make(decoded.source_scope_id),
+      scopeId: ScopeId.make(decoded.target_scope_id),
+      slot: decoded.slot,
       value: rowToSourceBindingValue(row),
-      createdAt:
-        row.created_at instanceof Date
-          ? row.created_at
-          : new Date(row.created_at as string),
-      updatedAt:
-        row.updated_at instanceof Date
-          ? row.updated_at
-          : new Date(row.updated_at as string),
+      createdAt: decodeStorageDate(decoded.created_at),
+      updatedAt: decodeStorageDate(decoded.updated_at),
     });
+  };
+
+  const sourceBindingTargetScope = (row: Record<string, unknown>): string =>
+    decodeSourceBindingStorageRow(row).target_scope_id;
 
   const sourceBindingValueColumns = (
     value: OpenApiSourceBindingValue,
-  ): { kind: string; secret_id?: string; connection_id?: string; text_value?: string } => {
+  ): {
+    kind: string;
+    secret_id?: string;
+    connection_id?: string;
+    text_value?: string;
+  } => {
     if (value.kind === "secret") {
       return { kind: "secret", secret_id: value.secretId };
     }
@@ -606,24 +663,20 @@ export const makeDefaultOpenapiStore = ({
   }) =>
     Effect.gen(function* () {
       if (!scopeIds.includes(params.sourceScope)) {
-        return yield* Effect.fail(
-          new StorageError({
-            message:
-              `OpenAPI source binding references source scope "${params.sourceScope}" ` +
-              `which is not in the executor's scope stack [${scopeIds.join(", ")}].`,
-            cause: undefined,
-          }),
-        );
+        return yield* new StorageError({
+          message:
+            `OpenAPI source binding references source scope "${params.sourceScope}" ` +
+            `which is not in the executor's scope stack [${scopeIds.join(", ")}].`,
+          cause: undefined,
+        });
       }
       if (!scopeIds.includes(params.targetScope)) {
-        return yield* Effect.fail(
-          new StorageError({
-            message:
-              `OpenAPI source binding targets scope "${params.targetScope}" which is not ` +
-              `in the executor's scope stack [${scopeIds.join(", ")}].`,
-            cause: undefined,
-          }),
-        );
+        return yield* new StorageError({
+          message:
+            `OpenAPI source binding targets scope "${params.targetScope}" which is not ` +
+            `in the executor's scope stack [${scopeIds.join(", ")}].`,
+          cause: undefined,
+        });
       }
     });
 
@@ -645,23 +698,19 @@ export const makeDefaultOpenapiStore = ({
         ],
       });
       if (!source) {
-        return yield* Effect.fail(
-          new StorageError({
-            message: `OpenAPI source "${params.sourceId}" does not exist at scope "${params.sourceScope}"`,
-            cause: undefined,
-          }),
-        );
+        return yield* new StorageError({
+          message: `OpenAPI source "${params.sourceId}" does not exist at scope "${params.sourceScope}"`,
+          cause: undefined,
+        });
       }
       if (scopeRank(params.targetScope) > scopeRank(params.sourceScope)) {
-        return yield* Effect.fail(
-          new StorageError({
-            message:
-              `OpenAPI source bindings for "${params.sourceId}" cannot be written at ` +
-              `outer scope "${params.targetScope}" because the base source lives at ` +
-              `"${params.sourceScope}"`,
-            cause: undefined,
-          }),
-        );
+        return yield* new StorageError({
+          message:
+            `OpenAPI source bindings for "${params.sourceId}" cannot be written at ` +
+            `outer scope "${params.targetScope}" because the base source lives at ` +
+            `"${params.sourceScope}"`,
+          cause: undefined,
+        });
       }
       return source;
     });
@@ -684,20 +733,15 @@ export const makeDefaultOpenapiStore = ({
       })
       .pipe(Effect.map(childRowsToValueMap));
 
-  const rowToSource = (
-    row: Record<string, unknown>,
-  ): Effect.Effect<StoredSource, StorageFailure> =>
+  const rowToSource = (row: Record<string, unknown>): Effect.Effect<StoredSource, StorageFailure> =>
     Effect.gen(function* () {
-      const sourceId = row.id as string;
-      const scope = row.scope_id as string;
-      const normalizedHeaders = normalizeStoredHeaders(row.headers);
-      const normalizedOAuth2 = normalizeStoredOAuth2(row.oauth2);
+      const sourceRow = decodeSourceStorageRow(row);
+      const sourceId = sourceRow.id;
+      const scope = sourceRow.scope_id;
+      const normalizedHeaders = normalizeStoredHeaders(sourceRow.headers);
+      const normalizedOAuth2 = normalizeStoredOAuth2(sourceRow.oauth2);
 
-      const queryParams = yield* loadChildValueMap(
-        "openapi_source_query_param",
-        sourceId,
-        scope,
-      );
+      const queryParams = yield* loadChildValueMap("openapi_source_query_param", sourceId, scope);
       const specFetchHeaders = yield* loadChildValueMap(
         "openapi_source_spec_fetch_header",
         sourceId,
@@ -709,13 +753,10 @@ export const makeDefaultOpenapiStore = ({
         scope,
       );
       const specFetchCredentials: OpenApiSpecFetchCredentials | undefined =
-        Object.keys(specFetchHeaders).length === 0 &&
-        Object.keys(specFetchQueryParams).length === 0
+        Object.keys(specFetchHeaders).length === 0 && Object.keys(specFetchQueryParams).length === 0
           ? undefined
           : {
-              ...(Object.keys(specFetchHeaders).length > 0
-                ? { headers: specFetchHeaders }
-                : {}),
+              ...(Object.keys(specFetchHeaders).length > 0 ? { headers: specFetchHeaders } : {}),
               ...(Object.keys(specFetchQueryParams).length > 0
                 ? { queryParams: specFetchQueryParams }
                 : {}),
@@ -724,38 +765,40 @@ export const makeDefaultOpenapiStore = ({
       return {
         namespace: sourceId,
         scope,
-        name: row.name as string,
+        name: sourceRow.name,
         config: {
-          spec: row.spec as string,
-          sourceUrl: (row.source_url as string | null | undefined) ?? undefined,
-          baseUrl: (row.base_url as string | null | undefined) ?? undefined,
+          spec: sourceRow.spec,
+          sourceUrl: sourceRow.source_url ?? undefined,
+          baseUrl: sourceRow.base_url ?? undefined,
           headers: normalizedHeaders.headers,
           queryParams,
           specFetchCredentials,
           oauth2: normalizedOAuth2.oauth2,
         },
         legacy:
-          Object.keys(normalizedHeaders.legacy).length > 0 ||
-          normalizedOAuth2.legacy
+          Object.keys(normalizedHeaders.legacy).length > 0 || normalizedOAuth2.legacy
             ? {
                 ...(Object.keys(normalizedHeaders.legacy).length > 0
                   ? { headers: normalizedHeaders.legacy }
                   : {}),
-                ...(normalizedOAuth2.legacy
-                  ? { oauth2: normalizedOAuth2.legacy }
-                  : {}),
+                ...(normalizedOAuth2.legacy ? { oauth2: normalizedOAuth2.legacy } : {}),
               }
             : undefined,
       };
     });
 
-  const rowToOperation = (row: Record<string, unknown>): StoredOperation => ({
-    toolId: row.id as string,
-    sourceId: row.source_id as string,
-    binding: decodeBinding(
-      typeof row.binding === "string" ? JSON.parse(row.binding) : row.binding,
-    ),
-  });
+  const rowToOperation = (row: Record<string, unknown>): StoredOperation => {
+    const operationRow = decodeOperationStorageRow(row);
+    return {
+      toolId: operationRow.id,
+      sourceId: operationRow.source_id,
+      binding: decodeBinding(
+        typeof operationRow.binding === "string"
+          ? decodeBindingJson(operationRow.binding)
+          : operationRow.binding,
+      ),
+    };
+  };
 
   // Replace the rows of one child table for a source: delete then bulk
   // insert. Single helper so upsertSource and updateSourceMeta both
@@ -845,20 +888,18 @@ export const makeDefaultOpenapiStore = ({
             source_url: input.config.sourceUrl ?? undefined,
             base_url: input.config.baseUrl ?? undefined,
             headers: Object.fromEntries(
-              Object.entries(input.config.headers ?? {}).map(
-                ([name, value]) => [
-                  name,
-                  typeof value === "string"
-                    ? value
-                    : value.kind === "binding"
-                      ? {
-                          kind: value.kind,
-                          slot: value.slot,
-                          ...(value.prefix ? { prefix: value.prefix } : {}),
-                        }
-                      : value,
-                ],
-              ),
+              Object.entries(input.config.headers ?? {}).map(([name, value]) => [
+                name,
+                typeof value === "string"
+                  ? value
+                  : value.kind === "binding"
+                    ? {
+                        kind: value.kind,
+                        slot: value.slot,
+                        ...(value.prefix ? { prefix: value.prefix } : {}),
+                      }
+                    : value,
+              ]),
             ) as Record<string, unknown>,
             oauth2: input.config.oauth2
               ? toJsonRecord(encodeOAuth2SourceConfig(input.config.oauth2))
@@ -911,14 +952,10 @@ export const makeDefaultOpenapiStore = ({
         const existing = yield* rowToSource(existingRow);
 
         const nextName = patch.name?.trim() || existing.name;
-        const nextBaseUrl =
-          patch.baseUrl !== undefined ? patch.baseUrl : existing.config.baseUrl;
+        const nextBaseUrl = patch.baseUrl !== undefined ? patch.baseUrl : existing.config.baseUrl;
         const nextHeaders =
-          patch.headers !== undefined
-            ? patch.headers
-            : (existing.config.headers ?? {});
-        const nextOAuth2 =
-          patch.oauth2 !== undefined ? patch.oauth2 : existing.config.oauth2;
+          patch.headers !== undefined ? patch.headers : (existing.config.headers ?? {});
+        const nextOAuth2 = patch.oauth2 !== undefined ? patch.oauth2 : existing.config.oauth2;
 
         yield* adapter.update({
           model: "openapi_source",
@@ -941,9 +978,7 @@ export const makeDefaultOpenapiStore = ({
                     },
               ]),
             ) as Record<string, unknown>,
-            oauth2: nextOAuth2
-              ? toJsonRecord(encodeOAuth2SourceConfig(nextOAuth2))
-              : undefined,
+            oauth2: nextOAuth2 ? toJsonRecord(encodeOAuth2SourceConfig(nextOAuth2)) : undefined,
           },
         });
         if (patch.queryParams !== undefined) {
@@ -999,8 +1034,7 @@ export const makeDefaultOpenapiStore = ({
         })
         .pipe(Effect.map((rows) => rows.map(rowToOperation))),
 
-    removeSource: (namespace, scope) =>
-      deleteSource(namespace, scope, { includeBindings: true }),
+    removeSource: (namespace, scope) => deleteSource(namespace, scope, { includeBindings: true }),
 
     listSourceBindings: (sourceId, sourceScope) =>
       Effect.gen(function* () {
@@ -1017,14 +1051,10 @@ export const makeDefaultOpenapiStore = ({
           ],
         });
         return rows
-          .filter(
-            (row) =>
-              scopeRank(row.target_scope_id as string) <= sourceScopeRank,
-          )
+          .filter((row) => scopeRank(sourceBindingTargetScope(row)) <= sourceScopeRank)
           .sort(
             (a, b) =>
-              scopeRank(a.target_scope_id as string) -
-              scopeRank(b.target_scope_id as string),
+              scopeRank(sourceBindingTargetScope(a)) - scopeRank(sourceBindingTargetScope(b)),
           )
           .map(rowToSourceBinding);
       }),
@@ -1045,31 +1075,24 @@ export const makeDefaultOpenapiStore = ({
         });
         const sourceScopeRank = scopeRank(sourceScope);
         const row = rows
-          .filter(
-            (candidate) =>
-              scopeRank(candidate.target_scope_id as string) <= sourceScopeRank,
-          )
+          .filter((candidate) => scopeRank(sourceBindingTargetScope(candidate)) <= sourceScopeRank)
           .sort(
             (a, b) =>
-              scopeRank(a.target_scope_id as string) -
-              scopeRank(b.target_scope_id as string),
+              scopeRank(sourceBindingTargetScope(a)) - scopeRank(sourceBindingTargetScope(b)),
           )[0];
         return row ? rowToSourceBinding(row) : null;
       }),
 
     setSourceBinding: (input) =>
       Effect.gen(function* () {
+        const sourceScope = String(input.sourceScope);
+        const targetScope = String(input.scope);
         yield* validateBindingTarget({
           sourceId: input.sourceId,
-          sourceScope: input.sourceScope as string,
-          targetScope: input.scope as string,
+          sourceScope,
+          targetScope,
         });
-        const id = sourceBindingRowId(
-          input.sourceId,
-          input.sourceScope as string,
-          input.slot,
-          input.scope as string,
-        );
+        const id = sourceBindingRowId(input.sourceId, sourceScope, input.slot, targetScope);
         const now = new Date();
         const valueColumns = sourceBindingValueColumns(input.value);
         yield* adapter.delete({
@@ -1081,8 +1104,8 @@ export const makeDefaultOpenapiStore = ({
           data: {
             id,
             source_id: input.sourceId,
-            source_scope_id: input.sourceScope as string,
-            target_scope_id: input.scope as string,
+            source_scope_id: sourceScope,
+            target_scope_id: targetScope,
             slot: input.slot,
             ...valueColumns,
             created_at: now,
@@ -1139,8 +1162,14 @@ export const makeDefaultOpenapiStore = ({
       Effect.gen(function* () {
         const tables = [
           { model: "openapi_source_query_param" as const, kind: "query_param" as const },
-          { model: "openapi_source_spec_fetch_header" as const, kind: "spec_fetch_header" as const },
-          { model: "openapi_source_spec_fetch_query_param" as const, kind: "spec_fetch_query_param" as const },
+          {
+            model: "openapi_source_spec_fetch_header" as const,
+            kind: "spec_fetch_header" as const,
+          },
+          {
+            model: "openapi_source_spec_fetch_query_param" as const,
+            kind: "spec_fetch_query_param" as const,
+          },
         ];
         const perTable = yield* Effect.forEach(
           tables,
@@ -1152,12 +1181,15 @@ export const makeDefaultOpenapiStore = ({
               })
               .pipe(
                 Effect.map((rows) =>
-                  rows.map((r) => ({
-                    kind: t.kind,
-                    source_id: r.source_id as string,
-                    scope_id: r.scope_id as string,
-                    name: r.name as string,
-                  })),
+                  rows.map((r) => {
+                    const row = decodeChildUsageStorageRow(r);
+                    return {
+                      kind: t.kind,
+                      source_id: row.source_id,
+                      scope_id: row.scope_id,
+                      name: row.name,
+                    };
+                  }),
                 ),
               ),
           { concurrency: "unbounded" },
@@ -1172,8 +1204,9 @@ export const makeDefaultOpenapiStore = ({
         const requested = new Set(keys);
         const out = new Map<string, string>();
         for (const r of rows) {
-          const key = `${r.scope_id as string}:${r.id as string}`;
-          if (requested.has(key)) out.set(key, r.name as string);
+          const row = decodeSourceNameStorageRow(r);
+          const key = `${row.scope_id}:${row.id}`;
+          if (requested.has(key)) out.set(key, row.name);
         }
         return out;
       }),

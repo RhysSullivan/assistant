@@ -1,6 +1,6 @@
 import { WorkerTransport, type WorkerTransportOptions } from "agents/mcp";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Data, Effect } from "effect";
+import { Data, Effect, Exit } from "effect";
 
 export class McpWorkerTransportError extends Data.TaggedError("McpWorkerTransportError")<{
   readonly cause: unknown;
@@ -64,19 +64,20 @@ const extractJsonRpcRequestIdKeys = async (request: Request): Promise<ReadonlyAr
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) return [];
 
-  try {
-    const parsed = (await request.clone().json()) as unknown;
-    const messages = Array.isArray(parsed) ? parsed : [parsed];
-    return messages.flatMap((message) => {
-      if (!message || typeof message !== "object") return [];
-      const rpc = message as JsonRpcLike;
-      if (typeof rpc.method !== "string") return [];
-      const key = jsonRpcRequestIdKey(rpc.id);
-      return key ? [key] : [];
-    });
-  } catch {
+  const parsed = await Effect.runPromiseExit(
+    Effect.tryPromise(() => request.clone().json()),
+  );
+  if (Exit.isFailure(parsed)) {
     return [];
   }
+  const messages = Array.isArray(parsed.value) ? parsed.value : [parsed.value];
+  return messages.flatMap((message) => {
+    if (!message || typeof message !== "object") return [];
+    const rpc = message as JsonRpcLike;
+    if (typeof rpc.method !== "string") return [];
+    const key = jsonRpcRequestIdKey(rpc.id);
+    return key ? [key] : [];
+  });
 };
 
 // Hard ceiling on how long a same-id JSON-RPC request will wait for an
@@ -109,9 +110,12 @@ export class JsonRpcRequestIdQueue {
       this.inFlight.set(id, current);
     }
 
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: promise queue must release in-flight ids after callback completion
     try {
       if (previous.length > 0) {
-        const settled = Promise.all(previous.map((p) => p.catch(() => undefined)));
+        const settled = Promise.all(
+          previous.map((p) => Effect.runPromise(Effect.ignore(Effect.tryPromise(() => p)))),
+        );
         const timeout = new Promise<"timeout">((resolve) =>
           setTimeout(() => resolve("timeout"), this.previousTimeoutMs),
         );
@@ -183,9 +187,13 @@ export const makeMcpWorkerTransport = (
           return result.response;
         }),
       close: () =>
-        Effect.promise(() => transport.close().catch(() => undefined)).pipe(
+        Effect.ignore(
+          Effect.tryPromise({
+            try: () => transport.close(),
+            catch: (cause) => new McpWorkerTransportError({ cause }),
+          }),
+        ).pipe(
           Effect.withSpan("mcp.worker_transport.close"),
-          Effect.orDie,
         ),
     } satisfies McpWorkerTransport;
   }).pipe(Effect.withSpan("mcp.worker_transport.make"));

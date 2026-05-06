@@ -19,9 +19,11 @@ import { GoogleDiscoveryStoredSourceData } from "../sdk/types";
 import { GoogleDiscoveryExtensionService, GoogleDiscoveryHandlers } from "./handlers";
 import { GoogleDiscoveryGroup } from "./group";
 
+// oxlint-disable-next-line executor/no-error-constructor -- boundary: test injects a defect to verify opaque handler error responses
 const unused = Effect.die(new Error("unused"));
 
 const failingExtension: GoogleDiscoveryPluginExtension = {
+  // oxlint-disable-next-line executor/no-error-constructor -- boundary: test injects a defect to verify opaque handler error responses
   probeDiscovery: () => Effect.die(new Error("Not implemented")),
   addSource: () => unused,
   removeSource: (_namespace: string, _scope: string) => unused,

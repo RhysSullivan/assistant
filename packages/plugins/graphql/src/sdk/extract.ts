@@ -251,8 +251,8 @@ export const extract = (
         definitions,
       };
     },
-    catch: (err) =>
+    catch: () =>
       new GraphqlExtractionError({
-        message: `Failed to extract GraphQL schema: ${err instanceof Error ? err.message : String(err)}`,
+        message: "Failed to extract GraphQL schema",
       }),
   });

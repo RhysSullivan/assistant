@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Data, Effect, Layer } from "effect";
 
 import { AuthContext } from "../auth/middleware";
 import { WorkOSAuth, type WorkOSAuthService } from "../auth/workos";
@@ -21,15 +21,24 @@ type StubOverrides = {
   listOrgRoles?: StubFn;
 };
 
+class UnstubbedWorkOSMethod extends Data.TaggedError("UnstubbedWorkOSMethod")<{
+  method: string;
+}> {}
+
 const stubWorkOS = (overrides: StubOverrides = {}) =>
   Layer.succeed(
     WorkOSAuth,
     new Proxy({} as WorkOSAuthService, {
       get: (_target, prop) => {
-        if (prop in overrides) return (overrides as Record<string, unknown>)[prop as string];
-        return () => {
-          throw new Error(`WorkOSAuth.${String(prop)} not stubbed`);
-        };
+        if (typeof prop === "string" && prop in overrides) {
+          return overrides[prop as keyof StubOverrides];
+        }
+        return () =>
+          Effect.fail(
+            new UnstubbedWorkOSMethod({
+              method: typeof prop === "string" ? prop : (prop.description ?? "symbol"),
+            }),
+          );
       },
     }),
   );

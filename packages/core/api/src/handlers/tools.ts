@@ -35,7 +35,7 @@ export const ToolsHandlers = HttpApiBuilder.group(ExecutorApi, "tools", (handler
         const executor = yield* ExecutorService;
         const schema = yield* executor.tools.schema(path.toolId);
         if (schema === null) {
-          return yield* Effect.fail(new ToolNotFoundError({ toolId: path.toolId }));
+          return yield* new ToolNotFoundError({ toolId: path.toolId });
         }
         return schema;
       })),

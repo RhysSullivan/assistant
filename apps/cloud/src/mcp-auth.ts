@@ -1,6 +1,6 @@
-import { Data, Effect, Result } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 import { jwtVerify, type JWTVerifyGetKey } from "jose";
-import { JOSEError, JWKSInvalid, JWKSTimeout, JWTExpired } from "jose/errors";
+import { JWKSInvalid, JWKSTimeout, JWTExpired } from "jose/errors";
 
 export type VerifiedToken = {
   /** The WorkOS account ID (user ID). */
@@ -14,17 +14,29 @@ export class McpJwtVerificationError extends Data.TaggedError("McpJwtVerificatio
   readonly reason: "expired" | "invalid" | "system";
 }> {}
 
+const JoseErrorCode = Schema.Struct({ code: Schema.String });
+
+const getJoseErrorCode = (cause: unknown): string | null =>
+  Schema.is(JoseErrorCode)(cause) ? cause.code : null;
+
+const isJoseErrorCode = (code: string): boolean => code.startsWith("ERR_J");
+
 const classifyJwtVerificationError = (cause: unknown): McpJwtVerificationError =>
   new McpJwtVerificationError({
     cause,
-    reason:
-      cause instanceof JWTExpired
-        ? "expired"
-        : cause instanceof JWKSTimeout ||
-            cause instanceof JWKSInvalid ||
-            !(cause instanceof JOSEError)
-          ? "system"
-          : "invalid",
+    reason: (() => {
+      const code = getJoseErrorCode(cause);
+      if (code === JWTExpired.code) return "expired";
+      if (
+        code === JWKSTimeout.code ||
+        code === JWKSInvalid.code ||
+        code === null ||
+        !isJoseErrorCode(code)
+      ) {
+        return "system";
+      }
+      return "invalid";
+    })(),
   });
 
 const isExpectedJwtVerificationError = (error: McpJwtVerificationError): boolean =>

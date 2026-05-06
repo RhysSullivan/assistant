@@ -24,7 +24,7 @@ const fileSystemError = (method: string, cause: unknown) =>
     _tag: "Unknown",
     module: "FileSystem",
     method,
-    description: cause instanceof Error ? cause.message : String(cause),
+    description: "FileSystem operation failed",
     cause,
   });
 
@@ -54,22 +54,24 @@ const fileSystemLayer = FileSystem.layerNoop({
 const daemonStateLayer = Layer.merge(fileSystemLayer, Path.layer);
 
 const withDaemonDataDir = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>) =>
-  Effect.gen(function* () {
-    const prev = process.env.EXECUTOR_DATA_DIR;
-    const dir = mkdtempSync(join(tmpdir(), "executor-daemon-state-test-"));
-    process.env.EXECUTOR_DATA_DIR = dir;
-
-    try {
-      return yield* effect;
-    } finally {
-      if (prev === undefined) {
-        delete process.env.EXECUTOR_DATA_DIR;
-      } else {
-        process.env.EXECUTOR_DATA_DIR = prev;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }).pipe(Effect.provide(daemonStateLayer));
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const prev = process.env.EXECUTOR_DATA_DIR;
+      const dir = mkdtempSync(join(tmpdir(), "executor-daemon-state-test-"));
+      process.env.EXECUTOR_DATA_DIR = dir;
+      return { dir, prev };
+    }),
+    () => effect,
+    ({ dir, prev }) =>
+      Effect.sync(() => {
+        if (prev === undefined) {
+          delete process.env.EXECUTOR_DATA_DIR;
+        } else {
+          process.env.EXECUTOR_DATA_DIR = prev;
+        }
+        rmSync(dir, { recursive: true, force: true });
+      }),
+  ).pipe(Effect.provide(daemonStateLayer));
 
 describe("daemon state", () => {
   it("normalizes local host aliases", () => {

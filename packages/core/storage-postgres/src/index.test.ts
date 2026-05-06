@@ -7,7 +7,7 @@
 // cloud test DB on 5434.
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { relations } from "drizzle-orm";
@@ -21,7 +21,7 @@ import {
   jsonb,
 } from "drizzle-orm/pg-core";
 
-import type { DBAdapter } from "@executor-js/storage-core";
+import type { DBAdapter, StorageFailure } from "@executor-js/storage-core";
 import {
   conformanceSchema,
   runAdapterConformance,
@@ -30,6 +30,13 @@ import {
 import { makePostgresAdapter } from "./index";
 
 const url = "postgresql://postgres:postgres@127.0.0.1:5435/postgres";
+
+class PostgresTestDatabaseError extends Data.TaggedError(
+  "PostgresTestDatabaseError",
+)<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
 
 // max=1 so BEGIN/COMMIT sent via `db.execute(sql.raw(...))` always hit
 // the same connection — postgres.js with a larger pool rejects unsafe
@@ -135,9 +142,10 @@ const createConformanceTables = Effect.tryPromise({
     );
   },
   catch: (cause) =>
-    new Error(
-      `failed to create postgres conformance tables: ${String(cause)}`,
-    ),
+    new PostgresTestDatabaseError({
+      message: "failed to create postgres conformance tables",
+      cause,
+    }),
 });
 
 const resetTables = Effect.gen(function* () {
@@ -145,18 +153,19 @@ const resetTables = Effect.gen(function* () {
     try: () =>
       sql`DROP TABLE IF EXISTS "source", "tag", "source_tag", "with_defaults", "blob" CASCADE`.then(
         () => undefined,
-      ),
+    ),
     catch: (cause) =>
-      new Error(
-        `failed to reset postgres conformance tables: ${String(cause)}`,
-      ),
+      new PostgresTestDatabaseError({
+        message: "failed to reset postgres conformance tables",
+        cause,
+      }),
   });
   yield* createConformanceTables;
 });
 
 const withAdapter = <A, E>(
   fn: (adapter: DBAdapter) => Effect.Effect<A, E>,
-): Effect.Effect<A, E | Error> =>
+): Effect.Effect<A, E | StorageFailure | PostgresTestDatabaseError> =>
   Effect.gen(function* () {
     yield* resetTables;
     const db = drizzle(sql, { schema: conformanceTables });
@@ -165,7 +174,7 @@ const withAdapter = <A, E>(
       schema: conformanceSchema,
     });
     return yield* fn(adapter);
-  }) as Effect.Effect<A, E | Error>;
+  });
 
 runAdapterConformance("postgres", withAdapter);
 
@@ -191,7 +200,10 @@ const resetScopedTable = Effect.tryPromise({
     );
   },
   catch: (cause) =>
-    new Error(`failed to reset scoped_item table: ${String(cause)}`),
+    new PostgresTestDatabaseError({
+      message: "failed to reset scoped_item table",
+      cause,
+    }),
 });
 
 const makeScopedAdapter = () =>

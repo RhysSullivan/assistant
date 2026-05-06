@@ -73,7 +73,14 @@ export class DbService extends Context.Service<
         // Fire-and-forget: the Terminate round-trip sometimes hangs, and
         // we don't need to block scope close waiting for it.
         Effect.sync(() => {
-          sql.end({ timeout: 0 }).catch(() => undefined);
+          void Effect.runFork(
+            Effect.ignore(
+              Effect.tryPromise({
+                try: () => sql.end({ timeout: 0 }),
+                catch: (cause) => cause,
+              }),
+            ),
+          );
         }),
     ),
   );

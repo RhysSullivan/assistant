@@ -52,8 +52,7 @@ export interface ConfigFileSinkOptions {
 }
 
 const defaultOnError = (op: "upsert" | "remove", err: unknown): void => {
-  const msg = err instanceof Error ? err.message : String(err);
-  console.warn(`[config-sink] ${op} failed: ${msg}`);
+  console.warn(`[config-sink] ${op} failed`, err);
 };
 
 export const makeFileConfigSink = (

@@ -81,6 +81,7 @@ const bootstrapTables = (
 ): void => {
   for (const table of Object.values(tables)) {
     // Skip relations — they aren't tables
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: drizzle getTableConfig throws for relation helpers in this test bootstrap
     try {
       const config = getTableConfig(table);
       const cols = config.columns.map((col) => {

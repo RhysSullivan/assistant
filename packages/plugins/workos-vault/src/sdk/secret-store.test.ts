@@ -100,9 +100,11 @@ const makeFakeClient = (options?: {
       readonly context: Record<string, string>;
     }) => {
       if (options?.rejectNamesWithColon && name.includes(":")) {
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeInvalidRequestError(`Invalid object name "${name}"`);
       }
       if (objects.has(name)) {
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeConflictError(`Object "${name}" already exists`);
       }
       const id = nextId();
@@ -113,15 +115,18 @@ const makeFakeClient = (options?: {
 
     readObjectByName: async (name: string) => {
       if (options?.rejectNamesWithColon && name.includes(":")) {
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeInvalidRequestError(`Invalid object name "${name}"`);
       }
       if (
         options?.rejectReadNamesLongerThan !== undefined &&
         name.length > options.rejectReadNamesLongerThan
       ) {
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeInvalidRequestError(`Invalid object name "${name}"`);
       }
       const object = objects.get(name);
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
       if (!object) throw new FakeNotFoundError(`Object "${name}" not found`);
       return object;
     },
@@ -136,15 +141,18 @@ const makeFakeClient = (options?: {
       readonly versionCheck?: string;
     }) => {
       const current = [...objects.values()].find((o) => o.id === id);
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
       if (!current) throw new FakeNotFoundError(`Object "${id}" not found`);
       if (
         conflictPending &&
         current.name.endsWith("/secrets/conflict")
       ) {
         conflictPending = false;
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeConflictError(`Injected conflict for "${id}"`);
       }
       if (versionCheck && current.metadata.versionId !== versionCheck) {
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
         throw new FakeConflictError(`Version mismatch for "${id}"`);
       }
       const nextVersion = current.metadata.versionId.replace(
@@ -166,6 +174,7 @@ const makeFakeClient = (options?: {
 
     deleteObject: async ({ id }: { readonly id: string }) => {
       const entry = [...objects.entries()].find(([, o]) => o.id === id);
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake WorkOS SDK promise rejects with status-shaped errors
       if (!entry) throw new FakeNotFoundError(`Object "${id}" not found`);
       objects.delete(entry[0]);
     },

@@ -176,7 +176,7 @@ export const useConnectionsWithPendingRemovals = (scopeId: ScopeId) => {
     if (!AsyncResult.isSuccess(result) || pending.length === 0) return;
 
     const serverIds = new Set(
-      result.value.map((connection: { readonly id: string }) => connection.id as string),
+      result.value.map((connection: { readonly id: string }) => connection.id),
     );
     for (const entry of pending) {
       if (!serverIds.has(entry.id)) remove(entry.id);
@@ -189,7 +189,7 @@ export const useConnectionsWithPendingRemovals = (scopeId: ScopeId) => {
         if (pending.length === 0) return connections;
         const hiddenIds = new Set(pending.map((entry) => entry.id));
         return connections.filter(
-          (connection: { readonly id: string }) => !hiddenIds.has(connection.id as string),
+          (connection: { readonly id: string }) => !hiddenIds.has(connection.id),
         );
       }),
     [result, pending],

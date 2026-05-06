@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect/atom-react";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 
 import { cancelOAuth, startOAuth } from "../api/atoms";
 import { openOAuthPopup, type OAuthPopupResult } from "../api/oauth-popup";
@@ -80,8 +82,8 @@ export function useOAuthPopupFlow<
     startErrorMessage,
   } = options;
   const scopeId = useScope();
-  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
-  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promiseExit" });
+  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promiseExit" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -92,7 +94,7 @@ export function useOAuthPopupFlow<
       void doCancelOAuth({
         params: { scopeId },
         payload: { sessionId },
-      }).catch(() => undefined);
+      });
     },
     [doCancelOAuth, scopeId],
   );
@@ -122,73 +124,81 @@ export function useOAuthPopupFlow<
       cancel();
       setBusy(true);
       setError(null);
-      try {
-        const response = await input.run();
-        if (response.authorizationUrl === null) {
-          const message =
-            noAuthorizationUrlMessage ?? "OAuth start did not produce an authorization URL";
-          setBusy(false);
-          setError(message);
-          input.onError?.(message);
-          return;
-        }
-
-        sessionRef.current = response.sessionId;
-        input.onAuthorizationStarted?.(response);
-        cleanupRef.current = openOAuthPopup<TPayload>({
-          url: response.authorizationUrl,
-          popupName,
-          channelName: OAUTH_POPUP_MESSAGE_TYPE,
-          expectedSessionId: response.sessionId,
-          onResult: async (result: OAuthPopupResult<TPayload>) => {
-            cleanupRef.current = null;
-            sessionRef.current = null;
-
-            if (!result.ok) {
-              setBusy(false);
-              setError(result.error);
-              input.onError?.(result.error);
-              return;
-            }
-
-            try {
-              await input.onSuccess(result);
-              setBusy(false);
-            } catch (e) {
-              const message = e instanceof Error ? e.message : "Failed to persist new connection";
-              setBusy(false);
-              setError(message);
-              input.onError?.(message);
-            }
-          },
-          onClosed: () => {
-            cleanupRef.current = null;
-            sessionRef.current = null;
-            cancelSession(response.sessionId);
-            const message =
-              popupClosedMessage ??
-              "Sign-in cancelled - popup was closed before completing the flow.";
-            setBusy(false);
-            setError(message);
-            input.onError?.(message);
-          },
-          onOpenFailed: () => {
-            cleanupRef.current = null;
-            sessionRef.current = null;
-            cancelSession(response.sessionId);
-            const message = popupBlockedMessage ?? "Sign-in popup was blocked by the browser";
-            setBusy(false);
-            setError(message);
-            input.onError?.(message);
-          },
-        });
-      } catch (e) {
-        const message =
-          e instanceof Error ? e.message : (startErrorMessage ?? "Failed to start sign-in");
+      const startExit = await Effect.runPromiseExit(
+        Effect.tryPromise({
+          try: input.run,
+          catch: (cause) => cause,
+        }),
+      );
+      if (Exit.isFailure(startExit)) {
+        const message = startErrorMessage ?? "Failed to start sign-in";
         setBusy(false);
         setError(message);
         input.onError?.(message);
+        return;
       }
+      const response = startExit.value;
+      if (response.authorizationUrl === null) {
+        const message =
+          noAuthorizationUrlMessage ?? "OAuth start did not produce an authorization URL";
+        setBusy(false);
+        setError(message);
+        input.onError?.(message);
+        return;
+      }
+
+      sessionRef.current = response.sessionId;
+      input.onAuthorizationStarted?.(response);
+      cleanupRef.current = openOAuthPopup<TPayload>({
+        url: response.authorizationUrl,
+        popupName,
+        channelName: OAUTH_POPUP_MESSAGE_TYPE,
+        expectedSessionId: response.sessionId,
+        onResult: async (result: OAuthPopupResult<TPayload>) => {
+          cleanupRef.current = null;
+          sessionRef.current = null;
+
+          if (!result.ok) {
+            setBusy(false);
+            setError(result.error);
+            input.onError?.(result.error);
+            return;
+          }
+
+          const persisted = await Promise.resolve(input.onSuccess(result)).then(
+            () => true,
+            () => false,
+          );
+          if (!persisted) {
+            const message = "Failed to persist new connection";
+            setBusy(false);
+            setError(message);
+            input.onError?.(message);
+            return;
+          }
+          setBusy(false);
+        },
+        onClosed: () => {
+          cleanupRef.current = null;
+          sessionRef.current = null;
+          cancelSession(response.sessionId);
+          const message =
+            popupClosedMessage ??
+            "Sign-in cancelled - popup was closed before completing the flow.";
+          setBusy(false);
+          setError(message);
+          input.onError?.(message);
+        },
+        onOpenFailed: () => {
+          cleanupRef.current = null;
+          sessionRef.current = null;
+          cancelSession(response.sessionId);
+          const message = popupBlockedMessage ?? "Sign-in popup was blocked by the browser";
+          setBusy(false);
+          setError(message);
+          input.onError?.(message);
+        },
+      });
     },
     [
       cancel,
@@ -214,10 +224,14 @@ export function useOAuthPopupFlow<
               ...input.payload,
               redirectUrl: input.payload.redirectUrl ?? oauthCallbackUrl(callbackPath),
             },
-          }),
+          }).then((exit) =>
+            Exit.isSuccess(exit)
+              ? exit.value
+              : Effect.runPromise(Effect.fail(startErrorMessage ?? "Failed to start sign-in")),
+          ),
       });
     },
-    [callbackPath, doStartOAuth, openAuthorization, scopeId],
+    [callbackPath, doStartOAuth, openAuthorization, scopeId, startErrorMessage],
   );
 
   return {

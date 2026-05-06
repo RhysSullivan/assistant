@@ -116,26 +116,30 @@ describe("daemon bootstrap helpers", () => {
 
   it("falls back when preferred daemon port is occupied", async () => {
     const blocker = createServer();
-    await new Promise<void>((resolve, reject) => {
-      blocker.once("error", reject);
-      blocker.listen({ port: 0, host: "127.0.0.1" }, () => resolve());
-    });
+    await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+      yield* Effect.acquireRelease(
+        Effect.callback<void, Error>((resume) => {
+          blocker.once("error", (error) => resume(Effect.fail(error)));
+          blocker.listen({ port: 0, host: "127.0.0.1" }, () =>
+            resume(Effect.succeed(undefined)));
+        }),
+        () => Effect.promise(() => new Promise<void>((resolve) => {
+          blocker.close(() => resolve());
+        })),
+      );
 
-    const occupied = (() => {
-      const address = blocker.address();
-      return typeof address === "object" && address !== null ? address.port : 0;
-    })();
+      const occupied = (() => {
+        const address = blocker.address();
+        return typeof address === "object" && address !== null ? address.port : 0;
+      })();
 
-    try {
-      const picked = await Effect.runPromise(
+      const picked = yield* (
         chooseDaemonPort({
           preferredPort: occupied,
           hostname: "127.0.0.1",
-        }),
+        })
       );
       expect(picked).not.toBe(occupied);
-    } finally {
-      await new Promise<void>((resolve) => blocker.close(() => resolve()));
-    }
+    })));
   });
 });

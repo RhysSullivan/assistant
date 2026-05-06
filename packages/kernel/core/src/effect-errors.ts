@@ -3,10 +3,8 @@ import * as Data from "effect/Data";
 export class KernelCoreEffectError extends Data.TaggedError("KernelCoreEffectError")<{
   readonly module: string;
   readonly message: string;
+  readonly cause?: unknown;
 }> {}
-
-export const kernelCoreEffectError = (module: string, message: string) =>
-  new KernelCoreEffectError({ module, message });
 
 /**
  * Default failure type for any `CodeExecutor.execute` implementation —

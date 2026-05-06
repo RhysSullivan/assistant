@@ -1,6 +1,7 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomRefresh } from "@effect/atom-react";
+import { Data, Effect, Exit } from "effect";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { sourcesAtom, toolsAtom } from "@executor-js/react/api/atoms";
 import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
@@ -28,6 +29,10 @@ const { VITE_APP_VERSION, VITE_GITHUB_URL } = (
 type UpdateChannel = "latest" | "beta";
 
 const EXECUTOR_DIST_TAGS_PATH = "/v1/app/npm/dist-tags";
+
+class LatestVersionCheckError extends Data.TaggedError("LatestVersionCheckError")<{
+  readonly cause: unknown;
+}> {}
 
 type ParsedVersion = {
   readonly major: number;
@@ -95,15 +100,22 @@ function useLatestVersion(currentVersion: string) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(EXECUTOR_DIST_TAGS_PATH)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Failed to load dist tags: ${res.status}`);
-        return res.json() as Promise<Partial<Record<UpdateChannel, string>>>;
-      })
-      .then((data) => {
-        if (!cancelled) setLatestVersion(data[channel] ?? null);
-      })
-      .catch(() => {});
+
+    const latestVersionEffect = Effect.tryPromise({
+      try: async () => {
+        const res = await fetch(EXECUTOR_DIST_TAGS_PATH);
+        if (!res.ok) return {};
+        return (await res.json()) as Partial<Record<UpdateChannel, string>>;
+      },
+      catch: (cause) => new LatestVersionCheckError({ cause }),
+    });
+
+    void Effect.runPromiseExit(latestVersionEffect).then((exit) => {
+      if (!cancelled && Exit.isSuccess(exit)) {
+        setLatestVersion(exit.value[channel] ?? null);
+      }
+    });
+
     return () => {
       cancelled = true;
     };

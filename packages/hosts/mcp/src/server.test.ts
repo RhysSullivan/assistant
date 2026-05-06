@@ -44,6 +44,7 @@ const withClient = async <E extends Cause.YieldableError>(
   const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities });
   await mcpServer.connect(serverTransport);
   await client.connect(clientTransport);
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: test helper must close MCP transports after async client assertions
   try {
     await fn(client);
   } finally {
@@ -136,6 +137,7 @@ describe("MCP host server — client with elicitation", () => {
 
   it("execute tool hides defect details in MCP error results", async () => {
     const engine = makeStubEngine({
+      // oxlint-disable-next-line executor/no-effect-escape-hatch, executor/no-error-constructor -- boundary: test injects a defect to verify MCP error redaction
       execute: () => Effect.die(new Error("secret internal detail")),
     });
 
@@ -318,7 +320,8 @@ describe("MCP host server — client with form-only elicitation", () => {
 
     await withClient(engine, FORM_ONLY_CAPS, async (client) => {
       client.setRequestHandler(ElicitRequestSchema, async (request) => {
-        receivedMessage = (request.params as Record<string, unknown>).message as string;
+        receivedMessage =
+          typeof request.params.message === "string" ? request.params.message : undefined;
         return { action: "accept" as const, content: {} };
       });
 
@@ -527,6 +530,7 @@ describe("MCP host server — elicitation error handling", () => {
 
     await withClient(engine, ELICITATION_CAPS, async (client) => {
       client.setRequestHandler(ElicitRequestSchema, async () => {
+        // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: MCP client request handler rejects to exercise server fallback
         throw new Error("client cannot handle this");
       });
 

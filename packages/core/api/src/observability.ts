@@ -97,6 +97,7 @@ export const capture = <A, E, R>(
   eff: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, Exclude<E, StorageFailure> | InternalError, R> =>
   (eff as Effect.Effect<A, E | StorageFailure, R>).pipe(
+    // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: unique conflicts that reach the HTTP edge are unexpected defects captured by observabilityMiddleware
     Effect.catchTag("UniqueViolationError", (err) => Effect.die(err)),
     Effect.catchTag("StorageError", (err) =>
       resolveCapture.pipe(
@@ -126,14 +127,14 @@ export const captureEngineError = <A, R>(
 ): Effect.Effect<A, InternalError, R> =>
   eff.pipe(
     Effect.catch((err) =>
-      err instanceof InternalError
+      Schema.is(InternalError)(err)
         ? Effect.fail(err)
         : resolveCapture.pipe(
             Effect.flatMap((c) => c.captureException(Cause.fail(err))),
             Effect.flatMap((traceId) =>
               Effect.fail(new InternalError({ traceId })),
             ),
-          ),
+        ),
     ),
   );
 

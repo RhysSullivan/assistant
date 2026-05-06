@@ -42,10 +42,10 @@ const TestMcpAuthLive = Layer.succeed(McpAuth)({
       if (!header?.startsWith("Bearer ")) return mcpUnauthorized("missing_bearer");
       const rawToken = header.slice("Bearer ".length);
       if (rawToken === "test-system-error") {
-        return yield* Effect.fail(new McpJwtVerificationError({
-          cause: new Error("simulated jwks fetch failure"),
+        return yield* new McpJwtVerificationError({
+          cause: "simulated_jwks_fetch_failure",
           reason: "system",
-        }));
+        });
       }
       const token = parseTestBearer(rawToken);
       return token ? mcpAuthorized(token) : mcpUnauthorized("invalid_token");
@@ -89,6 +89,7 @@ const handleSeedOrg = async (
     connect_timeout: 10,
     onnotice: () => undefined,
   });
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: worker seed endpoint keeps postgres cleanup in native async finalization
   try {
     await drizzle(sql, { schema: { organizations } })
       .insert(organizations)
@@ -98,6 +99,7 @@ const handleSeedOrg = async (
         set: { name: body.name },
       });
   } finally {
+    // oxlint-disable-next-line executor/no-promise-catch -- boundary: best-effort postgres close during worker seed endpoint cleanup
     await sql.end({ timeout: 0 }).catch(() => undefined);
   }
   return new Response(null, { status: 204 });

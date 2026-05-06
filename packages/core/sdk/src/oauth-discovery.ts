@@ -18,7 +18,7 @@
 // callers actually need.
 // ---------------------------------------------------------------------------
 
-import { Data, Effect, Result, Schema } from "effect";
+import { Data, Effect, Option, Predicate, Result, Schema } from "effect";
 import * as oauth from "oauth4webapi";
 
 import {
@@ -37,23 +37,11 @@ import {
  *  token-endpoint failures. A plugin's refresh path should never have
  *  to inspect error messages to tell "metadata drifted, re-discover"
  *  apart from "refresh token is no longer honoured". */
-export class OAuthDiscoveryError extends Data.TaggedError(
-  "OAuthDiscoveryError",
-)<{
+export class OAuthDiscoveryError extends Data.TaggedError("OAuthDiscoveryError")<{
   readonly message: string;
   readonly status?: number;
   readonly cause?: unknown;
 }> {}
-
-const discoveryError = (
-  message: string,
-  options: { status?: number; cause?: unknown } = {},
-): OAuthDiscoveryError =>
-  new OAuthDiscoveryError({
-    message,
-    status: options.status,
-    cause: options.cause,
-  });
 
 // ---------------------------------------------------------------------------
 // Schemas (narrow structural parsing — the RFCs leave many fields
@@ -69,8 +57,7 @@ export const OAuthProtectedResourceMetadataSchema = Schema.Struct({
   bearer_methods_supported: Schema.optional(StringArray),
   resource_documentation: Schema.optional(Schema.String),
 }).annotate({ identifier: "OAuthProtectedResourceMetadata" });
-export type OAuthProtectedResourceMetadata =
-  typeof OAuthProtectedResourceMetadataSchema.Type;
+export type OAuthProtectedResourceMetadata = typeof OAuthProtectedResourceMetadataSchema.Type;
 
 export const OAuthAuthorizationServerMetadataSchema = Schema.Struct({
   issuer: Schema.String,
@@ -87,8 +74,7 @@ export const OAuthAuthorizationServerMetadataSchema = Schema.Struct({
   userinfo_endpoint: Schema.optional(Schema.String),
   id_token_signing_alg_values_supported: Schema.optional(StringArray),
 }).annotate({ identifier: "OAuthAuthorizationServerMetadata" });
-export type OAuthAuthorizationServerMetadata =
-  typeof OAuthAuthorizationServerMetadataSchema.Type;
+export type OAuthAuthorizationServerMetadata = typeof OAuthAuthorizationServerMetadataSchema.Type;
 
 export type DynamicClientMetadata = {
   readonly client_name?: string;
@@ -127,14 +113,12 @@ export const OAuthClientInformationSchema = Schema.Struct({
 }).annotate({ identifier: "OAuthClientInformation" });
 export type OAuthClientInformation = typeof OAuthClientInformationSchema.Type;
 
-const decodeResourceMetadata = Schema.decodeUnknownEffect(
-  OAuthProtectedResourceMetadataSchema,
+const decodeResourceMetadataJson = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(OAuthProtectedResourceMetadataSchema),
 );
-const decodeAuthServerMetadata = Schema.decodeUnknownEffect(
-  OAuthAuthorizationServerMetadataSchema,
-);
-const decodeClientInformation = Schema.decodeUnknownEffect(
-  OAuthClientInformationSchema,
+const decodeAuthServerMetadata = Schema.decodeUnknownEffect(OAuthAuthorizationServerMetadataSchema);
+const decodeClientInformationJson = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(OAuthClientInformationSchema),
 );
 
 export interface DiscoveryRequestOptions {
@@ -155,6 +139,7 @@ export interface DiscoveryRequestOptions {
 const MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
 
 const isLoopbackHttpUrl = (value: string): boolean => {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor is the platform parser; invalid URLs are not loopback HTTP
   try {
     const url = new URL(value);
     if (url.protocol !== "http:") return false;
@@ -178,9 +163,7 @@ const oauth4webapiOptions = (
   const out: Record<string, unknown> = {};
   if (options.fetch) (out as { [customFetch]?: typeof fetch })[customFetch] = options.fetch;
   if (targetUrl && isLoopbackHttpUrl(targetUrl)) {
-    (out as { [oauth.allowInsecureRequests]?: boolean })[
-      oauth.allowInsecureRequests
-    ] = true;
+    (out as { [oauth.allowInsecureRequests]?: boolean })[oauth.allowInsecureRequests] = true;
   }
   const signal = AbortSignal.timeout(options.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS);
   out.signal = signal;
@@ -231,8 +214,7 @@ export const discoverProtectedResourceMetadata = (
   resourceUrl: string,
   options: DiscoveryRequestOptions = {},
 ): Effect.Effect<
-  | { readonly metadataUrl: string; readonly metadata: OAuthProtectedResourceMetadata }
-  | null,
+  { readonly metadataUrl: string; readonly metadata: OAuthProtectedResourceMetadata } | null,
   OAuthDiscoveryError
 > =>
   Effect.gen(function* () {
@@ -260,30 +242,26 @@ export const discoverProtectedResourceMetadata = (
           }
           const text = await response.text();
           if (text.length === 0) return "skip" as const;
-          return { status: response.status, body: JSON.parse(text) } as const;
+          return { status: response.status, body: text } as const;
         },
         catch: (cause) =>
-          discoveryError(
-            `Failed to fetch ${url}: ${cause instanceof Error ? cause.message : String(cause)}`,
-            { cause },
-          ),
+          new OAuthDiscoveryError({
+            message: `Failed to fetch protected resource metadata from ${url}`,
+            cause,
+          }),
       });
       if (result === "skip") continue;
       if (!("body" in result)) {
-        return yield* Effect.fail(
-          discoveryError(
-            `Protected resource metadata returned status ${result.status}`,
-            { status: result.status },
-          ),
-        );
+        return yield* new OAuthDiscoveryError({
+          message: `Protected resource metadata returned status ${result.status}`,
+          status: result.status,
+        });
       }
-      const metadata = yield* decodeResourceMetadata(result.body).pipe(
+      const metadata = yield* decodeResourceMetadataJson(result.body).pipe(
         Effect.mapError(
           (err) =>
             new OAuthDiscoveryError({
-              message: `Protected resource metadata is malformed: ${
-                Schema.isSchemaError(err) ? err.message : String(err)
-              }`,
+              message: "Protected resource metadata is malformed",
               cause: err,
             }),
         ),
@@ -308,9 +286,7 @@ const wellKnownUrlFor = (
 ): string => {
   // Mirrors the library's own well-known composition so the URL we
   // surface matches what was actually fetched.
-  const suffix = algorithm === "oauth2"
-    ? "oauth-authorization-server"
-    : "openid-configuration";
+  const suffix = algorithm === "oauth2" ? "oauth-authorization-server" : "openid-configuration";
   return issuerPath && issuerPath !== "/"
     ? `${issuerOrigin}/.well-known/${suffix}${issuerPath}`
     : `${issuerOrigin}/.well-known/${suffix}`;
@@ -320,11 +296,10 @@ export const discoverAuthorizationServerMetadata = (
   issuer: string,
   options: DiscoveryRequestOptions = {},
 ): Effect.Effect<
-  | {
-      readonly metadataUrl: string;
-      readonly metadata: OAuthAuthorizationServerMetadata;
-    }
-  | null,
+  {
+    readonly metadataUrl: string;
+    readonly metadata: OAuthAuthorizationServerMetadata;
+  } | null,
   OAuthDiscoveryError
 > =>
   Effect.gen(function* () {
@@ -349,13 +324,13 @@ export const discoverAuthorizationServerMetadata = (
           };
         },
         catch: (cause) => {
-          if (cause instanceof OAuthDiscoveryError) return cause;
-          return discoveryError(
-            `Discovery (${algorithm}) failed for ${issuer}: ${
-              cause instanceof Error ? cause.message : String(cause)
-            }`,
-            { cause },
-          );
+          if (Predicate.isTagged(cause, "OAuthDiscoveryError")) {
+            return cause as OAuthDiscoveryError;
+          }
+          return new OAuthDiscoveryError({
+            message: `Discovery (${algorithm}) failed for ${issuer}`,
+            cause,
+          });
         },
       }).pipe(
         // If one algorithm fails mid-roundtrip (network, parse, issuer
@@ -370,9 +345,7 @@ export const discoverAuthorizationServerMetadata = (
         Effect.mapError(
           (err) =>
             new OAuthDiscoveryError({
-              message: `Authorization server metadata is malformed: ${
-                Schema.isSchemaError(err) ? err.message : String(err)
-              }`,
+              message: "Authorization server metadata is malformed",
               cause: err,
             }),
         ),
@@ -407,10 +380,16 @@ class DcrErrorBody extends Data.TaggedError("DcrErrorBody")<{
 }> {}
 
 class DcrTransport extends Data.TaggedError("DcrTransport")<{
-  readonly message: string;
+  readonly detail: string;
   readonly status?: number;
   readonly cause?: unknown;
 }> {}
+
+const DcrErrorBodyJson = Schema.Struct({
+  error: Schema.String,
+  error_description: Schema.optional(Schema.String),
+});
+const decodeDcrErrorBodyJson = Schema.decodeUnknownOption(Schema.fromJsonString(DcrErrorBodyJson));
 
 const buildDcrBody = (m: DynamicClientMetadata): Record<string, unknown> => {
   const body: Record<string, unknown> = { redirect_uris: [...m.redirect_uris] };
@@ -431,33 +410,37 @@ const buildDcrBody = (m: DynamicClientMetadata): Record<string, unknown> => {
   return body;
 };
 
-const interpretDcrFailure = (
-  status: number,
-  text: string,
-): DcrErrorBody | DcrTransport => {
+const interpretDcrFailure = (status: number, text: string): DcrErrorBody | DcrTransport => {
   // RFC 6749 error envelope: `{error, error_description?}` with 4xx.
   if (status >= 400 && status < 500) {
-    const parsed = Result.try({
-      try: () => (text ? (JSON.parse(text) as unknown) : null),
-      catch: () => null,
+    const body = text ? decodeDcrErrorBodyJson(text) : null;
+    return Option.match(body ?? Option.none(), {
+      onNone: () =>
+        new DcrTransport({
+          detail: `Dynamic Client Registration endpoint returned status ${status}${
+            text ? ` — ${text.slice(0, 200)}` : ""
+          }`,
+          status,
+        }),
+      onSome: (parsed) =>
+        parsed.error.length > 0
+          ? new DcrErrorBody({
+              status,
+              error: parsed.error,
+              error_description: parsed.error_description,
+            })
+          : new DcrTransport({
+              detail: `Dynamic Client Registration endpoint returned status ${status}${
+                text ? ` — ${text.slice(0, 200)}` : ""
+              }`,
+              status,
+            }),
     });
-    const body = Result.isSuccess(parsed) ? parsed.success : null;
-    if (
-      body &&
-      typeof body === "object" &&
-      "error" in body &&
-      typeof body.error === "string" &&
-      body.error.length > 0
-    ) {
-      const desc =
-        "error_description" in body && typeof body.error_description === "string"
-          ? body.error_description
-          : undefined;
-      return new DcrErrorBody({ status, error: body.error, error_description: desc });
-    }
   }
   return new DcrTransport({
-    message: `Dynamic Client Registration endpoint returned status ${status}${text ? ` — ${text.slice(0, 200)}` : ""}`,
+    detail: `Dynamic Client Registration endpoint returned status ${status}${
+      text ? ` — ${text.slice(0, 200)}` : ""
+    }`,
     status,
   });
 };
@@ -468,12 +451,9 @@ export const registerDynamicClient = (
 ): Effect.Effect<OAuthClientInformation, OAuthDiscoveryError> =>
   Effect.gen(function* () {
     const url = new URL(input.registrationEndpoint);
-    if (
-      url.protocol !== "https:" &&
-      !isLoopbackHttpUrl(input.registrationEndpoint)
-    ) {
+    if (url.protocol !== "https:" && !isLoopbackHttpUrl(input.registrationEndpoint)) {
       return yield* new DcrTransport({
-        message: `registration_endpoint must be HTTPS or a loopback HTTP URL (got ${url.protocol}//${url.host})`,
+        detail: `registration_endpoint must be HTTPS or a loopback HTTP URL (got ${url.protocol}//${url.host})`,
       });
     }
 
@@ -497,7 +477,7 @@ export const registerDynamicClient = (
         }),
       catch: (cause) =>
         new DcrTransport({
-          message: `Dynamic Client Registration request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+          detail: "Dynamic Client Registration request failed",
           cause,
         }),
     });
@@ -505,9 +485,14 @@ export const registerDynamicClient = (
     // Accept both 200 and 201 as success — RFC 7591 mandates 201, but
     // Todoist (and others) return 200 OK with the client information body.
     if (response.status !== 200 && response.status !== 201) {
-      const text = yield* Effect.promise(() =>
-        response.text().catch(() => ""),
-      );
+      const text = yield* Effect.tryPromise({
+        try: () => response.text(),
+        catch: () =>
+          new DcrTransport({
+            detail: "Dynamic Client Registration error response could not be read",
+            status: response.status,
+          }),
+      }).pipe(Effect.catchTag("DcrTransport", () => Effect.succeed("")));
       return yield* interpretDcrFailure(response.status, text);
     }
 
@@ -515,27 +500,16 @@ export const registerDynamicClient = (
       try: () => response.text(),
       catch: (cause) =>
         new DcrTransport({
-          message: "Dynamic Client Registration response could not be read",
+          detail: "Dynamic Client Registration response could not be read",
           status: response.status,
           cause,
         }),
     });
-    const json = yield* Effect.try({
-      try: () => JSON.parse(text) as unknown,
-      catch: (cause) =>
-        new DcrTransport({
-          message: "Dynamic Client Registration response was not valid JSON",
-          status: response.status,
-          cause,
-        }),
-    });
-    return yield* decodeClientInformation(json).pipe(
+    return yield* decodeClientInformationJson(text).pipe(
       Effect.mapError(
         (err) =>
           new OAuthDiscoveryError({
-            message: `Dynamic Client Registration response is malformed: ${
-              Schema.isSchemaError(err) ? err.message : String(err)
-            }`,
+            message: "Dynamic Client Registration response is malformed",
             cause: err,
           }),
       ),
@@ -544,16 +518,18 @@ export const registerDynamicClient = (
     Effect.catchTags({
       DcrErrorBody: (err) =>
         Effect.fail(
-          discoveryError(
-            `Dynamic Client Registration failed: ${err.error}${
+          new OAuthDiscoveryError({
+            message: `Dynamic Client Registration failed: ${err.error}${
               err.error_description ? ` — ${err.error_description}` : ""
             }`,
-            { status: err.status, cause: err },
-          ),
+            status: err.status,
+            cause: err,
+          }),
         ),
       DcrTransport: (err) =>
         Effect.fail(
-          discoveryError(`Dynamic Client Registration failed: ${err.message}`, {
+          new OAuthDiscoveryError({
+            message: `Dynamic Client Registration failed: ${err.detail}`,
             status: err.status,
             cause: err.cause ?? err,
           }),
@@ -630,8 +606,7 @@ export const beginDynamicAuthorization = (
 
     const authorizationServerUrl = (() => {
       if (prior.authorizationServerUrl) return prior.authorizationServerUrl;
-      const fromResource =
-        resource && resource.metadata.authorization_servers?.[0];
+      const fromResource = resource && resource.metadata.authorization_servers?.[0];
       if (fromResource) return fromResource;
       const u = new URL(input.endpoint);
       return `${u.protocol}//${u.host}`;
@@ -643,35 +618,26 @@ export const beginDynamicAuthorization = (
             metadata: prior.authorizationServerMetadata,
             metadataUrl: prior.authorizationServerMetadataUrl,
           }
-        : yield* discoverAuthorizationServerMetadata(
-            authorizationServerUrl,
-            options,
-          );
+        : yield* discoverAuthorizationServerMetadata(authorizationServerUrl, options);
 
     if (!authServer) {
-      return yield* Effect.fail(
-        discoveryError(
-          `No OAuth authorization server metadata at ${authorizationServerUrl}`,
-        ),
-      );
+      return yield* new OAuthDiscoveryError({
+        message: `No OAuth authorization server metadata at ${authorizationServerUrl}`,
+      });
     }
 
     const pkceMethods = authServer.metadata.code_challenge_methods_supported ?? [];
     if (pkceMethods.length > 0 && !pkceMethods.includes("S256")) {
-      return yield* Effect.fail(
-        discoveryError(
-          `Authorization server does not support PKCE S256 (advertised: ${pkceMethods.join(", ")})`,
-        ),
-      );
+      return yield* new OAuthDiscoveryError({
+        message: `Authorization server does not support PKCE S256 (advertised: ${pkceMethods.join(", ")})`,
+      });
     }
 
     const responseTypes = authServer.metadata.response_types_supported ?? [];
     if (responseTypes.length > 0 && !responseTypes.includes("code")) {
-      return yield* Effect.fail(
-        discoveryError(
-          `Authorization server does not support response_type=code (advertised: ${responseTypes.join(", ")})`,
-        ),
-      );
+      return yield* new OAuthDiscoveryError({
+        message: `Authorization server does not support response_type=code (advertised: ${responseTypes.join(", ")})`,
+      });
     }
 
     const baseClientMetadata: DynamicClientMetadata = {
@@ -689,9 +655,10 @@ export const beginDynamicAuthorization = (
         const reg = authServer.metadata.registration_endpoint;
         if (!reg) {
           return Effect.fail(
-            discoveryError(
-              "Authorization server does not advertise registration_endpoint — cannot auto-register a client",
-            ),
+            new OAuthDiscoveryError({
+              message:
+                "Authorization server does not advertise registration_endpoint — cannot auto-register a client",
+            }),
           );
         }
         return registerDynamicClient(
@@ -701,9 +668,7 @@ export const beginDynamicAuthorization = (
       })());
 
     const codeVerifier = createPkceCodeVerifier();
-    const codeChallenge = yield* Effect.promise(() =>
-      createPkceCodeChallenge(codeVerifier),
-    );
+    const codeChallenge = yield* Effect.promise(() => createPkceCodeChallenge(codeVerifier));
     const scopes = input.scopes ?? authServer.metadata.scopes_supported ?? [];
 
     const authorizationUrl = buildAuthorizationUrl({

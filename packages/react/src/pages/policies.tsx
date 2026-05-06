@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Exit from "effect/Exit";
 import { generateKeyBetween } from "fractional-indexing";
 import { ChevronDownIcon } from "lucide-react";
 import { PolicyId, type ToolPolicyAction } from "@executor-js/sdk";
@@ -253,7 +254,7 @@ export function PoliciesPage() {
   const scopeId = useScope();
   const policies = useAtomValue(policiesOptimisticAtom(scopeId));
   const doCreate = useAtomSet(createPolicyOptimistic(scopeId), {
-    mode: "promise",
+    mode: "promiseExit",
   });
   const doUpdate = useAtomSet(updatePolicyOptimistic(scopeId), {
     mode: "promise",
@@ -265,15 +266,16 @@ export function PoliciesPage() {
 
   const handleCreate = async (input: { pattern: string; action: ToolPolicyAction }) => {
     setBusy(true);
-    try {
-      await doCreate({
-        params: { scopeId },
-        payload: { pattern: input.pattern, action: input.action },
-        reactivityKeys: policyWriteKeys,
-      });
-    } finally {
+    const exit = await doCreate({
+      params: { scopeId },
+      payload: { pattern: input.pattern, action: input.action },
+      reactivityKeys: policyWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
       setBusy(false);
+      return;
     }
+    setBusy(false);
   };
 
   const handleUpdate = async (id: string, action: ToolPolicyAction) => {

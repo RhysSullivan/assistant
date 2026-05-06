@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber } from "effect";
+import { Deferred, Effect, Exit, Fiber, Predicate } from "effect";
 
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
@@ -162,7 +162,9 @@ describe("connections", () => {
           }),
         )
         .pipe(Effect.flip);
-      expect(err._tag).toBe("ConnectionProviderNotRegisteredError");
+      expect(
+        Predicate.isTagged(err, "ConnectionProviderNotRegisteredError"),
+      ).toBe(true);
     }),
   );
 
@@ -194,7 +196,7 @@ describe("connections", () => {
           }),
         ),
       );
-      expect(result._tag).toBe("Failure");
+      expect(Exit.isFailure(result)).toBe(true);
     }),
   );
 
@@ -280,8 +282,8 @@ describe("connections", () => {
         const err = yield* executor.secrets
           .remove("conn-1.access")
           .pipe(Effect.flip);
-        expect((err as { _tag: string })._tag).toBe(
-          "SecretOwnedByConnectionError",
+        expect(Predicate.isTagged(err, "SecretOwnedByConnectionError")).toBe(
+          true,
         );
       }),
   );
@@ -553,10 +555,10 @@ describe("connections", () => {
           { concurrency: "unbounded" },
         );
         expect(leaderResult).toBe("rotated-1");
-        for (const r of followerResults) {
-          expect(r._tag).toBe("Success");
-          if (r._tag !== "Success") continue;
-          expect(r.value).toBe("rotated-1");
+        for (const result of followerResults) {
+          expect(Exit.isSuccess(result)).toBe(true);
+          if (!Exit.isSuccess(result)) continue;
+          expect(result.value).toBe("rotated-1");
         }
         expect(calls).toHaveLength(1);
       }),
@@ -610,8 +612,12 @@ describe("connections", () => {
         const flipped = yield* executor.connections
           .accessToken("conn-1")
           .pipe(Effect.flip);
-        expect(flipped._tag).toBe("ConnectionReauthRequiredError");
-        if (flipped._tag !== "ConnectionReauthRequiredError") return;
+        expect(
+          Predicate.isTagged(flipped, "ConnectionReauthRequiredError"),
+        ).toBe(true);
+        if (!Predicate.isTagged(flipped, "ConnectionReauthRequiredError")) {
+          return;
+        }
         expect(flipped.provider).toBe("spotify");
         expect(flipped.message).toMatch(/invalid_grant/);
       }),
@@ -666,7 +672,7 @@ describe("connections", () => {
         const err = yield* executor.connections
           .accessToken("conn-1")
           .pipe(Effect.flip);
-        expect((err as { _tag: string })._tag).toBe("ConnectionRefreshError");
+        expect(Predicate.isTagged(err, "ConnectionRefreshError")).toBe(true);
       }),
   );
 
@@ -702,9 +708,9 @@ describe("connections", () => {
         const err = yield* executor.connections
           .accessToken("conn-1")
           .pipe(Effect.flip);
-        expect((err as { _tag: string })._tag).toBe(
-          "ConnectionRefreshNotSupportedError",
-        );
+        expect(
+          Predicate.isTagged(err, "ConnectionRefreshNotSupportedError"),
+        ).toBe(true);
       }),
   );
 
@@ -721,9 +727,7 @@ describe("connections", () => {
         const err = yield* executor.connections
           .accessToken("does-not-exist")
           .pipe(Effect.flip);
-        expect((err as { _tag: string })._tag).toBe(
-          "ConnectionNotFoundError",
-        );
+        expect(Predicate.isTagged(err, "ConnectionNotFoundError")).toBe(true);
       }),
   );
 
@@ -809,7 +813,7 @@ describe("connections", () => {
             }),
           )
           .pipe(Effect.flip);
-        expect((err as { _tag: string })._tag).toBe("ConnectionNotFoundError");
+        expect(Predicate.isTagged(err, "ConnectionNotFoundError")).toBe(true);
       }),
   );
 
@@ -859,9 +863,7 @@ describe("connections", () => {
         const err = yield* executor.connections
           .setIdentityLabel("does-not-exist", "x")
           .pipe(Effect.flip);
-        expect((err as { _tag: string })._tag).toBe(
-          "ConnectionNotFoundError",
-        );
+        expect(Predicate.isTagged(err, "ConnectionNotFoundError")).toBe(true);
       }),
   );
 

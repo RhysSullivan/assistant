@@ -10,7 +10,7 @@
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 
 import { addGroup, observabilityMiddleware } from "@executor-js/api";
 import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor-js/api/server";
@@ -22,6 +22,7 @@ import { McpGroup } from "./group";
 const unused = Effect.die("unused");
 
 const failingExtension: McpPluginExtension = {
+  // oxlint-disable-next-line executor/no-error-constructor -- boundary: test injects a defect to verify opaque handler error responses
   probeEndpoint: () => Effect.die(new Error("Not implemented")),
   addSource: () => unused,
   removeSource: () => unused,
@@ -61,6 +62,11 @@ const webHandlerFor = (extension: McpPluginExtension) =>
 // builder's dependency graph; `provideMerge` at the bottom keeps
 // framework services available to the router itself.
 const WebHandler = webHandlerFor(failingExtension);
+
+const McpConnectionErrorResponse = Schema.Struct({
+  _tag: Schema.Literal("McpConnectionError"),
+  message: Schema.String,
+});
 
 describe("McpHandlers", () => {
   it.effect(
@@ -108,11 +114,9 @@ describe("McpHandlers", () => {
       );
 
       expect(response.status).toBe(400);
-      const body = (yield* Effect.promise(() => response.json())) as {
-        _tag?: string;
-        message?: string;
-      };
-      expect(body._tag).toBe("McpConnectionError");
+      const body = yield* Schema.decodeUnknownEffect(McpConnectionErrorResponse)(
+        yield* Effect.promise(() => response.json()),
+      );
       expect(body.message).toContain("Do you need to provide an API key");
     }),
   );

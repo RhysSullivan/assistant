@@ -87,12 +87,10 @@ const connectClient = (input: {
 
     yield* Effect.tryPromise({
       try: () => client.connect(transportInstance),
-      catch: (cause) =>
+      catch: () =>
         new McpConnectionError({
           transport: input.transport,
-          message: `Failed connecting via ${input.transport}: ${
-            cause instanceof Error ? cause.message : String(cause)
-          }`,
+          message: `Failed connecting via ${input.transport}`,
         }),
     }).pipe(
       Effect.withSpan("plugin.mcp.connection.handshake", {
@@ -124,12 +122,10 @@ export const createMcpConnector = (input: ConnectorInput): McpConnector => {
       // `node:child_process`) is only loaded when stdio is actually used.
       const { createStdioTransport } = yield* Effect.tryPromise({
         try: () => import("./stdio-connector"),
-        catch: (cause) =>
+        catch: () =>
           new McpConnectionError({
             transport: "stdio",
-            message: `Failed to load stdio transport module: ${
-              cause instanceof Error ? cause.message : String(cause)
-            }`,
+            message: "Failed to load stdio transport module",
           }),
       });
 

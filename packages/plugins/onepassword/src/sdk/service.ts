@@ -53,10 +53,10 @@ type OnePasswordSdkModule = typeof import("@1password/sdk");
 const loadOnePasswordSdk = (): Effect.Effect<OnePasswordSdkModule, OnePasswordError> =>
   Effect.tryPromise({
     try: () => import("@1password/sdk"),
-    catch: (cause) =>
+    catch: () =>
       new OnePasswordError({
         operation: "sdk module load",
-        message: cause instanceof Error ? cause.message : String(cause),
+        message: "Failed to load 1Password SDK",
       }),
   });
 
@@ -99,22 +99,20 @@ export const makeNativeSdkService = (
           integrationName: "Executor",
           integrationVersion: "0.0.0",
         }),
-      catch: (cause) =>
+      catch: () =>
         new OnePasswordError({
           operation: "client setup",
-          message: cause instanceof Error ? cause.message : String(cause),
+          message: "Failed to set up 1Password client",
         }),
-    }).pipe(
-      timeoutWithOnePasswordError("client setup", timeoutMs),
-    );
+    }).pipe(timeoutWithOnePasswordError("client setup", timeoutMs));
 
     const wrap = <A>(fn: () => Promise<A>, operation: string): Effect.Effect<A, OnePasswordError> =>
       Effect.tryPromise({
         try: fn,
-        catch: (cause) =>
+        catch: () =>
           new OnePasswordError({
             operation,
-            message: cause instanceof Error ? cause.message : String(cause),
+            message: `1Password SDK ${operation} failed`,
           }),
       }).pipe(
         timeoutWithOnePasswordError(operation, timeoutMs),
@@ -154,10 +152,10 @@ export const makeCliService = (
     const wrapSync = <A>(fn: () => A, operation: string): Effect.Effect<A, OnePasswordError> =>
       Effect.try({
         try: fn,
-        catch: (cause) =>
+        catch: () =>
           new OnePasswordError({
             operation,
-            message: cause instanceof Error ? cause.message : String(cause),
+            message: `1Password CLI ${operation} failed`,
           }),
       }).pipe(Effect.withSpan(`onepassword.cli.${operation}`));
 

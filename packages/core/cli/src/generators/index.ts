@@ -13,6 +13,7 @@ export const generateSchema = (
 ) => {
   const generator = generators[adapter];
   if (!generator) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: synchronous CLI generator registry rejects unsupported adapter names
     throw new Error(
       `Generator "${adapter}" is not supported. Available: ${Object.keys(generators).join(", ")}`,
     );

@@ -45,6 +45,7 @@ function formatTools(tools: readonly Tool[]) {
 }
 
 export const POST: APIRoute = async ({ request }) => {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Astro route converts request/parsing failures to a stable HTTP response
   try {
     const body = (await request.json()) as { url?: string };
     const url = body.url?.trim();
@@ -55,6 +56,7 @@ export const POST: APIRoute = async ({ request }) => {
       });
     }
 
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: URL constructor is the platform validator for request input
     try {
       new URL(url);
     } catch {
@@ -70,6 +72,7 @@ export const POST: APIRoute = async ({ request }) => {
       });
       const executor = yield* createExecutor(config);
 
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: ensure executor cleanup runs after best-effort marketing detection
       try {
         // Detect what kind of source lives at this URL
         const detected = yield* executor.sources.detect(url).pipe(Effect.timeout("10 seconds"));

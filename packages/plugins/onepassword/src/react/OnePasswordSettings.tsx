@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 import { useScope } from "@executor-js/react/api/scope-context";
@@ -62,15 +63,15 @@ function VaultPicker(props: {
         isLoading: true,
         error: null,
       }),
-      onError: (error) => ({
+      onError: () => ({
         vaults: [] as { id: string; name: string }[],
         isLoading: false,
-        error: error.message,
+        error: "Failed to list vaults",
       }),
-      onDefect: (defect) => ({
+      onDefect: () => ({
         vaults: [] as { id: string; name: string }[],
         isLoading: false,
-        error: defect instanceof Error ? defect.message : "Failed to list vaults",
+        error: "Failed to list vaults",
       }),
       onSuccess: ({ value }) => {
         const v = value.vaults;
@@ -142,7 +143,7 @@ function ConfigDialog(props: {
   const [error, setError] = useState<string | null>(null);
 
   const scopeId = useScope();
-  const doConfigure = useAtomSet(configureOnePassword, { mode: "promise" });
+  const doConfigure = useAtomSet(configureOnePassword, { mode: "promiseExit" });
 
   const reset = () => {
     if (!isEdit) {
@@ -159,23 +160,25 @@ function ConfigDialog(props: {
     if (!accountName.trim() || !vaultId.trim()) return;
     setSaving(true);
     setError(null);
-    try {
-      const auth =
-        authKind === "desktop-app"
-          ? { kind: "desktop-app" as const, accountName: accountName.trim() }
-          : { kind: "service-account" as const, tokenSecretId: accountName.trim() };
 
-      await doConfigure({
-        params: { scopeId },
-        payload: { auth, vaultId: vaultId.trim(), name: vaultName.trim() || "1Password" },
-        reactivityKeys: [ReactivityKey.secrets],
-      });
-      props.onOpenChange(false);
-      reset();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save configuration");
+    const auth =
+      authKind === "desktop-app"
+        ? { kind: "desktop-app" as const, accountName: accountName.trim() }
+        : { kind: "service-account" as const, tokenSecretId: accountName.trim() };
+
+    const exit = await doConfigure({
+      params: { scopeId },
+      payload: { auth, vaultId: vaultId.trim(), name: vaultName.trim() || "1Password" },
+      reactivityKeys: [ReactivityKey.secrets],
+    });
+    if (Exit.isFailure(exit)) {
+      setError("Failed to save configuration");
       setSaving(false);
+      return;
     }
+
+    props.onOpenChange(false);
+    reset();
   };
 
   return (
@@ -298,14 +301,10 @@ export default function OnePasswordSettings() {
   const [configOpen, setConfigOpen] = useState(false);
   const scopeId = useScope();
   const configResult = useAtomValue(onepasswordConfigAtom(scopeId));
-  const doRemove = useAtomSet(removeOnePasswordConfig, { mode: "promise" });
+  const doRemove = useAtomSet(removeOnePasswordConfig, { mode: "promiseExit" });
 
   const handleRemove = async () => {
-    try {
-      await doRemove({ params: { scopeId }, reactivityKeys: [ReactivityKey.secrets] });
-    } catch {
-      /* TODO: toast */
-    }
+    await doRemove({ params: { scopeId }, reactivityKeys: [ReactivityKey.secrets] });
   };
 
   const config: OnePasswordConfig | null = AsyncResult.match(

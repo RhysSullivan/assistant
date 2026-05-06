@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
@@ -17,11 +17,7 @@ import {
 } from "@executor-js/sdk";
 
 import { mcpPlugin } from "./plugin";
-import {
-  extractManifestFromListToolsResult,
-  deriveMcpNamespace,
-  joinToolPath,
-} from "./manifest";
+import { extractManifestFromListToolsResult, deriveMcpNamespace, joinToolPath } from "./manifest";
 import { serveMcpServer } from "./test-utils";
 
 // ---------------------------------------------------------------------------
@@ -36,14 +32,12 @@ const makeMemorySecretsPlugin = () => {
   const provider: SecretProvider = {
     key: "memory",
     writable: true,
-    get: (id, scope) =>
-      Effect.sync(() => store.get(`${scope}${id}`) ?? null),
+    get: (id, scope) => Effect.sync(() => store.get(`${scope}${id}`) ?? null),
     set: (id, value, scope) =>
       Effect.sync(() => {
         store.set(`${scope}${id}`, value);
       }),
-    delete: (id, scope) =>
-      Effect.sync(() => store.delete(`${scope}${id}`)),
+    delete: (id, scope) => Effect.sync(() => store.delete(`${scope}${id}`)),
     list: () =>
       Effect.sync(() =>
         Array.from(store.keys()).map((k) => {
@@ -158,9 +152,7 @@ describe("deriveMcpNamespace", () => {
 
   it.effect("derives from command", () =>
     Effect.sync(() => {
-      expect(deriveMcpNamespace({ command: "/usr/local/bin/my-mcp-server" })).toBe(
-        "my_mcp_server",
-      );
+      expect(deriveMcpNamespace({ command: "/usr/local/bin/my-mcp-server" })).toBe("my_mcp_server");
     }),
   );
 
@@ -214,9 +206,7 @@ describe("mcpPlugin", () => {
 
   it.effect("sources list is initially empty", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [mcpPlugin()] as const }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
       const sources = yield* executor.sources.list();
       expect(sources).toHaveLength(0);
     }),
@@ -224,9 +214,7 @@ describe("mcpPlugin", () => {
 
   it.effect("tools list is initially empty", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [mcpPlugin()] as const }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
       const tools = yield* executor.tools.list();
       expect(tools).toHaveLength(0);
     }),
@@ -238,9 +226,7 @@ describe("mcpPlugin", () => {
   // still propagates to the caller so boot-time sync logs the reason.
   it.effect("registers source with 0 tools when discovery fails", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [mcpPlugin()] as const }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
 
       const result = yield* executor.mcp
         .addSource({
@@ -256,7 +242,7 @@ describe("mcpPlugin", () => {
         })
         .pipe(Effect.result);
 
-      expect(result._tag).toBe("Failure");
+      expect(Result.isFailure(result)).toBe(true);
 
       const sources = yield* executor.sources.list();
       const broken = sources.find((s) => s.id === "broken_source");
@@ -304,7 +290,11 @@ describe("mcpPlugin", () => {
       readonly remoteTransport: "auto";
       readonly namespace: string;
     }) => Effect.Effect<unknown, unknown>,
-    args: { readonly scope: string; readonly name: string; readonly endpoint: string },
+    args: {
+      readonly scope: string;
+      readonly name: string;
+      readonly endpoint: string;
+    },
   ) =>
     addSource({
       transport: "remote",
@@ -326,28 +316,28 @@ describe("mcpPlugin", () => {
 
       // Org-level base source — discovery fails but row persists.
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: ORG_SCOPE as string,
+        scope: ORG_SCOPE,
         name: "Org Source",
         endpoint: "http://127.0.0.1:1/org-mcp",
       });
 
       // Per-user shadow with the same namespace.
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: USER_SCOPE as string,
+        scope: USER_SCOPE,
         name: "User Source",
         endpoint: "http://127.0.0.1:1/user-mcp",
       });
 
-      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE as string);
-      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE as string);
+      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE);
+      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE);
 
       // Both rows must coexist — the store's scope-pinned getters
       // return the exact row regardless of the scope stack's
       // fall-through order.
       expect(userView?.name).toBe("User Source");
-      expect(userView?.scope).toBe(USER_SCOPE as string);
+      expect(userView?.scope).toBe(USER_SCOPE);
       expect(orgView?.name).toBe("Org Source");
-      expect(orgView?.scope).toBe(ORG_SCOPE as string);
+      expect(orgView?.scope).toBe(ORG_SCOPE);
     }),
   );
 
@@ -361,20 +351,20 @@ describe("mcpPlugin", () => {
       );
 
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: ORG_SCOPE as string,
+        scope: ORG_SCOPE,
         name: "Org Source",
         endpoint: "http://127.0.0.1:1/org-mcp",
       });
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: USER_SCOPE as string,
+        scope: USER_SCOPE,
         name: "User Source",
         endpoint: "http://127.0.0.1:1/user-mcp",
       });
 
-      yield* executor.mcp.removeSource("shared", USER_SCOPE as string);
+      yield* executor.mcp.removeSource("shared", USER_SCOPE);
 
-      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE as string);
-      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE as string);
+      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE);
+      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE);
 
       expect(userView).toBeNull();
       expect(orgView?.name).toBe("Org Source");
@@ -391,23 +381,23 @@ describe("mcpPlugin", () => {
       );
 
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: ORG_SCOPE as string,
+        scope: ORG_SCOPE,
         name: "Org Source",
         endpoint: "http://127.0.0.1:1/org-mcp",
       });
       yield* seedShadowed(executor.mcp.addSource, {
-        scope: USER_SCOPE as string,
+        scope: USER_SCOPE,
         name: "User Source",
         endpoint: "http://127.0.0.1:1/user-mcp",
       });
 
-      yield* executor.mcp.updateSource("shared", USER_SCOPE as string, {
+      yield* executor.mcp.updateSource("shared", USER_SCOPE, {
         name: "User Renamed",
         endpoint: "http://127.0.0.1:1/user-new-mcp",
       });
 
-      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE as string);
-      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE as string);
+      const userView = yield* executor.mcp.getSource("shared", USER_SCOPE);
+      const orgView = yield* executor.mcp.getSource("shared", ORG_SCOPE);
 
       expect(userView?.name).toBe("User Renamed");
       expect(userView?.config.transport).toBe("remote");
@@ -460,20 +450,15 @@ describe("mcpPlugin", () => {
       // perspective — it returns Failure because discovery failed, but
       // crucially the source row was persisted so the list surfaces
       // it for subsequent sign-in.
-      expect(result._tag).toBe("Failure");
+      expect(Result.isFailure(result)).toBe(true);
 
-      const stored = yield* executor.mcp.getSource(
-        "deferred_oauth",
-        "test-scope",
-      );
+      const stored = yield* executor.mcp.getSource("deferred_oauth", "test-scope");
       expect(stored).not.toBeNull();
       expect(stored?.config.transport).toBe("remote");
       if (stored?.config.transport !== "remote") return;
       expect(stored.config.auth.kind).toBe("oauth2");
       if (stored.config.auth.kind !== "oauth2") return;
-      expect(stored.config.auth.connectionId).toBe(
-        "mcp-oauth2-deferred_oauth",
-      );
+      expect(stored.config.auth.connectionId).toBe("mcp-oauth2-deferred_oauth");
 
       // Source is visible in the shell list too.
       const sources = yield* executor.sources.list();
@@ -512,128 +497,112 @@ describe("mcpPlugin", () => {
       // connection was ever minted, so the check should be false —
       // i.e. the button would render "Sign in".
       const connections = yield* executor.connections.list();
-      const connectionMatch = connections.find(
-        (c) => c.id === "mcp-oauth2-needs_auth",
-      );
+      const connectionMatch = connections.find((c) => c.id === "mcp-oauth2-needs_auth");
       expect(connectionMatch).toBeUndefined();
 
-      const stored = yield* executor.mcp.getSource(
-        "needs_auth",
-        "test-scope",
-      );
+      const stored = yield* executor.mcp.getSource("needs_auth", "test-scope");
       expect(stored?.config.transport).toBe("remote");
       if (stored?.config.transport !== "remote") return;
       expect(stored.config.auth.kind).toBe("oauth2");
     }),
   );
 
-  it.effect(
-    "signing in as a user transitions the source to connected",
-    () =>
-      Effect.gen(function* () {
-        const USER_SCOPE_ID = ScopeId.make("user-scope");
-        const ORG_SCOPE_ID = ScopeId.make("org-scope");
-        const scopes = [
-          new Scope({
-            id: USER_SCOPE_ID,
-            name: "user",
-            createdAt: new Date(),
-          }),
-          new Scope({
-            id: ORG_SCOPE_ID,
-            name: "org",
-            createdAt: new Date(),
-          }),
-        ] as const;
-        const executor = yield* createExecutor(
-          makeTestConfig({
-            scopes,
-            plugins: [makeMemorySecretsPlugin()(), mcpPlugin()] as const,
-          }),
-        );
+  it.effect("signing in as a user transitions the source to connected", () =>
+    Effect.gen(function* () {
+      const USER_SCOPE_ID = ScopeId.make("user-scope");
+      const ORG_SCOPE_ID = ScopeId.make("org-scope");
+      const scopes = [
+        new Scope({
+          id: USER_SCOPE_ID,
+          name: "user",
+          createdAt: new Date(),
+        }),
+        new Scope({
+          id: ORG_SCOPE_ID,
+          name: "org",
+          createdAt: new Date(),
+        }),
+      ] as const;
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          scopes,
+          plugins: [makeMemorySecretsPlugin()(), mcpPlugin()] as const,
+        }),
+      );
 
-        // Admin saves the oauth2 source at the org scope — no tokens
-        // yet.
-        yield* executor.mcp
-          .addSource({
-            transport: "remote",
-            scope: ORG_SCOPE_ID as string,
-            name: "Team MCP",
+      // Admin saves the oauth2 source at the org scope — no tokens
+      // yet.
+      yield* executor.mcp
+        .addSource({
+          transport: "remote",
+          scope: ORG_SCOPE_ID,
+          name: "Team MCP",
+          endpoint: "http://127.0.0.1:1/team-mcp",
+          remoteTransport: "auto",
+          namespace: "team_mcp",
+          auth: {
+            kind: "oauth2",
+            connectionId: "mcp-oauth2-team_mcp",
+          },
+        })
+        .pipe(Effect.result);
+
+      // Before sign-in: no connection exists at all.
+      const pre = yield* executor.connections.list();
+      expect(pre.find((c) => c.id === "mcp-oauth2-team_mcp")).toBeUndefined();
+
+      // User signs in — the SignInButton flow produces a minted
+      // connection against the same stable id, pinned to the user
+      // scope. This simulates what `completeOAuth` does internally,
+      // including persisting provider state.
+      const connectionId = ConnectionId.make("mcp-oauth2-team_mcp");
+      yield* executor.connections.create(
+        new CreateConnectionInput({
+          id: connectionId,
+          scope: USER_SCOPE_ID,
+          provider: "mcp:oauth2",
+          identityLabel: "user@example.com",
+          accessToken: new TokenMaterial({
+            secretId: SecretId.make(`${connectionId}.access_token`),
+            name: "MCP Access Token",
+            value: "access-token-value",
+          }),
+          refreshToken: null,
+          expiresAt: null,
+          oauthScope: null,
+          providerState: {
             endpoint: "http://127.0.0.1:1/team-mcp",
-            remoteTransport: "auto",
-            namespace: "team_mcp",
-            auth: {
-              kind: "oauth2",
-              connectionId: "mcp-oauth2-team_mcp",
-            },
-          })
-          .pipe(Effect.result);
+            tokenType: "Bearer",
+            clientInformation: { client_id: "fake" },
+            authorizationServerUrl: null,
+            authorizationServerMetadata: null,
+            resourceMetadataUrl: null,
+            resourceMetadata: null,
+          },
+        }),
+      );
 
-        // Before sign-in: no connection exists at all.
-        const pre = yield* executor.connections.list();
-        expect(
-          pre.find((c) => c.id === "mcp-oauth2-team_mcp"),
-        ).toBeUndefined();
+      // After sign-in: the connection exists and its access token
+      // resolves. Source auth config is unchanged — the
+      // connectionId pointer now has a live backing row.
+      const post = yield* executor.connections.list();
+      const match = post.find((c) => c.id === "mcp-oauth2-team_mcp");
+      expect(match).toBeDefined();
+      expect(match?.scopeId).toBe(USER_SCOPE_ID);
 
-        // User signs in — the SignInButton flow produces a minted
-        // connection against the same stable id, pinned to the user
-        // scope. This simulates what `completeOAuth` does internally,
-        // including persisting provider state.
-        const connectionId = ConnectionId.make("mcp-oauth2-team_mcp");
-        yield* executor.connections.create(
-          new CreateConnectionInput({
-            id: connectionId,
-            scope: USER_SCOPE_ID,
-            provider: "mcp:oauth2",
-            identityLabel: "user@example.com",
-            accessToken: new TokenMaterial({
-              secretId: SecretId.make(`${connectionId}.access_token`),
-              name: "MCP Access Token",
-              value: "access-token-value",
-            }),
-            refreshToken: null,
-            expiresAt: null,
-            oauthScope: null,
-            providerState: {
-              endpoint: "http://127.0.0.1:1/team-mcp",
-              tokenType: "Bearer",
-              clientInformation: { client_id: "fake" },
-              authorizationServerUrl: null,
-              authorizationServerMetadata: null,
-              resourceMetadataUrl: null,
-              resourceMetadata: null,
-            },
-          }),
-        );
+      const accessToken = yield* executor.connections.accessToken(connectionId);
+      expect(accessToken).toBe("access-token-value");
 
-        // After sign-in: the connection exists and its access token
-        // resolves. Source auth config is unchanged — the
-        // connectionId pointer now has a live backing row.
-        const post = yield* executor.connections.list();
-        const match = post.find((c) => c.id === "mcp-oauth2-team_mcp");
-        expect(match).toBeDefined();
-        expect(match?.scopeId).toBe(USER_SCOPE_ID);
-
-        const accessToken = yield* executor.connections.accessToken(
-          connectionId,
-        );
-        expect(accessToken).toBe("access-token-value");
-
-        // Source auth still points at the same connectionId — no
-        // migration needed, the UI flipped "Sign in" → "Reconnect" by
-        // virtue of the connection existing.
-        const stored = yield* executor.mcp.getSource(
-          "team_mcp",
-          ORG_SCOPE_ID as string,
-        );
-        expect(stored?.config.transport).toBe("remote");
-        if (stored?.config.transport !== "remote") return;
-        expect(stored.config.auth.kind).toBe("oauth2");
-        if (stored.config.auth.kind !== "oauth2") return;
-        expect(stored.config.auth.connectionId).toBe(
-          "mcp-oauth2-team_mcp",
-        );
-      }),
+      // Source auth still points at the same connectionId — no
+      // migration needed, the UI flipped "Sign in" → "Reconnect" by
+      // virtue of the connection existing.
+      const stored = yield* executor.mcp.getSource("team_mcp", ORG_SCOPE_ID);
+      expect(stored?.config.transport).toBe("remote");
+      if (stored?.config.transport !== "remote") return;
+      expect(stored.config.auth.kind).toBe("oauth2");
+      if (stored.config.auth.kind !== "oauth2") return;
+      expect(stored.config.auth.connectionId).toBe("mcp-oauth2-team_mcp");
+    }),
   );
 
   // -------------------------------------------------------------------------
@@ -645,9 +614,7 @@ describe("mcpPlugin", () => {
 
   it.effect("usagesForSecret aggregates header-auth + headers child rows", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [mcpPlugin()] as const }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
 
       yield* executor.mcp
         .addSource({
@@ -666,17 +633,13 @@ describe("mcpPlugin", () => {
         })
         .pipe(Effect.result);
 
-      const usages = yield* executor.secrets.usages(
-        SecretId.make("shared-key"),
-      );
+      const usages = yield* executor.secrets.usages(SecretId.make("shared-key"));
       expect(usages.length).toBe(2);
       const slots = usages.map((u) => u.slot).sort();
       expect(slots).toEqual(["auth.header", "header:X-Trace"]);
       expect(usages.every((u) => u.pluginId === "mcp")).toBe(true);
 
-      const otherUsages = yield* executor.secrets.usages(
-        SecretId.make("other-secret"),
-      );
+      const otherUsages = yield* executor.secrets.usages(SecretId.make("other-secret"));
       expect(otherUsages.length).toBe(1);
       expect(otherUsages[0].slot).toBe("query_param:ping");
     }),
@@ -684,9 +647,7 @@ describe("mcpPlugin", () => {
 
   it.effect("usagesForConnection finds oauth2-bound mcp sources", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [mcpPlugin()] as const }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
 
       yield* executor.mcp
         .addSource({
@@ -699,9 +660,7 @@ describe("mcpPlugin", () => {
         })
         .pipe(Effect.result);
 
-      const usages = yield* executor.connections.usages(
-        ConnectionId.make("conn-xyz"),
-      );
+      const usages = yield* executor.connections.usages(ConnectionId.make("conn-xyz"));
       expect(usages.length).toBe(1);
       expect(usages[0]).toMatchObject({
         pluginId: "mcp",
@@ -768,9 +727,7 @@ describe("MCP destructiveHint → requiresApproval", () => {
   it.effect("destructiveHint becomes requiresApproval, others stay false", () =>
     Effect.gen(function* () {
       const server = yield* serveAnnotationsTestServer;
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [mcpPlugin()] as const }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
       yield* executor.mcp.addSource({
         transport: "remote",
         scope: "test-scope",
@@ -794,9 +751,7 @@ describe("MCP destructiveHint → requiresApproval", () => {
   it.effect("uses annotations.title as approvalDescription when present", () =>
     Effect.gen(function* () {
       const server = yield* serveAnnotationsTestServer;
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [mcpPlugin()] as const }),
-      );
+      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
       yield* executor.mcp.addSource({
         transport: "remote",
         scope: "test-scope",
@@ -807,9 +762,7 @@ describe("MCP destructiveHint → requiresApproval", () => {
       const tools = yield* executor.tools.list();
       const deleteTitled = tools.find((t) => t.name === "delete_titled");
       expect(deleteTitled?.annotations?.requiresApproval).toBe(true);
-      expect(deleteTitled?.annotations?.approvalDescription).toBe(
-        "Delete dataset",
-      );
+      expect(deleteTitled?.annotations?.approvalDescription).toBe("Delete dataset");
     }),
   );
 });

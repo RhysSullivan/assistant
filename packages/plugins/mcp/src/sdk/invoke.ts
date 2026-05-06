@@ -10,7 +10,7 @@
 //   4. Retrying once on connection failure (invalidate + reconnect).
 // ---------------------------------------------------------------------------
 
-import { Cause, Effect, Exit, Schema, ScopedCache } from "effect";
+import { Cause, Effect, Exit, Option, Predicate, Schema, ScopedCache } from "effect";
 
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
@@ -29,15 +29,13 @@ import type { McpStoredSourceData } from "./types";
 // Helpers
 // ---------------------------------------------------------------------------
 
-const asRecord = (value: unknown): Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+const ArgsRecord = Schema.Record(Schema.String, Schema.Unknown);
+const decodeArgsRecord = Schema.decodeUnknownOption(ArgsRecord);
 
-const connectionCacheKey = (
-  sd: McpStoredSourceData,
-  invokerScope: string,
-): string =>
+const argsRecord = (value: unknown): Record<string, unknown> =>
+  Option.getOrElse(decodeArgsRecord(value), () => ({}));
+
+const connectionCacheKey = (sd: McpStoredSourceData, invokerScope: string): string =>
   sd.transport === "stdio"
     ? `stdio:${sd.command}`
     : // Remote sources may resolve per-user secrets (OAuth tokens, header
@@ -83,42 +81,34 @@ const toElicitationRequest = (params: McpElicitParams): ElicitationRequest =>
         requestedSchema: params.requestedSchema,
       });
 
-const installElicitationHandler = (
-  client: McpConnection["client"],
-  elicit: Elicit,
-): void => {
-  client.setRequestHandler(
-    ElicitRequestSchema,
-    async (request: { params: unknown }) => {
-      const params = decodeElicitParams(request.params);
-      const req = toElicitationRequest(params);
-      // Use runPromiseExit so we can inspect typed failures — `elicit`
-      // fails with `ElicitationDeclinedError` on decline/cancel, which
-      // we translate into the equivalent MCP elicit response instead of
-      // surfacing as a JSON-RPC error.
-      const exit = await Effect.runPromiseExit(elicit(req));
-      if (Exit.isSuccess(exit)) {
-        const response = exit.value;
-        return {
-          action: response.action,
-          ...(response.action === "accept" && response.content
-            ? { content: response.content }
-            : {}),
-        };
+const installElicitationHandler = (client: McpConnection["client"], elicit: Elicit): void => {
+  client.setRequestHandler(ElicitRequestSchema, async (request: { params: unknown }) => {
+    const params = decodeElicitParams(request.params);
+    const req = toElicitationRequest(params);
+    // Use runPromiseExit so we can inspect typed failures — `elicit`
+    // fails with `ElicitationDeclinedError` on decline/cancel, which
+    // we translate into the equivalent MCP elicit response instead of
+    // surfacing as a JSON-RPC error.
+    const exit = await Effect.runPromiseExit(elicit(req));
+    if (Exit.isSuccess(exit)) {
+      const response = exit.value;
+      return {
+        action: response.action,
+        ...(response.action === "accept" && response.content ? { content: response.content } : {}),
+      };
+    }
+    const failure = exit.cause.reasons.find(Cause.isFailReason);
+    if (failure) {
+      const err = failure.error;
+      if (Predicate.isTagged(err, "ElicitationDeclinedError")) {
+        const action =
+          Predicate.hasProperty(err, "action") && err.action === "cancel" ? "cancel" : "decline";
+        return { action };
       }
-      const failure = exit.cause.reasons.find(Cause.isFailReason);
-      if (failure) {
-        const err = failure.error as {
-          readonly _tag?: string;
-          readonly action?: "decline" | "cancel";
-        };
-        if (err._tag === "ElicitationDeclinedError") {
-          return { action: err.action ?? "decline" };
-        }
-      }
-      throw Cause.squash(exit.cause);
-    },
-  );
+    }
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: MCP SDK async request handlers signal unexpected failures by rejecting
+    throw Cause.squash(exit.cause);
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -135,12 +125,10 @@ const useConnection = (
     installElicitationHandler(connection.client, elicit);
     return yield* Effect.tryPromise({
       try: () => connection.client.callTool({ name: toolName, arguments: args }),
-      catch: (cause) =>
+      catch: () =>
         new McpInvocationError({
           toolName,
-          message: `MCP tool call failed for ${toolName}: ${
-            cause instanceof Error ? cause.message : String(cause)
-          }`,
+          message: `MCP tool call failed for ${toolName}`,
         }),
     }).pipe(
       Effect.withSpan("plugin.mcp.client.call_tool", {
@@ -163,15 +151,8 @@ export interface InvokeMcpToolInput {
    *  collapse multiple users onto one shared connection. */
   readonly invokerScope: string;
   readonly resolveConnector: () => Effect.Effect<McpConnection, McpConnectionError>;
-  readonly connectionCache: ScopedCache.ScopedCache<
-    string,
-    McpConnection,
-    McpConnectionError
-  >;
-  readonly pendingConnectors: Map<
-    string,
-    Effect.Effect<McpConnection, McpConnectionError>
-  >;
+  readonly connectionCache: ScopedCache.ScopedCache<string, McpConnection, McpConnectionError>;
+  readonly pendingConnectors: Map<string, Effect.Effect<McpConnection, McpConnectionError>>;
   readonly elicit: Elicit;
 }
 
@@ -179,12 +160,10 @@ export const invokeMcpTool = (
   input: InvokeMcpToolInput,
 ): Effect.Effect<unknown, McpConnectionError | McpInvocationError> => {
   const transport: string =
-    input.sourceData.transport === "stdio"
-      ? "stdio"
-      : (input.sourceData.remoteTransport ?? "auto");
+    input.sourceData.transport === "stdio" ? "stdio" : (input.sourceData.remoteTransport ?? "auto");
   return Effect.gen(function* () {
     const cacheKey = connectionCacheKey(input.sourceData, input.invokerScope);
-    const args = asRecord(input.args);
+    const args = argsRecord(input.args);
 
     // Register the connector for the cache lookup (side-channel pattern
     // — the ScopedCache lookup closure reads from `pendingConnectors`).
@@ -209,12 +188,7 @@ export const invokeMcpTool = (
       }),
     );
 
-    return yield* useConnection(
-      firstConnection,
-      input.toolName,
-      args,
-      input.elicit,
-    ).pipe(
+    return yield* useConnection(firstConnection, input.toolName, args, input.elicit).pipe(
       // On failure, invalidate the cache and retry once with a fresh
       // connection. Matches the old invoker's retry-once semantics.
       Effect.catch(() =>
@@ -222,12 +196,7 @@ export const invokeMcpTool = (
           yield* ScopedCache.invalidate(input.connectionCache, cacheKey);
           input.pendingConnectors.set(cacheKey, connector);
           const fresh = yield* ScopedCache.get(input.connectionCache, cacheKey);
-          return yield* useConnection(
-            fresh,
-            input.toolName,
-            args,
-            input.elicit,
-          );
+          return yield* useConnection(fresh, input.toolName, args, input.elicit);
         }).pipe(
           Effect.withSpan("plugin.mcp.invoke.retry", {
             attributes: {

@@ -26,11 +26,18 @@ import { ExampleApi } from "./shared";
 // FullApi, so this bundle never touches the host's wiring.
 const ExampleApiBundle = HttpApi.make("example").add(ExampleApi);
 
-interface ExampleExtension {
-  readonly greet: (
-    name: string,
-  ) => Effect.Effect<{ readonly message: string; readonly count: number }>;
-}
+const makeExampleExtension = (ctx: { readonly storage: { count: number } }) => ({
+  greet: (name: string) =>
+    Effect.sync(() => {
+      ctx.storage.count += 1;
+      return {
+        message: `hello ${name}`,
+        count: ctx.storage.count,
+      };
+    }),
+});
+
+type ExampleExtension = ReturnType<typeof makeExampleExtension>;
 
 export class ExampleExtensionService extends Context.Service<
   ExampleExtensionService,
@@ -56,16 +63,7 @@ export const examplePlugin = definePlugin(() => ({
 
   // Canonical implementation. CLI/tests/embedded callers and the HTTP
   // handler all hit this same code path.
-  extension: (ctx): ExampleExtension => ({
-    greet: (name: string) =>
-      Effect.sync(() => {
-        ctx.storage.count += 1;
-        return {
-          message: `hello ${name}`,
-          count: ctx.storage.count,
-        };
-      }),
-  }),
+  extension: makeExampleExtension,
 
   routes: () => ExampleApi,
   handlers: () => ExampleHandlers,

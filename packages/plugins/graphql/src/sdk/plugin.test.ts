@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
 import {
   ConnectionId,
@@ -18,6 +18,8 @@ import { graphqlPlugin } from "./plugin";
 import type { IntrospectionResult } from "./introspect";
 
 const TEST_SCOPE = "test-scope";
+
+class TestServerAddressError extends Data.TaggedError("TestServerAddressError")<{}> {}
 
 // ---------------------------------------------------------------------------
 // Mock introspection response
@@ -95,14 +97,12 @@ const makeMemorySecretsPlugin = () => {
   const provider: SecretProvider = {
     key: "memory",
     writable: true,
-    get: (id, scope) =>
-      Effect.sync(() => store.get(`${scope}\u0000${id}`) ?? null),
+    get: (id, scope) => Effect.sync(() => store.get(`${scope}\u0000${id}`) ?? null),
     set: (id, value, scope) =>
       Effect.sync(() => {
         store.set(`${scope}\u0000${id}`, value);
       }),
-    delete: (id, scope) =>
-      Effect.sync(() => store.delete(`${scope}\u0000${id}`)),
+    delete: (id, scope) => Effect.sync(() => store.delete(`${scope}\u0000${id}`)),
     list: () =>
       Effect.sync(() =>
         Array.from(store.keys()).map((key) => {
@@ -144,9 +144,7 @@ describe("graphqlPlugin", () => {
       const queryTool = tools.find((t) => t.id === "test_api.query.hello");
       expect(queryTool?.description).toBe("Say hello");
 
-      const mutationTool = tools.find(
-        (t) => t.id === "test_api.mutation.setGreeting",
-      );
+      const mutationTool = tools.find((t) => t.id === "test_api.mutation.setGreeting");
       expect(mutationTool?.description).toBe("Set greeting message");
     }),
   );
@@ -218,14 +216,10 @@ describe("graphqlPlugin", () => {
       });
 
       const tools = yield* executor.tools.list();
-      const mutationTool = tools.find(
-        (t) => t.id === "approval_test.mutation.setGreeting",
-      );
+      const mutationTool = tools.find((t) => t.id === "approval_test.mutation.setGreeting");
       expect(mutationTool).toBeDefined();
       expect(mutationTool!.annotations?.requiresApproval).toBe(true);
-      expect(mutationTool!.annotations?.approvalDescription).toBe(
-        "mutation setGreeting",
-      );
+      expect(mutationTool!.annotations?.approvalDescription).toBe("mutation setGreeting");
 
       const queryTool = tools.find((t) => t.id === "approval_test.query.hello");
       expect(queryTool).toBeDefined();
@@ -233,108 +227,111 @@ describe("graphqlPlugin", () => {
     }),
   );
 
-  it.effect(
-    "updateSource patches endpoint/headers without re-registering",
-    () =>
-      Effect.gen(function* () {
-        const executor = yield* createExecutor(
-          makeTestConfig({ plugins: [graphqlPlugin()] as const }),
-        );
+  it.effect("updateSource patches endpoint/headers without re-registering", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
 
-        yield* executor.graphql.addSource({
-          endpoint: "http://localhost:4000/graphql",
-          scope: "test-scope",
-          introspectionJson,
-          namespace: "patched",
-        });
+      yield* executor.graphql.addSource({
+        endpoint: "http://localhost:4000/graphql",
+        scope: "test-scope",
+        introspectionJson,
+        namespace: "patched",
+      });
 
-        yield* executor.graphql.updateSource("patched", TEST_SCOPE, {
-          endpoint: "http://localhost:5000/graphql",
-          headers: { "x-custom": "abc" },
-        });
+      yield* executor.graphql.updateSource("patched", TEST_SCOPE, {
+        endpoint: "http://localhost:5000/graphql",
+        headers: { "x-custom": "abc" },
+      });
 
-        const source = yield* executor.graphql.getSource("patched", TEST_SCOPE);
-        expect(source?.endpoint).toBe("http://localhost:5000/graphql");
-        expect(source?.headers).toEqual({ "x-custom": "abc" });
+      const source = yield* executor.graphql.getSource("patched", TEST_SCOPE);
+      expect(source?.endpoint).toBe("http://localhost:5000/graphql");
+      expect(source?.headers).toEqual({ "x-custom": "abc" });
 
-        // Tools still present (no re-register happened, but they were
-        // already there from addSource and haven't been removed).
-        const tools = yield* executor.tools.list();
-        expect(tools.filter((t) => t.sourceId === "patched").length).toBe(2);
-      }),
+      // Tools still present (no re-register happened, but they were
+      // already there from addSource and haven't been removed).
+      const tools = yield* executor.tools.list();
+      expect(tools.filter((t) => t.sourceId === "patched").length).toBe(2);
+    }),
   );
 
   it.effect("invokes OAuth-backed sources with a bearer token", () =>
     Effect.gen(function* () {
       const http = yield* Effect.promise(() => import("node:http"));
       let authorizationHeader: string | null = null;
-      const server = http.createServer((req, res) => {
-        authorizationHeader = req.headers.authorization ?? null;
-        res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ data: { hello: "Hello Ada" } }));
-      });
-      yield* Effect.callback<void, Error>((resume) => {
-        server.listen(0, "127.0.0.1", () => resume(Effect.void));
-        server.once("error", (error) => resume(Effect.fail(error)));
-      });
+      const server = yield* Effect.acquireRelease(
+        Effect.callback<
+          {
+            readonly server: ReturnType<typeof http.createServer>;
+            readonly port: number;
+          },
+          Error | TestServerAddressError
+        >((resume) => {
+          const server = http.createServer((req, res) => {
+            authorizationHeader = req.headers.authorization ?? null;
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ data: { hello: "Hello Ada" } }));
+          });
+          server.listen(0, "127.0.0.1", () => {
+            const address = server.address();
+            if (!address || typeof address === "string") {
+              resume(Effect.fail(new TestServerAddressError()));
+              return;
+            }
+            resume(Effect.succeed({ server, port: address.port }));
+          });
+          server.once("error", (error) => resume(Effect.fail(error)));
+        }),
+        ({ server }) =>
+          Effect.callback<void>((resume) => {
+            server.close(() => resume(Effect.void));
+          }).pipe(Effect.ignore),
+      );
 
-      try {
-        const address = server.address();
-        if (!address || typeof address === "string") {
-          throw new Error("Expected TCP test server address");
-        }
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [makeMemorySecretsPlugin()(), graphqlPlugin()] as const,
+        }),
+      );
 
-        const executor = yield* createExecutor(
-          makeTestConfig({
-            plugins: [makeMemorySecretsPlugin()(), graphqlPlugin()] as const,
+      const connectionId = ConnectionId.make("graphql-oauth2-test");
+      yield* executor.connections.create(
+        new CreateConnectionInput({
+          id: connectionId,
+          scope: ScopeId.make(TEST_SCOPE),
+          provider: "oauth2",
+          identityLabel: "GraphQL Test",
+          accessToken: new TokenMaterial({
+            secretId: SecretId.make(`${connectionId}.access_token`),
+            name: "GraphQL Access Token",
+            value: "secret-token",
           }),
-        );
+          refreshToken: null,
+          expiresAt: null,
+          oauthScope: null,
+          providerState: null,
+        }),
+      );
 
-        const connectionId = ConnectionId.make("graphql-oauth2-test");
-        yield* executor.connections.create(
-          new CreateConnectionInput({
-            id: connectionId,
-            scope: ScopeId.make(TEST_SCOPE),
-            provider: "oauth2",
-            identityLabel: "GraphQL Test",
-            accessToken: new TokenMaterial({
-              secretId: SecretId.make(`${connectionId}.access_token`),
-              name: "GraphQL Access Token",
-              value: "secret-token",
-            }),
-            refreshToken: null,
-            expiresAt: null,
-            oauthScope: null,
-            providerState: null,
-          }),
-        );
+      yield* executor.graphql.addSource({
+        endpoint: `http://127.0.0.1:${server.port}/graphql`,
+        scope: TEST_SCOPE,
+        introspectionJson,
+        namespace: "oauth_graph",
+        auth: { kind: "oauth2", connectionId },
+      });
 
-        yield* executor.graphql.addSource({
-          endpoint: `http://127.0.0.1:${address.port}/graphql`,
-          scope: TEST_SCOPE,
-          introspectionJson,
-          namespace: "oauth_graph",
-          auth: { kind: "oauth2", connectionId },
-        });
+      const result = yield* executor.tools.invoke("oauth_graph.query.hello", {
+        name: "Ada",
+      });
 
-        const result = yield* executor.tools.invoke("oauth_graph.query.hello", {
-          name: "Ada",
-        });
-
-        expect(result).toEqual({
-          status: 200,
-          data: { hello: "Hello Ada" },
-          errors: null,
-        });
-        expect(authorizationHeader).toBe("Bearer secret-token");
-      } finally {
-        yield* Effect.promise(
-          () =>
-            new Promise<void>((resolve, reject) => {
-              server.close((error) => (error ? reject(error) : resolve()));
-            }),
-        );
-      }
+      expect(result).toEqual({
+        status: 200,
+        data: { hello: "Hello Ada" },
+        errors: null,
+      });
+      expect(authorizationHeader).toBe("Bearer secret-token");
     }),
   );
 
@@ -367,12 +364,20 @@ describe("graphqlPlugin", () => {
   // scenario is reproducible against the pre-fix store.
   // -------------------------------------------------------------------------
 
-  const ORG_SCOPE = ScopeId.make("org-scope");
-  const USER_SCOPE = ScopeId.make("user-scope");
+  const ORG_SCOPE = "org-scope";
+  const USER_SCOPE = "user-scope";
 
   const stackedScopes = [
-    new Scope({ id: USER_SCOPE, name: "user", createdAt: new Date() }),
-    new Scope({ id: ORG_SCOPE, name: "org", createdAt: new Date() }),
+    new Scope({
+      id: ScopeId.make(USER_SCOPE),
+      name: "user",
+      createdAt: new Date(),
+    }),
+    new Scope({
+      id: ScopeId.make(ORG_SCOPE),
+      name: "org",
+      createdAt: new Date(),
+    }),
   ] as const;
 
   it.effect("shadowed addSource does not wipe the outer-scope source", () =>
@@ -387,7 +392,7 @@ describe("graphqlPlugin", () => {
       // Org-level base source
       yield* executor.graphql.addSource({
         endpoint: "http://org.example.com/graphql",
-        scope: ORG_SCOPE as string,
+        scope: ORG_SCOPE,
         introspectionJson,
         namespace: "shared",
         name: "Org Source",
@@ -396,28 +401,22 @@ describe("graphqlPlugin", () => {
       // Per-user shadow with the same namespace
       yield* executor.graphql.addSource({
         endpoint: "http://user.example.com/graphql",
-        scope: USER_SCOPE as string,
+        scope: USER_SCOPE,
         introspectionJson,
         namespace: "shared",
         name: "User Source",
       });
 
-      const userView = yield* executor.graphql.getSource(
-        "shared",
-        USER_SCOPE as string,
-      );
-      const orgView = yield* executor.graphql.getSource(
-        "shared",
-        ORG_SCOPE as string,
-      );
+      const userView = yield* executor.graphql.getSource("shared", USER_SCOPE);
+      const orgView = yield* executor.graphql.getSource("shared", ORG_SCOPE);
 
       // Both rows must coexist — innermost-wins reads come from the
       // executor; the store's scope-pinned getters return the exact row.
       expect(userView?.name).toBe("User Source");
-      expect(userView?.scope).toBe(USER_SCOPE as string);
+      expect(userView?.scope).toBe(USER_SCOPE);
       expect(userView?.endpoint).toBe("http://user.example.com/graphql");
       expect(orgView?.name).toBe("Org Source");
-      expect(orgView?.scope).toBe(ORG_SCOPE as string);
+      expect(orgView?.scope).toBe(ORG_SCOPE);
       expect(orgView?.endpoint).toBe("http://org.example.com/graphql");
     }),
   );
@@ -433,29 +432,23 @@ describe("graphqlPlugin", () => {
 
       yield* executor.graphql.addSource({
         endpoint: "http://org.example.com/graphql",
-        scope: ORG_SCOPE as string,
+        scope: ORG_SCOPE,
         introspectionJson,
         namespace: "shared",
         name: "Org Source",
       });
       yield* executor.graphql.addSource({
         endpoint: "http://user.example.com/graphql",
-        scope: USER_SCOPE as string,
+        scope: USER_SCOPE,
         introspectionJson,
         namespace: "shared",
         name: "User Source",
       });
 
-      yield* executor.graphql.removeSource("shared", USER_SCOPE as string);
+      yield* executor.graphql.removeSource("shared", USER_SCOPE);
 
-      const userView = yield* executor.graphql.getSource(
-        "shared",
-        USER_SCOPE as string,
-      );
-      const orgView = yield* executor.graphql.getSource(
-        "shared",
-        ORG_SCOPE as string,
-      );
+      const userView = yield* executor.graphql.getSource("shared", USER_SCOPE);
+      const orgView = yield* executor.graphql.getSource("shared", ORG_SCOPE);
 
       expect(userView).toBeNull();
       expect(orgView?.name).toBe("Org Source");
@@ -474,32 +467,26 @@ describe("graphqlPlugin", () => {
 
       yield* executor.graphql.addSource({
         endpoint: "http://org.example.com/graphql",
-        scope: ORG_SCOPE as string,
+        scope: ORG_SCOPE,
         introspectionJson,
         namespace: "shared",
         name: "Org Source",
       });
       yield* executor.graphql.addSource({
         endpoint: "http://user.example.com/graphql",
-        scope: USER_SCOPE as string,
+        scope: USER_SCOPE,
         introspectionJson,
         namespace: "shared",
         name: "User Source",
       });
 
-      yield* executor.graphql.updateSource("shared", USER_SCOPE as string, {
+      yield* executor.graphql.updateSource("shared", USER_SCOPE, {
         name: "User Renamed",
         endpoint: "http://user-new.example.com/graphql",
       });
 
-      const userView = yield* executor.graphql.getSource(
-        "shared",
-        USER_SCOPE as string,
-      );
-      const orgView = yield* executor.graphql.getSource(
-        "shared",
-        ORG_SCOPE as string,
-      );
+      const userView = yield* executor.graphql.getSource("shared", USER_SCOPE);
+      const orgView = yield* executor.graphql.getSource("shared", ORG_SCOPE);
 
       expect(userView?.name).toBe("User Renamed");
       expect(userView?.endpoint).toBe("http://user-new.example.com/graphql");
@@ -536,7 +523,9 @@ describe("graphqlPlugin", () => {
         scope: TEST_SCOPE,
         introspectionJson,
         namespace: "with_secret",
-        headers: { Authorization: { secretId: "api-key", prefix: "Bearer " } },
+        headers: {
+          Authorization: { secretId: "api-key", prefix: "Bearer " },
+        },
         queryParams: { token: { secretId: "api-key" } },
       });
 
@@ -575,9 +564,10 @@ describe("graphqlPlugin", () => {
       });
 
       const result = yield* executor.secrets.remove(SecretId.make("locked")).pipe(
-        Effect.flip,
+        Effect.as("removed"),
+        Effect.catchTag("SecretInUseError", () => Effect.succeed("SecretInUseError" as const)),
       );
-      expect((result as { _tag: string })._tag).toBe("SecretInUseError");
+      expect(result).toBe("SecretInUseError");
 
       // After detaching the source, remove succeeds.
       yield* executor.graphql.removeSource("ref", TEST_SCOPE);

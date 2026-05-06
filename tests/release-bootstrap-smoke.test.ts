@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, readFile, rm, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect, Exit } from "effect";
 
 type CommandResult = {
   readonly exitCode: number;
@@ -56,28 +57,34 @@ const runCommand = async (
 };
 
 const listen = async (server: ReturnType<typeof createServer>): Promise<number> =>
-  new Promise((resolvePort, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("Failed to resolve server address"));
-        return;
-      }
-      resolvePort(address.port);
-    });
-  });
+  Effect.runPromise(
+    Effect.callback<number, unknown>((resume) => {
+      const onError = (cause: unknown) => resume(Effect.fail(cause));
+      server.once("error", onError);
+      server.listen(0, "127.0.0.1", () => {
+        server.off("error", onError);
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          resume(Effect.fail("Failed to resolve server address"));
+          return;
+        }
+        resume(Effect.succeed(address.port));
+      });
+    }),
+  );
 
 const closeServer = async (server: ReturnType<typeof createServer>): Promise<void> =>
-  new Promise((resolveClose, reject) => {
-    server.close((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolveClose();
-    });
-  });
+  Effect.runPromise(
+    Effect.callback<void, unknown>((resume) => {
+      server.close((error) => {
+        if (error) {
+          resume(Effect.fail(error));
+          return;
+        }
+        resume(Effect.void);
+      });
+    }),
+  );
 
 const platformName = process.platform === "win32" ? "win32" : process.platform;
 const archName = process.arch;
@@ -121,6 +128,7 @@ describe("release bootstrap smoke", () => {
       await mkdir(join(installedWrapperDir, "node_modules"), { recursive: true });
       await cp(platformDir, installedPlatformDir, { recursive: true });
 
+      // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: release smoke test must clean temp install files after process checks
       try {
         const firstRun = await runCommand(
           process.execPath,
@@ -178,18 +186,20 @@ describe("release bootstrap smoke", () => {
           webStderr += chunk;
         });
 
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: release smoke test must stop the spawned web process
         try {
           const deadline = Date.now() + 30_000;
           let rootResponse: Response | null = null;
           while (Date.now() < deadline) {
             await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
-            try {
-              rootResponse = await fetch(`http://127.0.0.1:${webPort}/`);
+            const fetchExit = await Effect.runPromiseExit(
+              Effect.tryPromise(() => fetch(`http://127.0.0.1:${webPort}/`)),
+            );
+            if (Exit.isSuccess(fetchExit)) {
+              rootResponse = fetchExit.value;
               if (rootResponse.ok) {
                 break;
               }
-            } catch {
-              // keep polling until the server is ready
             }
           }
 

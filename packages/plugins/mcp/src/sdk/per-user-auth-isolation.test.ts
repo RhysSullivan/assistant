@@ -19,7 +19,7 @@
 import * as http from "node:http";
 
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Predicate } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
@@ -37,6 +37,7 @@ import {
   definePlugin,
   makeInMemoryBlobStore,
   type SecretProvider,
+  type ToolInvocationError,
 } from "@executor-js/sdk";
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
@@ -95,6 +96,12 @@ type TestServer = {
   readonly httpServer: http.Server;
   readonly recorded: () => readonly RecordedRequest[];
 };
+
+const failureError = <E>(exit: Exit.Exit<unknown, E>): E | undefined =>
+  Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined;
+
+const isToolInvocationError = (error: unknown): error is ToolInvocationError =>
+  Predicate.isTagged(error, "ToolInvocationError");
 
 const createAuthRecordingServer: Effect.Effect<TestServer, Error, never> =
   Effect.callback<TestServer, Error>((resume) => {
@@ -258,7 +265,7 @@ describe("per-user MCP auth isolation", () => {
         // stack [userB, org] can see them via fall-through.
         yield* execUserA.mcp.addSource({
           transport: "remote",
-          scope: ORG as string,
+          scope: ORG,
           name: "Shared MCP",
           endpoint: server.url,
           namespace: "iso_test",
@@ -312,21 +319,15 @@ describe("per-user MCP auth isolation", () => {
         // Pin the exact error tag so a future regression that swaps
         // the "connection not found" check for a silent `auth: { kind:
         // "none" }` fallback would fail here, not silently connect.
-        if (!Exit.isFailure(userBResult)) return;
         // tools.invoke wraps plugin failures in ToolInvocationError
         // with the original error carried on `cause`. Pin the exact
         // inner tag — a regression that swapped the "no connection
         // found" check for a silent no-auth fallback would either
         // succeed outright (leaking) or surface a different tag here.
-        const failure = userBResult.cause.reasons.find(Cause.isFailReason);
-        const outer = failure?.error as
-          | {
-              _tag?: string;
-              cause?: { _tag?: string };
-            }
-          | undefined;
-        expect(outer?._tag).toBe("ToolInvocationError");
-        expect(outer?.cause?._tag).toBe("McpConnectionError");
+        const outer = failureError(userBResult);
+        expect(isToolInvocationError(outer)).toBe(true);
+        const inner = isToolInvocationError(outer) ? outer.cause : undefined;
+        expect(Predicate.isTagged(inner, "McpConnectionError")).toBe(true);
 
         // CRITICAL: no outbound MCP request was made on user B's behalf
         // carrying user A's bearer token. Auth resolution must have
@@ -366,7 +367,7 @@ describe("per-user MCP auth isolation", () => {
 
         yield* execUserA.mcp.addSource({
           transport: "remote",
-          scope: ORG as string,
+          scope: ORG,
           name: "Shared MCP (header)",
           endpoint: server.url,
           namespace: "iso_header",
@@ -418,21 +419,15 @@ describe("per-user MCP auth isolation", () => {
         );
 
         expect(Exit.isFailure(userBResult)).toBe(true);
-        if (!Exit.isFailure(userBResult)) return;
         // tools.invoke wraps plugin failures in ToolInvocationError
         // with the original error carried on `cause`. Pin the exact
         // inner tag — a regression that swapped the "no connection
         // found" check for a silent no-auth fallback would either
         // succeed outright (leaking) or surface a different tag here.
-        const failure = userBResult.cause.reasons.find(Cause.isFailReason);
-        const outer = failure?.error as
-          | {
-              _tag?: string;
-              cause?: { _tag?: string };
-            }
-          | undefined;
-        expect(outer?._tag).toBe("ToolInvocationError");
-        expect(outer?.cause?._tag).toBe("McpConnectionError");
+        const outer = failureError(userBResult);
+        expect(isToolInvocationError(outer)).toBe(true);
+        const inner = isToolInvocationError(outer) ? outer.cause : undefined;
+        expect(Predicate.isTagged(inner, "McpConnectionError")).toBe(true);
 
         const afterUserB = server.recorded().slice(recordedBeforeUserB);
         for (const req of afterUserB) {

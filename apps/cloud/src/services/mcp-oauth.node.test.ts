@@ -27,7 +27,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createHash, randomBytes } from "node:crypto";
 
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { ScopeId } from "@executor-js/sdk";
 
 import { asUser, testUserOrgScopeId } from "./__test-harness__/api-harness";
@@ -42,6 +42,15 @@ interface FakeServer {
   readonly tokens: () => number;
   readonly close: () => Promise<void>;
 }
+
+const RegistrationBody = Schema.Struct({
+  redirect_uris: Schema.optional(Schema.Array(Schema.String)),
+  grant_types: Schema.optional(Schema.Array(Schema.String)),
+  response_types: Schema.optional(Schema.Array(Schema.String)),
+});
+const decodeRegistrationBody = Schema.decodeUnknownOption(
+  Schema.fromJsonString(RegistrationBody),
+);
 
 const startFakeServer = async (): Promise<FakeServer> => {
   const clients = new Map<string, { redirect_uris: readonly string[] }>();
@@ -82,6 +91,7 @@ const startFakeServer = async (): Promise<FakeServer> => {
       res.end(payload);
     };
 
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: fake HTTP server returns stable 500 responses for unexpected handler failures
     try {
       if (url.pathname === "/.well-known/oauth-protected-resource") {
         const origin = `http://${req.headers.host}`;
@@ -108,11 +118,11 @@ const startFakeServer = async (): Promise<FakeServer> => {
 
       if (url.pathname === "/register" && req.method === "POST") {
         const body = await readBody(req);
-        const parsed = JSON.parse(body) as {
-          readonly redirect_uris?: readonly string[];
-          readonly grant_types?: readonly string[];
-          readonly response_types?: readonly string[];
-        };
+        const parsedOption = decodeRegistrationBody(body);
+        if (Option.isNone(parsedOption)) {
+          return send(400, { error: "invalid_registration" });
+        }
+        const parsed = parsedOption.value;
         const clientId = next("client");
         clients.set(clientId, { redirect_uris: parsed.redirect_uris ?? [] });
         registrations += 1;
@@ -214,8 +224,8 @@ const startFakeServer = async (): Promise<FakeServer> => {
       }
 
       send(404, { error: "not_found", params: url.pathname });
-    } catch (e) {
-      send(500, { error: "server_error", message: String(e) });
+    } catch {
+      send(500, { error: "server_error", message: "fake server failed" });
     }
   });
 
@@ -244,10 +254,12 @@ const followAuthorize = async (
   const response = await fetch(authorizationUrl, { redirect: "manual" });
   expect(response.status).toBe(302);
   const location = response.headers.get("location");
+  // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: browser redirect helper rejects malformed fake OAuth responses
   if (!location) throw new Error("no location header on authorize redirect");
   const dest = new URL(location);
   const code = dest.searchParams.get("code");
   const state = dest.searchParams.get("state");
+  // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: browser redirect helper rejects malformed fake OAuth responses
   if (!code || !state) throw new Error(`redirect missing code/state: ${location}`);
   return { code, state };
 };

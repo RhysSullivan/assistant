@@ -2,6 +2,7 @@ import { Effect } from "effect";
 
 import { StorageError, type SecretProvider } from "@executor-js/sdk/core";
 
+import type { KeychainError } from "./errors";
 import { getPassword, setPassword, deletePassword } from "./keyring";
 
 // ---------------------------------------------------------------------------
@@ -18,8 +19,11 @@ import { getPassword, setPassword, deletePassword } from "./keyring";
 // impossible to debug why secrets weren't resolving.
 // ---------------------------------------------------------------------------
 
-const toStorageError = (cause: { readonly message: string; readonly cause?: unknown }) =>
-  new StorageError({ message: cause.message, cause: cause.cause ?? cause });
+const toStorageError = (cause: KeychainError) => {
+  const { cause: underlyingCause } = cause;
+  // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: typed KeychainError message becomes StorageError message
+  return new StorageError({ message: cause.message, cause: underlyingCause ?? cause });
+};
 
 // Scope arg is ignored — keychain partitions by `serviceName`, which the
 // host fixes per executor at construction time. A future refactor could

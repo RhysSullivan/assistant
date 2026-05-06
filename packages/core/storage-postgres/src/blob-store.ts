@@ -36,13 +36,11 @@ export interface MakePostgresBlobStoreOptions {
 
 const wrapErr =
   (op: string) =>
-  (cause: unknown): StorageError => {
-    const msg = cause instanceof Error ? cause.message : String(cause);
-    return new StorageError({
-      message: `[storage-postgres] blob ${op}: ${msg}`,
+  (cause: unknown): StorageError =>
+    new StorageError({
+      message: `[storage-postgres] blob ${op} failed`,
       cause,
     });
-  };
 
 export const makePostgresBlobStore = (
   options: MakePostgresBlobStoreOptions,

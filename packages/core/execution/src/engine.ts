@@ -1,4 +1,4 @@
-import { Deferred, Effect, Fiber, Ref } from "effect";
+import { Deferred, Effect, Fiber, Predicate, Ref } from "effect";
 import type * as Cause from "effect/Cause";
 
 import type {
@@ -24,9 +24,7 @@ import { buildExecuteDescription } from "./description";
 // Types
 // ---------------------------------------------------------------------------
 
-export type ExecutionEngineConfig<
-  E extends Cause.YieldableError = CodeExecutionError,
-> = {
+export type ExecutionEngineConfig<E extends Cause.YieldableError = CodeExecutionError> = {
   readonly executor: Executor;
   readonly codeExecutor: CodeExecutor<E>;
 };
@@ -107,8 +105,10 @@ export const formatPausedExecution = (
 } => {
   const req = paused.elicitationContext.request;
   const lines: string[] = [`Execution paused: ${req.message}`];
+  const isUrlElicitation = Predicate.isTagged(req, "UrlElicitation");
+  const isFormElicitation = Predicate.isTagged(req, "FormElicitation");
 
-  if (req._tag === "UrlElicitation") {
+  if (isUrlElicitation) {
     lines.push(`\nOpen this URL in a browser:\n${req.url}`);
     lines.push("\nAfter the browser flow, resume with the executionId below:");
   } else {
@@ -127,10 +127,10 @@ export const formatPausedExecution = (
       status: "waiting_for_interaction",
       executionId: paused.id,
       interaction: {
-        kind: req._tag === "UrlElicitation" ? "url" : "form",
+        kind: isUrlElicitation ? "url" : "form",
         message: req.message,
-        ...(req._tag === "UrlElicitation" ? { url: req.url } : {}),
-        ...(req._tag === "FormElicitation" ? { requestedSchema: req.requestedSchema } : {}),
+        ...(isUrlElicitation ? { url: req.url } : {}),
+        ...(isFormElicitation ? { requestedSchema: req.requestedSchema } : {}),
       },
     },
   };
@@ -202,12 +202,12 @@ const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): Sand
         }
 
         const limit = readOptionalLimit(args.limit, "tools.search");
-        if (limit instanceof ExecutionToolError) {
+        if (Predicate.isTagged(limit, "ExecutionToolError")) {
           return Effect.fail(limit);
         }
 
         const offset = readOptionalOffset(args.offset, "tools.search");
-        if (offset instanceof ExecutionToolError) {
+        if (Predicate.isTagged(offset, "ExecutionToolError")) {
           return Effect.fail(offset);
         }
 
@@ -242,7 +242,7 @@ const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): Sand
           isRecord(args) ? args.limit : undefined,
           "tools.executor.sources.list",
         );
-        if (limit instanceof ExecutionToolError) {
+        if (Predicate.isTagged(limit, "ExecutionToolError")) {
           return Effect.fail(limit);
         }
 
@@ -250,7 +250,7 @@ const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): Sand
           isRecord(args) ? args.offset : undefined,
           "tools.executor.sources.list",
         );
-        if (offset instanceof ExecutionToolError) {
+        if (Predicate.isTagged(offset, "ExecutionToolError")) {
           return Effect.fail(offset);
         }
 
@@ -340,9 +340,7 @@ export type ExecutionEngine<E extends Cause.YieldableError = CodeExecutionError>
   readonly getDescription: Effect.Effect<string>;
 };
 
-export const createExecutionEngine = <
-  E extends Cause.YieldableError = CodeExecutionError,
->(
+export const createExecutionEngine = <E extends Cause.YieldableError = CodeExecutionError>(
   config: ExecutionEngineConfig<E>,
 ): ExecutionEngine<E> => {
   const { executor, codeExecutor } = config;
@@ -470,9 +468,7 @@ export const createExecutionEngine = <
     const invoker = makeFullInvoker(executor, {
       onElicitation: options.onElicitation,
     });
-    return yield* codeExecutor
-      .execute(code, invoker)
-      .pipe(Effect.withSpan("executor.code.exec"));
+    return yield* codeExecutor.execute(code, invoker).pipe(Effect.withSpan("executor.code.exec"));
   });
 
   return {

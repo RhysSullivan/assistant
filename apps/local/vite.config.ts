@@ -6,10 +6,12 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import executorVitePlugin from "@executor-js/vite-plugin";
 
+// oxlint-disable-next-line executor/no-json-parse -- boundary: Vite config reads package metadata from package.json
 const rootPackage = JSON.parse(
   readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
 ) as { version: string; homepage?: string; repository?: string | { url?: string } };
 
+// oxlint-disable-next-line executor/no-json-parse -- boundary: Vite config reads package metadata from package.json
 const cliPackage = JSON.parse(
   readFileSync(new URL("../cli/package.json", import.meta.url), "utf8"),
 ) as { version?: string };
@@ -43,6 +45,7 @@ function executorApiPlugin(): Plugin {
 
         if (!isApi && !isMcp) return next();
 
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: Vite middleware must convert handler failures into HTTP 500 responses
         try {
           if (!handlers) {
             const { getServerHandlers } = await import("./src/server/main");

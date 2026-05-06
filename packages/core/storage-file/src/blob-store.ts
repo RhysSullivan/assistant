@@ -35,13 +35,11 @@ export interface MakeSqliteBlobStoreOptions {
 
 const wrapErr =
   (op: string) =>
-  (cause: unknown): StorageError => {
-    const msg = cause instanceof Error ? cause.message : String(cause);
-    return new StorageError({
-      message: `[storage-file] blob ${op}: ${msg}`,
+  (cause: unknown): StorageError =>
+    new StorageError({
+      message: `[storage-file] blob ${op} failed`,
       cause,
     });
-  };
 
 export const makeSqliteBlobStore = (
   options: MakeSqliteBlobStoreOptions,

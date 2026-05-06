@@ -365,7 +365,7 @@ describe("exchangeAuthorizationCode", () => {
   });
 
   it("returns a typed OAuth2Error on transport failure", async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error("boom")) as typeof fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue({ message: "boom" }) as typeof fetch;
     const exit = await Effect.runPromiseExit(
       exchangeAuthorizationCode({
         tokenUrl: "https://example.com/token",
@@ -380,7 +380,7 @@ describe("exchangeAuthorizationCode", () => {
     const err = exit.cause;
     const failure = JSON.stringify(err);
     expect(failure).toContain("OAuth2Error");
-    expect(failure).toContain("boom");
+    expect(failure).toContain("OAuth token exchange failed");
   });
 
   it("propagates RFC 6749 error_description text in the OAuth2Error", async () => {
@@ -563,7 +563,7 @@ describe("shouldRefreshToken", () => {
 
 describe("OAuth2Error tagging", () => {
   beforeEach(() => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error("network down")) as typeof fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue({ message: "network down" }) as typeof fetch;
   });
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -585,8 +585,10 @@ describe("OAuth2Error tagging", () => {
 
   it("OAuth2Error is constructable directly with message and cause", () => {
     const err = new OAuth2Error({ message: "test", cause: { foo: 1 } });
-    expect(err._tag).toBe("OAuth2Error");
-    expect(err.message).toBe("test");
-    expect(err.cause).toEqual({ foo: 1 });
+    expect(err).toMatchObject({
+      _tag: "OAuth2Error",
+      message: "test",
+      cause: { foo: 1 },
+    });
   });
 });

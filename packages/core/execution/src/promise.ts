@@ -58,6 +58,7 @@ export type ExecutionEngine = {
  * Wrap a Promise-style executor into the Effect shape the engine consumes.
  */
 const fromPromise = <A>(try_: () => Promise<A>): Effect.Effect<A> =>
+  // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: Promise executor facade has already erased the SDK typed error channel
   Effect.tryPromise({ try: try_, catch: (cause) => cause }).pipe(Effect.orDie);
 
 type EffectInvokeOptions = Parameters<EffectExecutor["tools"]["invoke"]>[2];
@@ -144,6 +145,7 @@ export const toPromiseExecutionEngine = <E extends Cause.YieldableError>(
     Effect.runPromise(
       engine.execute(code, {
         onElicitation: (ctx) =>
+          // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: host-provided Promise elicitation callback is outside the Effect error model
           Effect.tryPromise(() => options.onElicitation(ctx)).pipe(Effect.orDie),
       }),
     ),

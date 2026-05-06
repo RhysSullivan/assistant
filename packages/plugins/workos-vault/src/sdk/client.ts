@@ -4,7 +4,7 @@ import {
   NotFoundException,
   WorkOS as WorkOSClient,
 } from "@workos-inc/node/worker";
-import { Data, Effect, Result } from "effect";
+import { Data, Effect, Option, Result, Schema } from "effect";
 
 export interface WorkOSVaultObjectMetadata {
   readonly context: Record<string, unknown>;
@@ -20,44 +20,49 @@ export interface WorkOSVaultObject {
   readonly value?: string;
 }
 
-// Minimal shape carrying an HTTP-style status code. Production WorkOS errors
-// (`GenericServerException`/`NotFoundException`) and test fakes both populate
-// a numeric `status`, so the boundary normalises against this named type
-// rather than probing arbitrary unknown shapes.
-interface ErrorWithStatus extends Error {
-  readonly status: number;
-}
+const WORKOS_KEK_NOT_READY_MESSAGE =
+  "KEK was created but is not yet ready. This request can be retried.";
 
-const isErrorWithStatus = (cause: unknown): cause is ErrorWithStatus =>
-  cause instanceof Error && typeof (cause as ErrorWithStatus).status === "number";
+const CauseWithStatusSchema = Schema.Struct({
+  status: Schema.Number,
+});
 
 const statusFromWorkOSCause = (cause: unknown): number | undefined => {
   if (cause instanceof GenericServerException || cause instanceof NotFoundException) {
     return cause.status;
   }
-  if (isErrorWithStatus(cause)) return cause.status;
-  return undefined;
+  return Option.match(Schema.decodeUnknownOption(CauseWithStatusSchema)(cause), {
+    onNone: () => undefined,
+    onSome: (decoded) => decoded.status,
+  });
 };
 
-const messageFromWorkOSCause = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "";
+const isKekNotReadyWorkOSCause = (cause: unknown): boolean =>
+  cause instanceof GenericServerException &&
+  // oxlint-disable-next-line executor/no-unknown-error-message -- boundary: WorkOS only exposes this retryable Vault condition through its SDK exception message
+  cause.message.endsWith(WORKOS_KEK_NOT_READY_MESSAGE);
 
 export class WorkOSVaultClientError extends Data.TaggedError("WorkOSVaultClientError")<{
   readonly cause: unknown;
   readonly message: string;
   readonly operation: string;
+  readonly retryKind?: "kek_not_ready";
   readonly status?: number;
 }> {
   constructor(options: {
     readonly cause: unknown;
     readonly message?: string;
     readonly operation: string;
+    readonly retryKind?: "kek_not_ready";
     readonly status?: number;
   }) {
     super({
       cause: options.cause,
-      message: options.message ?? messageFromWorkOSCause(options.cause),
+      message: options.message ?? `WorkOS Vault ${options.operation} failed`,
       operation: options.operation,
+      retryKind:
+        options.retryKind ??
+        (isKekNotReadyWorkOSCause(options.cause) ? "kek_not_ready" : undefined),
       status: options.status ?? statusFromWorkOSCause(options.cause),
     });
   }
