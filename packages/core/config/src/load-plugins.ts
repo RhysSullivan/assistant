@@ -26,8 +26,10 @@ import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as fs from "node:fs";
 import * as jsonc from "jsonc-parser";
+import { Exit, Schema } from "effect";
 
 import type { AnyPlugin } from "@executor-js/sdk";
+import { PluginConfig } from "./schema";
 
 // Plugins are invoked dynamically by name — exact author types are
 // unknown at the call site, so the loader treats every factory as
@@ -36,7 +38,9 @@ import type { AnyPlugin } from "@executor-js/sdk";
 // across the runtime boundary.
 type LooseConfiguredPlugin = (options?: Record<string, unknown>) => AnyPlugin;
 
-import type { PluginConfig } from "./schema";
+const PluginLoaderConfig = Schema.Struct({
+  plugins: Schema.optional(Schema.Array(PluginConfig)),
+});
 
 export interface LoadPluginsFromJsoncOptions {
   /** Absolute path to `executor.jsonc` (or compatible). */
@@ -63,17 +67,22 @@ export const loadPluginsFromJsonc = async (
 
   const raw = fs.readFileSync(path, "utf8");
   const errors: jsonc.ParseError[] = [];
-  const parsed = jsonc.parse(raw, errors) as
-    | { plugins?: readonly PluginConfig[] }
-    | undefined;
+  const parsed = jsonc.parse(raw, errors);
   if (errors.length > 0) {
     const msg = errors
       .map((e) => `offset ${e.offset}: ${jsonc.printParseErrorCode(e.error)}`)
       .join("; ");
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: Promise loader preserves rejected Error contract for callers/tests
     throw new Error(`[load-plugins] failed to parse ${path}: ${msg}`);
   }
 
-  const entries = parsed?.plugins ?? null;
+  const configExit = Schema.decodeUnknownExit(PluginLoaderConfig)(parsed);
+  if (Exit.isFailure(configExit)) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: Promise loader preserves rejected Error contract for callers/tests
+    throw new Error(`[load-plugins] invalid plugin config in ${path}`);
+  }
+  const config = configExit.value;
+  const entries = config.plugins ?? null;
   if (!entries || entries.length === 0) return null;
 
   // jiti is created once per call; `moduleCache: false` ensures a
@@ -98,9 +107,11 @@ export const loadPluginsFromJsonc = async (
   for (const entry of entries) {
     const serverEntry = `${entry.package}/server`;
     let resolved: string;
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: require.resolve is a throwing Node API and this Promise API preserves its rejection shape
     try {
       resolved = require.resolve(serverEntry);
     } catch {
+      // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: Promise loader preserves rejected Error contract for callers/tests
       throw new Error(
         `[load-plugins] cannot resolve "${serverEntry}" from ${fromDir}. ` +
           `Is "${entry.package}" installed and does it export "./server"?`,
@@ -113,6 +124,7 @@ export const loadPluginsFromJsonc = async (
       typeof mod === "function" ? mod : (mod.default ?? null)
     ) as LooseConfiguredPlugin | null;
     if (!factory || typeof factory !== "function") {
+      // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: Promise loader preserves rejected Error contract for callers/tests
       throw new Error(
         `[load-plugins] "${serverEntry}" did not export a default ` +
           `definePlugin(...) factory.`,
