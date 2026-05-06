@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Predicate } from "effect";
 import * as Cause from "effect/Cause";
 import type {
   Executor,
@@ -23,14 +23,6 @@ const extractSourceNamespace = (path: string): string => {
   return idx === -1 ? path : path.slice(0, idx);
 };
 
-const stringifyUnknown = (value: unknown): string => {
-  try {
-    return JSON.stringify(value) ?? String(value);
-  } catch {
-    return String(value);
-  }
-};
-
 const hasStringMessage = (value: unknown): value is { readonly message: string } =>
   value !== null &&
   typeof value === "object" &&
@@ -38,7 +30,7 @@ const hasStringMessage = (value: unknown): value is { readonly message: string }
   typeof value.message === "string";
 
 const messageFromErrorLike = (value: unknown): string | undefined => {
-  if (value instanceof Error || hasStringMessage(value)) {
+  if (hasStringMessage(value)) {
     return value.message;
   }
   return undefined;
@@ -46,7 +38,36 @@ const messageFromErrorLike = (value: unknown): string | undefined => {
 
 const renderToolErrorMessage = (error: unknown): string =>
   messageFromErrorLike(error) ??
-  (typeof error === "undefined" ? "Tool execution failed" : stringifyUnknown(error));
+  (typeof error === "undefined" ? "Tool execution failed" : renderUnknownPrimitive(error));
+
+const renderUnknownPrimitive = (value: unknown): string => {
+  switch (typeof value) {
+    case "string":
+      return value;
+    case "number":
+    case "boolean":
+    case "bigint":
+    case "symbol":
+      return value.toString();
+    default:
+      return "Tool execution failed";
+  }
+};
+
+type ToolResultEnvelope = {
+  readonly error?: unknown;
+  readonly data?: unknown;
+};
+
+const isToolResultEnvelope = (value: unknown): value is ToolResultEnvelope =>
+  value !== null &&
+  typeof value === "object" &&
+  ("error" in value || "data" in value);
+
+const hasToolResultError = (
+  value: ToolResultEnvelope,
+): value is ToolResultEnvelope & { readonly error: unknown } =>
+  value.error !== null && value.error !== undefined;
 
 /**
  * Bridges QuickJS `tools.someSource.someOp(args)` calls into
@@ -90,36 +111,28 @@ export const makeExecutorToolInvoker = (
         );
       }),
     );
-    const r = result as { readonly error?: unknown; readonly data?: unknown } | unknown;
-    if (
-      r !== null &&
-      typeof r === "object" &&
-      "error" in r &&
-      (r as { error?: unknown }).error !== null &&
-      (r as { error?: unknown }).error !== undefined
-    ) {
-      const error = (r as { error: unknown }).error;
-      return yield* Effect.fail(
-        new ExecutionToolError({
-          message: renderToolErrorMessage(error),
-          cause: error,
-        }),
-      );
+    if (!isToolResultEnvelope(result)) {
+      return result;
     }
-    if (r !== null && typeof r === "object" && "data" in r) {
-      return (r as { data: unknown }).data;
+    if (hasToolResultError(result)) {
+      return yield* new ExecutionToolError({
+        message: renderToolErrorMessage(result.error),
+        cause: result.error,
+      });
     }
-    return r;
+    if ("data" in result) {
+      return result.data;
+    }
+    return result;
   }),
 });
 
 const isElicitationDeclinedError = (
   value: unknown,
 ): value is { readonly _tag: "ElicitationDeclinedError"; readonly toolId: string; readonly action: "cancel" | "decline" } =>
+  Predicate.isTagged(value, "ElicitationDeclinedError") &&
   value !== null &&
   typeof value === "object" &&
-  "_tag" in value &&
-  value._tag === "ElicitationDeclinedError" &&
   "toolId" in value &&
   typeof value.toolId === "string" &&
   "action" in value &&
@@ -383,7 +396,15 @@ export const searchTools = Effect.fn("executor.tools.search")(function* (
     return empty;
   }
 
-  const all = yield* executor.tools.list({ includeAnnotations: false }).pipe(Effect.orDie);
+  const all = yield* executor.tools.list({ includeAnnotations: false }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ExecutionToolError({
+          message: "Failed to list tools for search",
+          cause,
+        }),
+    ),
+  );
   const ranked = all
     .filter((tool: Tool) => matchesNamespace(tool, options?.namespace))
     .map((tool: Tool) => scoreToolMatch(tool, query))
@@ -413,7 +434,15 @@ export const listExecutorSources = Effect.fn("executor.sources.list")(function* 
   const normalizedQuery = normalizeSearchText(options?.query ?? "");
   const limit = options?.limit ?? 50;
   const offset = options?.offset ?? 0;
-  const sources = yield* executor.sources.list().pipe(Effect.orDie);
+  const sources = yield* executor.sources.list().pipe(
+    Effect.mapError(
+      (cause) =>
+        new ExecutionToolError({
+          message: "Failed to list executor sources",
+          cause,
+        }),
+    ),
+  );
 
   const filtered =
     normalizedQuery.length === 0
@@ -424,7 +453,15 @@ export const listExecutorSources = Effect.fn("executor.sources.list")(function* 
         });
 
   // Single query for all tools, then count per source in memory.
-  const allTools = yield* executor.tools.list({ includeAnnotations: false }).pipe(Effect.orDie);
+  const allTools = yield* executor.tools.list({ includeAnnotations: false }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ExecutionToolError({
+          message: "Failed to list tools for source counts",
+          cause,
+        }),
+    ),
+  );
   const toolCountBySource = new Map<string, number>();
   for (const tool of allTools) {
     toolCountBySource.set(tool.sourceId, (toolCountBySource.get(tool.sourceId) ?? 0) + 1);
